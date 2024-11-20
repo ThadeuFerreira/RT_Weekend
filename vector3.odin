@@ -22,6 +22,26 @@ vector_random_range :: proc(min : f32, max : f32) -> [3]f32 {
     return [3]f32{random_float_range(min, max), random_float_range(min, max), random_float_range(min, max)}
 }
 
+vector_random_unit :: proc() -> [3]f32{
+    for true {
+        p := vector_random_range(-1, 1)
+        l := vector_length_squared(p)
+        if  l <= 1 && l > math.F32_EPSILON {
+            return p/l
+        }
+    }
+    return [3]f32{}
+}
+
+vector_random_on_hemisphere :: proc(normal : [3]f32) -> [3]f32 {
+    on_unit_sphere := vector_random_unit()
+    if dot(on_unit_sphere, normal) > 0.0 {
+        return on_unit_sphere
+    } else {
+        return -on_unit_sphere
+    }
+}
+
 
 
 Sphere :: struct {
@@ -73,9 +93,8 @@ ray_color :: proc(r : ray, world : []Object) -> [3]f32 {
     ray_t := Interval{0, infinity}
     for o in world {
         if hit(r, ray_t, &hr, o) {
-            N := unit_vector(hr.normal)
-            r := 0.5*[3]f32{N[0]+1.0, N[1]+1.0, N[2]+1.0}
-            return r
+            direction := vector_random_on_hemisphere(hr.normal)
+            return 0.5 * ray_color(ray{hr.p, direction}, world)
         }
     }
     unit_direction := unit_vector(r.dir)
