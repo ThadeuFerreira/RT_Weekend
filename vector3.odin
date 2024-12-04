@@ -96,7 +96,7 @@ ray_color :: proc(r : ray, depth : int , world : []Object) -> [3]f32 {
     ray_t := Interval{0.001, infinity}
     for o in world {
         if hit(r, ray_t, &hr, o) {
-            direction := vector_random_on_hemisphere(hr.normal)
+            direction := hr.normal + vector_random_on_hemisphere(hr.normal)
             return 0.5 * ray_color(ray{hr.p, direction}, depth -1, world)
         }
     }
