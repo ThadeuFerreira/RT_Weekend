@@ -18,11 +18,20 @@ random_float :: proc() -> f32 {
 random_float_range :: proc(min : f32, max : f32) -> f32 {
     return min + (max - min) * random_float()
 }
+
+linear_to_gamma :: proc(linear : f32) -> f32 {
+    if linear > 0{
+        return math.sqrt_f32(linear)
+    }
+    return 0
+}
+
+
 write_color :: proc(sb : ^strings.Builder, pixel_color : [3]f32) {
     // Write the translated [0,255] value of each color component.
-    r := pixel_color[0]
-    g := pixel_color[1]  
-    b := pixel_color[2]
+    r := linear_to_gamma(pixel_color[0])
+    g := linear_to_gamma(pixel_color[1])  
+    b := linear_to_gamma(pixel_color[2])
 
     i := Interval{0.0, 0.999}
 
