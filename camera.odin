@@ -22,6 +22,8 @@ Camera :: struct{
 
     samples_per_pixel : int,
     pixel_samples_scale : f32,
+
+    max_depth : int,
 }
 
 Output :: struct{
@@ -47,9 +49,9 @@ make_camera :: proc() -> ^Camera {
     c.viewport_upper_left = c.center - [3]f32{0, 0, c.focal_length} - (c.viewport_u/2) - (c.viewport_v/2)
     c.pixel00_loc = c.viewport_upper_left + 0.5*(c.pixel_delta_u + c.pixel_delta_v)
 
-    c.samples_per_pixel = 10
+    c.samples_per_pixel = 100
     c.pixel_samples_scale = 1.0/f32(c.samples_per_pixel)
-
+    c.max_depth = 50
 
     return c
 }
@@ -72,7 +74,7 @@ render :: proc(camera : ^Camera, output : Output, world : []Object){
             pixel_color := [3]f32{0, 0, 0}
             for s in 0..<camera.samples_per_pixel {
                 r := get_ray(camera, f32(i),f32(j))
-                pixel_color += ray_color(r, world)
+                pixel_color += ray_color(r, camera.max_depth, world)
             }
             pixel_color = pixel_color * camera.pixel_samples_scale
             color_pixel := camera.pixel_samples_scale * pixel_color

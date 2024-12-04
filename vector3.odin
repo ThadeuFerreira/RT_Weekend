@@ -88,13 +88,16 @@ ray_at :: proc(r : ray, t : f32) -> [3]f32 {
     return r.orig + t*r.dir
 }
 
-ray_color :: proc(r : ray, world : []Object) -> [3]f32 {
+ray_color :: proc(r : ray, depth : int , world : []Object) -> [3]f32 {
+    if depth <= 0 {
+        return [3]f32{0,0,0}
+    }
     hr := hit_record{}
-    ray_t := Interval{0, infinity}
+    ray_t := Interval{0.001, infinity}
     for o in world {
         if hit(r, ray_t, &hr, o) {
             direction := vector_random_on_hemisphere(hr.normal)
-            return 0.5 * ray_color(ray{hr.p, direction}, world)
+            return 0.5 * ray_color(ray{hr.p, direction}, depth -1, world)
         }
     }
     unit_direction := unit_vector(r.dir)
