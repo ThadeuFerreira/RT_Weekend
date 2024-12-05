@@ -14,6 +14,16 @@ vector_length_squared :: proc(v : [3]f32) -> f32 {
     return v[0]*v[0] + v[1]*v[1] + v[2]*v[2]
 }
 
+vector_near_zero :: proc(v : [3]f32) -> bool {
+    // Return true if the vector is close to zero in all dimensions.
+    s := f32(1e-8)
+    return (math.abs(v[0]) < s) && (math.abs(v[1]) < s) && (math.abs(v[2]) < s)
+}
+
+vector_reflect :: proc(v : [3]f32, n : [3]f32) -> [3]f32 {
+    return v - 2*dot(v, n)*n
+}
+
 vector_random :: proc() -> [3]f32 {
     return [3]f32{random_float(), random_float(), random_float()}
 }
@@ -43,12 +53,6 @@ vector_random_on_hemisphere :: proc(normal : [3]f32) -> [3]f32 {
 }
 
 
-
-Sphere :: struct {
-    center : [3]f32,
-    radius : f32,
-}
-
 hit_sphere :: proc (sphere : Sphere, r : ray,  ray_t : Interval, rec : ^hit_record) -> bool {
     oc := sphere.center - r.orig
     a := vector_length_squared(r.dir)
@@ -67,6 +71,8 @@ hit_sphere :: proc (sphere : Sphere, r : ray,  ray_t : Interval, rec : ^hit_reco
             return false
         }
     }
+
+    rec.material = sphere.material
 
     rec.t = root
     rec.p = ray_at(r, rec.t)
@@ -92,13 +98,23 @@ ray_color :: proc(r : ray, depth : int , world : []Object) -> [3]f32 {
     if depth <= 0 {
         return [3]f32{0,0,0}
     }
-    hr := hit_record{}
     ray_t := Interval{0.001, infinity}
+    hr := hit_record{}
+    closest_so_far := ray_t.max
+    hit_anything := false
     for o in world {
-        if hit(r, ray_t, &hr, o) {
-            direction := hr.normal + vector_random_on_hemisphere(hr.normal)
-            return 0.5 * ray_color(ray{hr.p, direction}, depth -1, world)
+        
+        if hit(r, ray_t, &hr, o, &closest_so_far) {
+            hit_anything = true
         }
+    }
+    if hit_anything{
+        scattered := ray{}
+        attenuation := [3]f32{}
+        if scatter(hr.material^, r, hr, &attenuation, &scattered) {
+            return attenuation * ray_color(scattered, depth - 1, world)
+        }
+        return [3]f32{0,0,0}
     }
     unit_direction := unit_vector(r.dir)
     a := 0.5 * (unit_direction[1] + 1.0)
