@@ -27,10 +27,19 @@ Camera :: struct{
     samples_per_pixel : int,
     pixel_samples_scale : f32,
 
+    
     vfov : f32, // Point camera is looking from
     lookfrom : [3]f32,// Vertical view angle (field of view)
     lookat : [3]f32,// Point camera is looking at
     vup : [3]f32,// Camera-relative "up" direction
+    
+    // double defocus_angle = 0;  // Variation angle of rays through each pixel
+    // double focus_dist = 10;    // Distance from camera lookfrom point to plane of perfect focus
+    defocus_angle : f32,
+    focus_dist : f32,
+
+    defocus_disk_u : [3]f32,
+    defocus_disk_v : [3]f32,
 
     max_depth : int,
 }
@@ -55,12 +64,15 @@ make_camera :: proc() -> ^Camera {
     c.lookfrom = [3]f32{-2.0, 2.0, 1.0}
     c.lookat = [3]f32{0.0, 0.0, -1.0}
     c.vup = [3]f32{0.0, 1.0, 0.0}
+
+    c.defocus_angle = 10
+    c.focus_dist = 3.4
     
     c.center = c.lookfrom
-    c.focal_length = vector_length(c.lookfrom - c.lookat)
+
     theta := degrees_to_radians(c.vfov)
     h := math.tan(theta/2)
-    c.viewport_height = 2*h*c.focal_length
+    c.viewport_height = 2*h*c.focus_dist
     c.viewport_width = c.viewport_height*(f32(c.image_width) / f32(c.image_height))
 
     // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
@@ -77,9 +89,13 @@ make_camera :: proc() -> ^Camera {
     c.pixel_delta_v = c.viewport_v / f32(c.image_height)
 
     // Calculate the location of the upper left pixel.  
-    c.viewport_upper_left = c.center - (c.focal_length * c.w) - 0.5*(c.viewport_u + c.viewport_v)
+    c.viewport_upper_left = c.center - (c.focus_dist * c.w) - 0.5*(c.viewport_u + c.viewport_v)
     c.pixel00_loc = c.viewport_upper_left + 0.5*(c.pixel_delta_u + c.pixel_delta_v)
 
+    // Calculate the defocus disk vectors
+    defocus_radius := c.focus_dist*math.tan(degrees_to_radians(c.defocus_angle*0.5))
+    c.defocus_disk_u = defocus_radius * c.u
+    c.defocus_disk_v = defocus_radius * c.v
 
     return c
 }
@@ -115,13 +131,20 @@ render :: proc(camera : ^Camera, output : Output, world : []Object){
 }
 
 get_ray :: proc(camera : ^Camera, u : f32, v : f32) -> ray {
+    // Construct a camera ray originating from the defocus disk and directed at a randomly
+    // sampled point around the pixel location i, j.
     offset := sample_square()
     pixel_sample := camera.pixel00_loc + (u+offset[0])*camera.pixel_delta_u + (v + offset[1])*camera.pixel_delta_v
 
-    ray_origin := camera.center
-    ray_direction := pixel_sample - camera.center
+    ray_origin := (camera.defocus_angle <= 0)? camera.center : defocus_disk_sample(camera)
+    ray_direction := pixel_sample - ray_origin
 
     return ray{ray_origin, ray_direction}
+}
+
+defocus_disk_sample :: proc(c : ^Camera) -> [3]f32 {
+    p := vector_random_in_unit_disk()
+    return c.center +(p[0]*c.defocus_disk_u) + (p[1]*c.defocus_disk_v)
 }
 
 sample_square :: proc() -> [3]f32 {

@@ -59,6 +59,16 @@ vector_random_on_hemisphere :: proc(normal : [3]f32) -> [3]f32 {
     }
 }
 
+vector_random_in_unit_disk :: proc() -> [3]f32 {
+    for true {
+        p := [3]f32{random_float_range(-1, 1), random_float_range(-1, 1), 0}
+        if vector_length_squared(p) < 1 {
+            return p
+        }
+    }
+    return [3]f32{}
+}
+
 
 hit_sphere :: proc (sphere : Sphere, r : ray,  ray_t : Interval, rec : ^hit_record) -> bool {
     oc := sphere.center - r.orig
@@ -138,6 +148,9 @@ normalize_vec3 :: proc(v : [3]f32) -> [3]f32 {
     mag := math.sqrt_f32(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
     return v / mag
 }
+
+
+
 cross :: proc(u : [3]f32, v : [3]f32) -> [3]f32 {
     return [3]f32{u[1]*v[2] - u[2]*v[1], u[2]*v[0] - u[0]*v[2], u[0]*v[1] - u[1]*v[0]}
 }
