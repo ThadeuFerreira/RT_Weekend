@@ -24,6 +24,13 @@ vector_reflect :: proc(v : [3]f32, n : [3]f32) -> [3]f32 {
     return v - 2*dot(v, n)*n
 }
 
+vector_refract :: proc(uv : [3]f32, n : [3]f32, etai_over_etat : f32) -> [3]f32 {
+    cos_theta := math.min(dot(-uv, n), 1.0)
+    r_out_perp := etai_over_etat * (uv + cos_theta*n)
+    r_out_parallel := -math.sqrt(math.abs(1.0 - vector_length_squared(r_out_perp))) * n
+    return r_out_perp + r_out_parallel
+}
+
 vector_random :: proc() -> [3]f32 {
     return [3]f32{random_float(), random_float(), random_float()}
 }
@@ -131,12 +138,9 @@ normalize_vec3 :: proc(v : [3]f32) -> [3]f32 {
     mag := math.sqrt_f32(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
     return v / mag
 }
-// inline double dot(const vec3& u, const vec3& v) {
-//     return u.e[0] * v.e[0]
-//          + u.e[1] * v.e[1]
-//          + u.e[2] * v.e[2];
-// }
-
+cross :: proc(u : [3]f32, v : [3]f32) -> [3]f32 {
+    return [3]f32{u[1]*v[2] - u[2]*v[1], u[2]*v[0] - u[0]*v[2], u[0]*v[1] - u[1]*v[0]}
+}
 dot :: proc(u : [3]f32, v : [3]f32) -> f32 {
     return u[0]*v[0] + u[1]*v[1] + u[2]*v[2]
 }

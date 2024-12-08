@@ -25,14 +25,17 @@ hello_world :: proc() {
     // auto material_center = make_shared<lambertian>(color(0.1, 0.2, 0.5));
     material_center := material(lambertian{[3]f32{0.1, 0.2, 0.5}})
     // auto material_left   = make_shared<metal>(color(0.8, 0.8, 0.8));
-    material_left := material(metalic{[3]f32{0.8, 0.8, 0.8}, 0.3})
+    //material_left := material(metalic{[3]f32{0.8, 0.8, 0.8}, 0.3})
+    material_left := material(dieletric{1.5})
+    material_bubble := material(dieletric{1/1.5})
     // auto material_right  = make_shared<metal>(color(0.8, 0.6, 0.2));
-    material_right := material(metalic{[3]f32{0.8, 0.6, 0.2}, 0.3})
+    material_right := material(metalic{[3]f32{0.8, 0.6, 0.2}, 1.0})
 
     world := []Object{
         Sphere{[3]f32{0, 0, -1.2}, 0.5, &material_center},
         Sphere{[3]f32{0, -100.5, -1}, 100, &material_ground},
         Sphere{[3]f32{-1, 0, -1}, 0.5, &material_left},
+        Sphere{[3]f32{-1, 0, -1}, 0.4, &material_bubble},
         Sphere{[3]f32{1, 0, -1}, 0.5, &material_right},
         Sphere{[3]f32{0, -0.5, -0.5}, 0.1, &material_right},
     }

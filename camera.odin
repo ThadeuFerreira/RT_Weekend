@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:os"
 import "core:strings"
 import "core:strconv"
@@ -17,11 +18,19 @@ Camera :: struct{
     viewport_v : [3]f32,
     pixel_delta_u : [3]f32,
     pixel_delta_v : [3]f32,
+    u : [3]f32,
+    v : [3]f32,
+    w : [3]f32,
     viewport_upper_left : [3]f32,
     pixel00_loc : [3]f32,
 
     samples_per_pixel : int,
     pixel_samples_scale : f32,
+
+    vfov : f32, // Point camera is looking from
+    lookfrom : [3]f32,// Vertical view angle (field of view)
+    lookat : [3]f32,// Point camera is looking at
+    vup : [3]f32,// Camera-relative "up" direction
 
     max_depth : int,
 }
@@ -36,22 +45,41 @@ make_camera :: proc() -> ^Camera {
     c := new(Camera)
 
     c.aspect_ratio = 16.0 / 9.0
-    c.image_width = 400
+    c.image_width = 600
     c.image_height = int(f32(c.image_width) / c.aspect_ratio)
-    c.center = [3]f32{0.0, 0.0, 0.0}
-    c.focal_length = 1.0
-    c.viewport_height = 2.0
-    c.viewport_width = c.viewport_height*(f32(c.image_width) / f32(c.image_height))
-    c.viewport_u = [3]f32{c.viewport_width, 0.0, 0.0}
-    c.viewport_v = [3]f32{0.0, -c.viewport_height, 0.0}
-    c.pixel_delta_u = c.viewport_u / f32(c.image_width)
-    c.pixel_delta_v = c.viewport_v / f32(c.image_height)
-    c.viewport_upper_left = c.center - [3]f32{0, 0, c.focal_length} - (c.viewport_u/2) - (c.viewport_v/2)
-    c.pixel00_loc = c.viewport_upper_left + 0.5*(c.pixel_delta_u + c.pixel_delta_v)
-
-    c.samples_per_pixel = 100
+    c.vfov = 20.0
+    c.samples_per_pixel = 50
     c.pixel_samples_scale = 1.0/f32(c.samples_per_pixel)
     c.max_depth = 50
+
+    c.lookfrom = [3]f32{-2.0, 2.0, 1.0}
+    c.lookat = [3]f32{0.0, 0.0, -1.0}
+    c.vup = [3]f32{0.0, 1.0, 0.0}
+    
+    c.center = c.lookfrom
+    c.focal_length = vector_length(c.lookfrom - c.lookat)
+    theta := degrees_to_radians(c.vfov)
+    h := math.tan(theta/2)
+    c.viewport_height = 2*h*c.focal_length
+    c.viewport_width = c.viewport_height*(f32(c.image_width) / f32(c.image_height))
+
+    // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
+    c.w = unit_vector(c.lookfrom - c.lookat)
+    c.u = unit_vector(cross(c.vup, c.w))
+    c.v = cross(c.w, c.u)
+
+    // Calculate the vectors across the horizontal and down the vertical viewport edges.
+    c.viewport_u = c.viewport_width * c.u
+    c.viewport_v = -c.viewport_height * c.v
+    
+    // Calculate the horizontal and vertical delta vectors from pixel to pixel.
+    c.pixel_delta_u = c.viewport_u / f32(c.image_width)
+    c.pixel_delta_v = c.viewport_v / f32(c.image_height)
+
+    // Calculate the location of the upper left pixel.  
+    c.viewport_upper_left = c.center - (c.focal_length * c.w) - 0.5*(c.viewport_u + c.viewport_v)
+    c.pixel00_loc = c.viewport_upper_left + 0.5*(c.pixel_delta_u + c.pixel_delta_v)
+
 
     return c
 }
