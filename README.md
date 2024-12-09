@@ -3,7 +3,7 @@
 This project is an implementation of the "Ray Tracing in One Weekend" series using the Odin programming language.
 
 url: https://raytracing.github.io/books/RayTracingInOneWeekend.html
-![Rendered Image](D:\Projects\RT_Weekend\output.png)
+![Rendered Image](output.png)
 
 ## Getting Started
 
