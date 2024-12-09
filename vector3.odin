@@ -111,7 +111,7 @@ ray_at :: proc(r : ray, t : f32) -> [3]f32 {
     return r.orig + t*r.dir
 }
 
-ray_color :: proc(r : ray, depth : int , world : []Object) -> [3]f32 {
+ray_color :: proc(r : ray, depth : int , world : [dynamic]Object) -> [3]f32 {
     if depth <= 0 {
         return [3]f32{0,0,0}
     }
@@ -128,7 +128,7 @@ ray_color :: proc(r : ray, depth : int , world : []Object) -> [3]f32 {
     if hit_anything{
         scattered := ray{}
         attenuation := [3]f32{}
-        if scatter(hr.material^, r, hr, &attenuation, &scattered) {
+        if scatter(hr.material, r, hr, &attenuation, &scattered) {
             return attenuation * ray_color(scattered, depth - 1, world)
         }
         return [3]f32{0,0,0}

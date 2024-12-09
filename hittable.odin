@@ -5,7 +5,7 @@ import "core:fmt"
 hit_record :: struct {
     p : [3]f32,
     normal : [3]f32,
-    material : ^material,
+    material : material,
     t : f32,
     front_face : bool,
 }
@@ -14,13 +14,13 @@ hit_record :: struct {
 Sphere :: struct {
     center : [3]f32,
     radius : f32,
-    material : ^material,
+    material : material,
 }
 
 Cube :: struct {
     center : [3]f32,
     radius : f32,
-    material : ^material,
+    material : material,
 }
 
 Object :: union {

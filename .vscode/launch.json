@@ -5,9 +5,19 @@
             "type": "cppvsdbg",
             "request": "launch",
             "preLaunchTask": "Build",
-            "name": "Debug",
+            "name": "Debug - default",
             "program": "${workspaceFolder}/build/debug.exe",
             "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+        ,
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "Build",
+            "name": "Debug - test",
+            "program": "${workspaceFolder}/build/debug.exe",
+            "args": ["-input", "inputfile.txt", "-output", "outputfile.txt"],
             "cwd": "${workspaceFolder}"
         }
     ]

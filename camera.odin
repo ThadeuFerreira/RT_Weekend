@@ -68,6 +68,12 @@ make_camera :: proc() -> ^Camera {
     c.defocus_angle = 10
     c.focus_dist = 3.4
     
+    
+    return c
+}
+
+init_camera :: proc(c :^Camera){
+
     c.center = c.lookfrom
 
     theta := degrees_to_radians(c.vfov)
@@ -96,11 +102,9 @@ make_camera :: proc() -> ^Camera {
     defocus_radius := c.focus_dist*math.tan(degrees_to_radians(c.defocus_angle*0.5))
     c.defocus_disk_u = defocus_radius * c.u
     c.defocus_disk_v = defocus_radius * c.v
-
-    return c
 }
 
-render :: proc(camera : ^Camera, output : Output, world : []Object){
+render :: proc(camera : ^Camera, output : Output, world : [dynamic]Object){
     f := output.f
     buffer := [8]byte{}
     fmt.fprint(f, "P3\n")
