@@ -17,6 +17,7 @@ url: https://raytracing.github.io/books/RayTracingInOneWeekend.html
 To build the project, run the following command in the terminal:
 
 ```sh
+mkdir build
 odin build . -debug -out:build/debug.exe
 ```
 
