@@ -1,29 +1,43 @@
 {
     "version": "2.0.0",
-    "command": "",
-    "args": [],
     "tasks": [
         {
-            "label": "mkdir",
+            "label": "mkdir-windows",
             "type": "shell",
             "command": "cmd",
             "args": [
                 "/C",
                 "if not exist .\\build mkdir .\\build"
-            ]
+            ],
+            "problemMatcher": []
         },
         {
-            "label": "build",
+            "label": "mkdir-linux",
             "type": "shell",
-            "command": "odin build . -debug -out:build/debug.exe",
+            "command": "mkdir",
+            "args": [
+                "-p",
+                "build"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "build-windows",
+            "type": "shell",
+            "command": "odin",
+            "args": ["build", ".", "-debug", "-out:build/debug.exe"],
+            "dependsOn": "mkdir-windows",
+            "problemMatcher": [],
             "group": "build"
         },
         {
-            "label": "Build",
-            "dependsOn": [
-                "mkdir",
-                "build"
-            ]
+            "label": "build-linux",
+            "type": "shell",
+            "command": "odin",
+            "args": ["build", ".", "-debug", "-out:build/debug"],
+            "dependsOn": "mkdir-linux",
+            "problemMatcher": [],
+            "group": "build"
         }
     ]
 }

@@ -2,23 +2,23 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Debug (Windows)",
             "type": "cppvsdbg",
             "request": "launch",
-            "preLaunchTask": "Build",
-            "name": "Debug - default",
+            "preLaunchTask": "build-windows",
             "program": "${workspaceFolder}/build/debug.exe",
             "args": [],
             "cwd": "${workspaceFolder}"
-        }
-        ,
+        },
         {
-            "type": "cppvsdbg",
+            "name": "Debug (Linux)",
+            "type": "cppdbg",
             "request": "launch",
-            "preLaunchTask": "Build",
-            "name": "Debug - test",
-            "program": "${workspaceFolder}/build/debug.exe",
-            "args": ["-input", "inputfile.txt", "-output", "outputfile.txt"],
-            "cwd": "${workspaceFolder}"
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
         }
     ]
 }
