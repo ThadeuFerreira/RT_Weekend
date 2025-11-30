@@ -37,9 +37,9 @@ set_face_normal :: proc(rec : ^hit_record, r : ray, outward_normal : [3]f32) {
     }
 }
 
-make_hittable_slice :: proc($N :$I) -> [N]$T {
-    return [N]$T{}
-}
+// make_hittable_slice :: proc($N :$I) -> [N]$T {
+//     return [N]$T{}
+// }
  
 //virtual bool hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec) const = 0;
 

@@ -113,6 +113,9 @@ render :: proc(camera : ^Camera, output : Output, world : [dynamic]Object){
     fmt.fprint(f, strconv.itoa(buffer[:], camera.image_height))
     fmt.fprint(f, "\n255\n")
 
+    // Create RNG instance for rendering
+    rng := create_thread_rng(12345)  // Fixed seed for deterministic results
+
     sb := strings.Builder{}
     for j in 0..<camera.image_height {
         //Progress bar
@@ -121,8 +124,8 @@ render :: proc(camera : ^Camera, output : Output, world : [dynamic]Object){
         for i in 0..<camera.image_width {
             pixel_color := [3]f32{0, 0, 0}
             for s in 0..<camera.samples_per_pixel {
-                r := get_ray(camera, f32(i),f32(j))
-                pixel_color += ray_color(r, camera.max_depth, world)
+                r := get_ray(camera, f32(i),f32(j), &rng)
+                pixel_color += ray_color(r, camera.max_depth, world, &rng)
             }
             pixel_color = pixel_color * camera.pixel_samples_scale
             color_pixel := camera.pixel_samples_scale * pixel_color
@@ -134,23 +137,23 @@ render :: proc(camera : ^Camera, output : Output, world : [dynamic]Object){
     fmt.fprint(f, strings.to_string(sb))
 }
 
-get_ray :: proc(camera : ^Camera, u : f32, v : f32) -> ray {
+get_ray :: proc(camera : ^Camera, u : f32, v : f32, rng: ^ThreadRNG) -> ray {
     // Construct a camera ray originating from the defocus disk and directed at a randomly
     // sampled point around the pixel location i, j.
-    offset := sample_square()
+    offset := sample_square(rng)
     pixel_sample := camera.pixel00_loc + (u+offset[0])*camera.pixel_delta_u + (v + offset[1])*camera.pixel_delta_v
 
-    ray_origin := (camera.defocus_angle <= 0)? camera.center : defocus_disk_sample(camera)
+    ray_origin := (camera.defocus_angle <= 0)? camera.center : defocus_disk_sample(camera, rng)
     ray_direction := pixel_sample - ray_origin
 
     return ray{ray_origin, ray_direction}
 }
 
-defocus_disk_sample :: proc(c : ^Camera) -> [3]f32 {
-    p := vector_random_in_unit_disk()
+defocus_disk_sample :: proc(c : ^Camera, rng: ^ThreadRNG) -> [3]f32 {
+    p := vector_random_in_unit_disk(rng)
     return c.center +(p[0]*c.defocus_disk_u) + (p[1]*c.defocus_disk_v)
 }
 
-sample_square :: proc() -> [3]f32 {
-    return [3]f32{random_float() -0.5, random_float() -0.5, 0}
+sample_square :: proc(rng: ^ThreadRNG) -> [3]f32 {
+    return [3]f32{random_float(rng) -0.5, random_float(rng) -0.5, 0}
 }

@@ -31,17 +31,17 @@ vector_refract :: proc(uv : [3]f32, n : [3]f32, etai_over_etat : f32) -> [3]f32 
     return r_out_perp + r_out_parallel
 }
 
-vector_random :: proc() -> [3]f32 {
-    return [3]f32{random_float(), random_float(), random_float()}
+vector_random :: proc(rng: ^ThreadRNG) -> [3]f32 {
+    return [3]f32{random_float(rng), random_float(rng), random_float(rng)}
 }
 
-vector_random_range :: proc(min : f32, max : f32) -> [3]f32 {
-    return [3]f32{random_float_range(min, max), random_float_range(min, max), random_float_range(min, max)}
+vector_random_range :: proc(rng: ^ThreadRNG, min : f32, max : f32) -> [3]f32 {
+    return [3]f32{random_float_range(rng, min, max), random_float_range(rng, min, max), random_float_range(rng, min, max)}
 }
 
-vector_random_unit :: proc() -> [3]f32{
+vector_random_unit :: proc(rng: ^ThreadRNG) -> [3]f32{
     for true {
-        p := vector_random_range(-1, 1)
+        p := vector_random_range(rng, -1, 1)
         l := vector_length_squared(p)
         if  l <= 1 && l > math.F32_EPSILON {
             return p/l
@@ -50,8 +50,8 @@ vector_random_unit :: proc() -> [3]f32{
     return [3]f32{}
 }
 
-vector_random_on_hemisphere :: proc(normal : [3]f32) -> [3]f32 {
-    on_unit_sphere := vector_random_unit()
+vector_random_on_hemisphere :: proc(rng: ^ThreadRNG, normal : [3]f32) -> [3]f32 {
+    on_unit_sphere := vector_random_unit(rng)
     if dot(on_unit_sphere, normal) > 0.0 {
         return on_unit_sphere
     } else {
@@ -59,9 +59,9 @@ vector_random_on_hemisphere :: proc(normal : [3]f32) -> [3]f32 {
     }
 }
 
-vector_random_in_unit_disk :: proc() -> [3]f32 {
+vector_random_in_unit_disk :: proc(rng: ^ThreadRNG) -> [3]f32 {
     for true {
-        p := [3]f32{random_float_range(-1, 1), random_float_range(-1, 1), 0}
+        p := [3]f32{random_float_range(rng, -1, 1), random_float_range(rng, -1, 1), 0}
         if vector_length_squared(p) < 1 {
             return p
         }
@@ -111,7 +111,7 @@ ray_at :: proc(r : ray, t : f32) -> [3]f32 {
     return r.orig + t*r.dir
 }
 
-ray_color :: proc(r : ray, depth : int , world : [dynamic]Object) -> [3]f32 {
+ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRNG) -> [3]f32 {
     if depth <= 0 {
         return [3]f32{0,0,0}
     }
@@ -128,8 +128,8 @@ ray_color :: proc(r : ray, depth : int , world : [dynamic]Object) -> [3]f32 {
     if hit_anything{
         scattered := ray{}
         attenuation := [3]f32{}
-        if scatter(hr.material, r, hr, &attenuation, &scattered) {
-            return attenuation * ray_color(scattered, depth - 1, world)
+        if scatter(hr.material, r, hr, &attenuation, &scattered, rng) {
+            return attenuation * ray_color(scattered, depth - 1, world, rng)
         }
         return [3]f32{0,0,0}
     }

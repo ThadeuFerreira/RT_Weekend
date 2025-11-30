@@ -22,12 +22,12 @@ dieletric :: struct{
     ref_idx : f32,
 }
 
-scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3]f32, scattered : ^ray) -> bool {
+scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3]f32, scattered : ^ray, rng: ^ThreadRNG) -> bool {
     scattered := scattered
     attenuation := attenuation
     switch m in mat {
     case lambertian:
-        scatter_direction := rec.normal + vector_random_unit()
+        scatter_direction := rec.normal + vector_random_unit(rng)
 
         // Catch degenerate scatter direction
         if vector_near_zero(scatter_direction) {
@@ -38,7 +38,7 @@ scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3
         return true
     case metalic:
         reflected := vector_reflect(r_in.dir, rec.normal)
-        reflected = unit_vector(reflected) + m.fuzz * vector_random_unit()
+        reflected = unit_vector(reflected) + m.fuzz * vector_random_unit(rng)
         scattered^ = ray{rec.p, reflected}
         attenuation^ = m.albedo
         return dot(scattered.dir, rec.normal) > 0
@@ -54,7 +54,7 @@ scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3
         cannot_refract := ri * sin_theta > 1.0
         direction := [3]f32{}
 
-        if cannot_refract || reflectance(cos_theta, ri) > random_float() {
+        if cannot_refract || reflectance(cos_theta, ri) > random_float(rng) {
             direction = vector_reflect(unit_direction, rec.normal)
         }
         else{
