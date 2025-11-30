@@ -27,21 +27,23 @@ main :: proc() {
     
     samples_per_pixel := args.Samples
     if samples_per_pixel <= 0 {
-        samples_per_pixel = 80
+        samples_per_pixel = 10
     }
 
     number_of_spheres := args.NumberOfSpheres
     if number_of_spheres <= 0 {
-        number_of_spheres = 100
+        number_of_spheres = 10
     }
     output_file := args.OutputFile
     if len(output_file) == 0 {
-        output_file = "output.ppm"
+        output_file = "output"
     }
 
     test_mode := args.TestMode
     if test_mode {
         fmt.println("Running in test mode")
+        test_mode_func(output_file, image_width, image_height, samples_per_pixel)
+        return
     }
     
     // Print configuration

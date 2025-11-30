@@ -49,27 +49,27 @@ Output :: struct{
     f : os.Handle,
 }
 
-make_camera :: proc() -> ^Camera {
+make_camera :: proc(image_width : int, image_height : int, samples_per_pixel : int) -> ^Camera {
 
-    c := new(Camera)
+    cam := new(Camera)
+    // Use provided parameters
+    cam.aspect_ratio = f32(image_width) / f32(image_height)
+    cam.image_width = image_width
+    cam.image_height = image_height
+    cam.samples_per_pixel = samples_per_pixel
+    cam.pixel_samples_scale = 1.0 / f32(samples_per_pixel)
+    cam.max_depth = 20
 
-    c.aspect_ratio = 16.0 / 9.0
-    c.image_width = 600
-    c.image_height = int(f32(c.image_width) / c.aspect_ratio)
-    c.vfov = 20.0
-    c.samples_per_pixel = 50
-    c.pixel_samples_scale = 1.0/f32(c.samples_per_pixel)
-    c.max_depth = 50
+    cam.vfov = 20.0
+    cam.lookfrom = [3]f32{13, 2, 3}
+    cam.lookat = [3]f32{0, 0, 0}
+    cam.vup = [3]f32{0, 1, 0}
 
-    c.lookfrom = [3]f32{-2.0, 2.0, 1.0}
-    c.lookat = [3]f32{0.0, 0.0, -1.0}
-    c.vup = [3]f32{0.0, 1.0, 0.0}
-
-    c.defocus_angle = 10
-    c.focus_dist = 3.4
+    cam.defocus_angle = 0.6
+    cam.focus_dist = 10.0
     
     
-    return c
+    return cam
 }
 
 init_camera :: proc(c :^Camera){
@@ -128,13 +128,13 @@ render :: proc(camera : ^Camera, output : Output, world : [dynamic]Object){
                 pixel_color += ray_color(r, camera.max_depth, world, &rng)
             }
             pixel_color = pixel_color * camera.pixel_samples_scale
-            color_pixel := camera.pixel_samples_scale * pixel_color
             write_color(&sb, pixel_color)
         }
     }
 
 
     fmt.fprint(f, strings.to_string(sb))
+    os.close(f)
 }
 
 get_ray :: proc(camera : ^Camera, u : f32, v : f32, rng: ^ThreadRNG) -> ray {

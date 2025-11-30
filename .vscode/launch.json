@@ -19,6 +19,16 @@
             "args": [],
             "cwd": "${workspaceFolder}",
             "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Test Mode)",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-t"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
         }
     ]
 }

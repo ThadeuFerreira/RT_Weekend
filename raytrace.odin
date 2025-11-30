@@ -3,11 +3,12 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:strconv"
 
 
 ray_trace_world :: proc(output_file_name : string, image_width : int, image_height : int, samples_per_pixel : int, number_of_spheres : int) {
     
-    output := Output{image_file_name = output_file_name}
+    output := Output{image_file_name = fmt.tprintf("%s.ppm", output_file_name)}
     f, err := os.open(output.image_file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0644)
     if err != os.ERROR_NONE {
         // handle error
@@ -24,6 +25,7 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
     ground_material := material(lambertian{[3]f32{0.5, 0.5, 0.5}})
     append(&world, Sphere{[3]f32{0, -1000, 0}, 1000, ground_material})
 
+    num_spheres := 0
     for a in -11..<11 {
         for b in -11..<11 {
             choose_mat := random_float(&scene_rng)
@@ -47,7 +49,11 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
                     material := material(dieletric{1.5})
                     append(&world, Sphere{center, 0.2, material})
                 }
+                num_spheres += 1
             }
+        }
+        if num_spheres >= number_of_spheres {
+            break
         }
     }
 
@@ -75,23 +81,7 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
     material3 := material(metalic{[3]f32{0.7, 0.6, 0.5}, 0.0})
     append(&world, Sphere{[3]f32{4, 1, 0}, 1.0, material3})
 
-    cam := make_camera()
-
-    // Use provided parameters
-    cam.aspect_ratio = f32(image_width) / f32(image_height)
-    cam.image_width = image_width
-    cam.image_height = image_height
-    cam.samples_per_pixel = samples_per_pixel
-    cam.pixel_samples_scale = 1.0 / f32(samples_per_pixel)
-    cam.max_depth = 20
-
-    cam.vfov = 20.0
-    cam.lookfrom = [3]f32{13, 2, 3}
-    cam.lookat = [3]f32{0, 0, 0}
-    cam.vup = [3]f32{0, 1, 0}
-
-    cam.defocus_angle = 0.6
-    cam.focus_dist = 10.0
+    cam := make_camera(image_width, image_height, samples_per_pixel)
 
     init_camera(cam)
     
@@ -107,8 +97,10 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
     print_timing_stats(timer, image_width, image_height, samples_per_pixel)
 }
 
+
+
 //Generate a random noise texture and output it to file_name+test.ppm
-test_mode :: proc(file_name : string, width : int, height : int) {
+test_mode_func :: proc(file_name : string, image_width : int, image_height : int, samples_per_pixel : int) {
     output := Output{image_file_name = fmt.tprintf("%s_test.ppm", file_name)}
     f, err := os.open(output.image_file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0644)
     if err != os.ERROR_NONE {
@@ -117,17 +109,28 @@ test_mode :: proc(file_name : string, width : int, height : int) {
         return
     }
     output.f = f
+    camera := make_camera(image_width, image_height, samples_per_pixel)
+
+    buffer := [8]byte{}
+    fmt.fprint(output.f, "P3\n")
+    fmt.fprint(output.f, strconv.itoa(buffer[:], camera.image_width))
+    fmt.fprint(output.f, " ")
+    fmt.fprint(output.f, strconv.itoa(buffer[:], camera.image_height))
+    fmt.fprint(output.f, "\n255\n")
+
+    init_camera(camera)
 
     prng := create_thread_rng(54321)
     
     sb := strings.Builder{}
-    for y in 0..<height {
-        for x in 0..<width {
+    for y in 0..<image_height {
+        for x in 0..<image_width {
             random_r := random_float(&prng)
             random_g := random_float(&prng)
             random_b := random_float(&prng)
             color := [3]f32{random_r, random_g, random_b}
-            write_color(&sb, color)
+            pixel_color := camera.pixel_samples_scale * color
+            write_color(&sb, pixel_color)
         }
     }
     
