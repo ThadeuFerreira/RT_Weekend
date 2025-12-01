@@ -70,7 +70,7 @@ TestRenderContext :: struct {
     camera: ^Camera,
 }
 
-ray_trace_world :: proc(output_file_name : string, image_width : int, image_height : int, samples_per_pixel : int, number_of_spheres : int) {
+ray_trace_world :: proc(output_file_name : string, image_width : int, image_height : int, samples_per_pixel : int, number_of_spheres : int, num_threads : int) {
     
     output := Output{image_file_name = fmt.tprintf("%s.ppm", output_file_name)}
     f, err := os.open(output.image_file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0644)
@@ -153,8 +153,8 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
     timer := start_timer()
     fmt.println("Starting rendering...")
     
-    // Render the scene
-    render(cam, output, world)
+    // Render the scene using parallel rendering
+    render_parallel(cam, output, world, num_threads)
     
     // Stop timing and display statistics
     stop_timer(&timer)
