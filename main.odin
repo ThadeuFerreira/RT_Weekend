@@ -82,7 +82,8 @@ main :: proc() {
     fmt.printf("  Image size: %dx%d pixels\n", image_width, image_height)
     fmt.printf("  Samples per pixel: %d\n", samples_per_pixel)
     fmt.printf("  Threads: %d\n", thread_count)
+    fmt.printf("  Progress bar: %s\n", args.NoProgress ? "disabled" : "enabled")
     fmt.printf("  Output file: %s\n\n", output_file)
     
-    ray_trace_world(output_file, image_width, image_height, samples_per_pixel, number_of_spheres, thread_count)
+    ray_trace_world(output_file, image_width, image_height, samples_per_pixel, number_of_spheres, thread_count, show_progress = !args.NoProgress)
 }

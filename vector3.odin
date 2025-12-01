@@ -5,6 +5,7 @@ import "core:math"
 import "core:os"
 import "core:strings"
 import "core:strconv"
+import "core:time"
 
 vector_length :: proc(v : [3]f32) -> f32 {
     return math.sqrt_f32(vector_length_squared(v))
@@ -111,7 +112,7 @@ ray_at :: proc(r : ray, t : f32) -> [3]f32 {
     return r.orig + t*r.dir
 }
 
-ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRNG) -> [3]f32 {
+ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRNG, thread_breakdown: ^ThreadRenderingBreakdown = nil) -> [3]f32 {
     if depth <= 0 {
         return [3]f32{0,0,0}
     }
@@ -119,25 +120,58 @@ ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRN
     hr := hit_record{}
     closest_so_far := ray_t.max
     hit_anything := false
+    
+    // Time intersection testing
+    intersection_start := time.now()
     for o in world {
-        
         if hit(r, ray_t, &hr, o, &closest_so_far) {
             hit_anything = true
+            if thread_breakdown != nil {
+                thread_breakdown.total_intersections += 1
+            }
+        }
+        if thread_breakdown != nil {
+            thread_breakdown.total_intersections += 1  // Count all intersection tests
         }
     }
+    intersection_end := time.now()
+    if thread_breakdown != nil {
+        intersection_elapsed := time.diff(intersection_start, intersection_end)
+        thread_breakdown.intersection_time += time.duration_seconds(intersection_elapsed)
+    }
+    
     if hit_anything{
         scattered := ray{}
         attenuation := [3]f32{}
-        if scatter(hr.material, r, hr, &attenuation, &scattered, rng) {
-            return attenuation * ray_color(scattered, depth - 1, world, rng)
+        
+        // Time scatter
+        scatter_start := time.now()
+        scatter_result := scatter(hr.material, r, hr, &attenuation, &scattered, rng)
+        scatter_end := time.now()
+        if thread_breakdown != nil {
+            scatter_elapsed := time.diff(scatter_start, scatter_end)
+            thread_breakdown.scatter_time += time.duration_seconds(scatter_elapsed)
+        }
+        
+        if scatter_result {
+            return attenuation * ray_color(scattered, depth - 1, world, rng, thread_breakdown)
         }
         return [3]f32{0,0,0}
     }
+    
+    // Time background computation
+    background_start := time.now()
     unit_direction := unit_vector(r.dir)
     a := 0.5 * (unit_direction[1] + 1.0)
     ones := [3]f32{1.0, 1.0, 1.0}
     color := [3]f32{0.5,0.7,1}
-    return (1.0-a)*ones + a*color
+    result := (1.0-a)*ones + a*color
+    background_end := time.now()
+    if thread_breakdown != nil {
+        background_elapsed := time.diff(background_start, background_end)
+        thread_breakdown.background_time += time.duration_seconds(background_elapsed)
+    }
+    return result
 }
 
 unit_vector :: proc(v : [3]f32) -> [3]f32 {

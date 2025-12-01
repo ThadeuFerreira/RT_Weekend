@@ -70,7 +70,7 @@ TestRenderContext :: struct {
     camera: ^Camera,
 }
 
-ray_trace_world :: proc(output_file_name : string, image_width : int, image_height : int, samples_per_pixel : int, number_of_spheres : int, num_threads : int) {
+ray_trace_world :: proc(output_file_name : string, image_width : int, image_height : int, samples_per_pixel : int, number_of_spheres : int, num_threads : int, show_progress : bool = true) {
     
     output := Output{image_file_name = fmt.tprintf("%s.ppm", output_file_name)}
     f, err := os.open(output.image_file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0644)
@@ -98,14 +98,12 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
                 if choose_mat < 0.8 {
                     // diffuse
                     albedo := vector_random(&scene_rng) * vector_random(&scene_rng)
-                    fmt.println(albedo)
                     material := material(lambertian{albedo})
                     append(&world, Sphere{center, 0.2, material})
                 } else if choose_mat < 0.95 {
                     // metal
                     albedo := vector_random_range(&scene_rng, 0.5, 1)
                     fuzz := random_float_range(&scene_rng, 0, 0.5)
-                    fmt.println(albedo)
                     material := material(metalic{albedo, fuzz})
                     append(&world, Sphere{center, 0.2, material})
                 } else {
@@ -127,9 +125,6 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
         switch o in obj {
             case Sphere:
             mat := o.material
-            //print pointer
-            fmt.println(mat)
-            fmt.println(&mat)
             case Cube:
                 fmt.print("Cube")
         }
@@ -154,7 +149,7 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
     fmt.println("Starting rendering...")
     
     // Render the scene using parallel rendering
-    render_parallel(cam, output, world, num_threads)
+    render_parallel(cam, output, world, num_threads, show_progress)
     
     // Stop timing and display statistics
     stop_timer(&timer)

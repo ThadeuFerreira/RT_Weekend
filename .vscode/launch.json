@@ -16,7 +16,7 @@
             "request": "launch",
             "preLaunchTask": "build-linux",
             "program": "${workspaceFolder}/build/debug",
-            "args": [],
+            "args": ["--no-progress"],
             "cwd": "${workspaceFolder}",
             "miDebuggerPath": "/usr/bin/gdb"
         },

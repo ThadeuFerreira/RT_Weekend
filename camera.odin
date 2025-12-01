@@ -155,13 +155,21 @@ render :: proc(camera : ^Camera, output : Output, world : [dynamic]Object){
 }
 
 // Parallel rendering function
-render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object, num_threads: int) {
+// show_progress: if false, disables progress bar updates for performance testing
+render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object, num_threads: int, show_progress: bool = true) {
+    // Start overall timing
+    timing := start_parallel_timing()
+    
     // Create pixel buffer
+    timing.buffer_creation = start_timer()
     pixel_buffer := create_test_pixel_buffer(camera.image_width, camera.image_height)
+    stop_timer(&timing.buffer_creation)
     
     // Generate tiles (32x32 pixels per tile)
+    timing.tile_generation = start_timer()
     tile_size := 32
     tiles := generate_tiles(camera.image_width, camera.image_height, tile_size)
+    stop_timer(&timing.tile_generation)
     
     // Create work queue
     work_queue := TileWorkQueue{
@@ -172,6 +180,7 @@ render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object,
     }
     
     // Create worker thread contexts
+    timing.context_setup = start_timer()
     contexts := make([]ParallelRenderContext, num_threads)
     threads := make([]^thread.Thread, num_threads)
     
@@ -200,20 +209,44 @@ render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object,
     parallel_render_contexts = heap_contexts
     parallel_thread_counter = 0
     
+    // Initialize per-thread timing arrays
+    thread_tile_times = make([dynamic]f64, num_threads)
+    thread_tile_counts = make([dynamic]int, num_threads)
+    thread_rendering_breakdowns = make([dynamic]ThreadRenderingBreakdown, num_threads)
+    for i in 0..<num_threads {
+        thread_tile_times[i] = 0.0
+        thread_tile_counts[i] = 0
+        thread_rendering_breakdowns[i] = ThreadRenderingBreakdown{}
+    }
+    
+    stop_timer(&timing.context_setup)
+    
+    // Create and start threads
+    timing.thread_creation = start_timer()
     for i in 0..<num_threads {
         threads[i] = thread.create(worker_thread)
         thread.start(threads[i])
     }
+    stop_timer(&timing.thread_creation)
     
     // Wait for completion with progress updates
+    timing.rendering = start_timer()
+    timing.progress_monitoring = start_timer()
     total_tiles := work_queue.total_tiles
     last_progress := 0
     
+    // Track actual CPU time spent in progress monitoring (excluding sleep)
+    progress_cpu_time := 0.0
+    progress_check_count := 0
+    
     for {
+        // Measure CPU time for this check
+        check_start := time.now()
         completed := sync.atomic_load(&work_queue.completed)
+        progress_check_count += 1
         
-        // Update progress bar
-        if total_tiles > 0 {
+        // Update progress bar (only if enabled)
+        if show_progress && total_tiles > 0 {
             progress := (int(completed) * 20) / total_tiles
             if progress != last_progress {
                 print_progress_bar(progress, 20)
@@ -222,14 +255,40 @@ render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object,
         }
         
         if int(completed) >= total_tiles {
+            // Measure final check time
+            check_end := time.now()
+            check_elapsed := time.diff(check_start, check_end)
+            progress_cpu_time += time.duration_seconds(check_elapsed)
             break
         }
         
-        // Small sleep to avoid busy-waiting
-        time.sleep(time.Millisecond * 50)
+        // Measure CPU time before sleep
+        check_end := time.now()
+        check_elapsed := time.diff(check_start, check_end)
+        progress_cpu_time += time.duration_seconds(check_elapsed)
+        
+        // Sleep to avoid busy-waiting (only if progress is enabled, otherwise use shorter sleep)
+        if show_progress {
+            time.sleep(time.Millisecond * 50)
+        } else {
+            // Shorter sleep when progress is disabled for better responsiveness
+            time.sleep(time.Millisecond * 10)
+        }
     }
     
+    // Update progress monitoring timer with actual CPU time (excluding sleep)
+    // We manually set the elapsed time since we're measuring CPU time, not wall-clock
+    progress_duration_ns := i64(progress_cpu_time * 1e9)  // Convert to nanoseconds
+    timing.progress_monitoring.elapsed = time.Duration(progress_duration_ns)
+    // Set end_time to start_time + elapsed for proper timer representation
+    timing.progress_monitoring.end_time = timing.progress_monitoring.start_time
+    // Note: We can't easily add duration to time in Odin, so we'll just use the elapsed field
+    // The format_duration function uses elapsed, not the time difference
+    
+    stop_timer(&timing.rendering)
+    
     // Wait for all threads to finish
+    timing.thread_join = start_timer()
     for i in 0..<num_threads {
         thread.join(threads[i])
         thread.destroy(threads[i])
@@ -242,9 +301,64 @@ render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object,
     delete(heap_contexts)
     parallel_render_contexts = nil
     
+    // Print per-thread statistics
+    fmt.println("")
+    fmt.println("Per-Thread Statistics:")
+    fmt.println("  Thread | Tiles | Time (s) | Tiles/sec")
+    separator_line := strings.repeat("-", 45)
+    fmt.printf("  %s\n", separator_line)
+    total_thread_time := 0.0
+    for i in 0..<num_threads {
+        tiles := thread_tile_counts[i]
+        thread_time := thread_tile_times[i]
+        total_thread_time += thread_time
+        tiles_per_sec := 0.0
+        if thread_time > 0 {
+            tiles_per_sec = f64(tiles) / thread_time
+        }
+        fmt.printf("  %6d | %5d | %8.3f | %10.2f\n", i, tiles, thread_time, tiles_per_sec)
+    }
+    avg_thread_time := total_thread_time / f64(num_threads)
+    fmt.printf("  Average thread time: %.3f s\n", avg_thread_time)
+    fmt.println("")
+    
+    // Aggregate rendering breakdowns from all threads
+    rendering_breakdown := RenderingBreakdown{}
+    for i in 0..<num_threads {
+        rb := thread_rendering_breakdowns[i]
+        rendering_breakdown.get_ray_time += rb.get_ray_time
+        rendering_breakdown.ray_color_time += rb.ray_color_time
+        rendering_breakdown.intersection_time += rb.intersection_time
+        rendering_breakdown.scatter_time += rb.scatter_time
+        rendering_breakdown.background_time += rb.background_time
+        rendering_breakdown.pixel_setup_time += rb.pixel_setup_time
+        rendering_breakdown.total_samples += rb.total_samples
+        rendering_breakdown.total_rays += rb.total_rays
+        rendering_breakdown.total_intersections += rb.total_intersections
+    }
+    
+    // Clean up timing arrays
+    delete(thread_tile_times)
+    delete(thread_tile_counts)
+    delete(thread_rendering_breakdowns)
+    thread_tile_times = nil
+    thread_tile_counts = nil
+    thread_rendering_breakdowns = nil
+    
+    stop_timer(&timing.thread_join)
+    
     // Write buffer to file
+    timing.file_writing = start_timer()
     write_buffer_to_ppm(&pixel_buffer, output.image_file_name)
     os.close(output.f)
+    stop_timer(&timing.file_writing)
+    
+    // Print detailed timing breakdown
+    print_parallel_timing_breakdown(&timing, camera.image_width, camera.image_height, camera.samples_per_pixel, num_threads, total_tiles)
+    
+    // Print fine-grained rendering breakdown
+    rendering_time := get_elapsed_seconds(timing.rendering)
+    print_rendering_breakdown(&rendering_breakdown, rendering_time)
 }
 
 get_ray :: proc(camera : ^Camera, u : f32, v : f32, rng: ^ThreadRNG) -> ray {
@@ -310,15 +424,41 @@ render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
     // Create per-thread RNG with unique seed
     rng := create_thread_rng(ctx.rng_seed + u64(ctx.thread_id * 1000000))
     
+    // Get thread-local breakdown
+    thread_breakdown := &thread_rendering_breakdowns[ctx.thread_id]
+    
     // Render all pixels in this tile
     for y in tile.start_y..<tile.end_y {
         for x in tile.start_x..<tile.end_x {
+            pixel_setup_start := time.now()
             pixel_color := [3]f32{0, 0, 0}
+            
             for s in 0..<camera.samples_per_pixel {
+                // Time get_ray
+                get_ray_start := time.now()
                 r := get_ray(camera, f32(x), f32(y), &rng)
-                pixel_color += ray_color(r, camera.max_depth, world, &rng)
+                get_ray_end := time.now()
+                get_ray_elapsed := time.diff(get_ray_start, get_ray_end)
+                thread_breakdown.get_ray_time += time.duration_seconds(get_ray_elapsed)
+                thread_breakdown.total_rays += 1
+                
+                // Time ray_color (pass thread_breakdown for fine-grained timing)
+                ray_color_start := time.now()
+                color := ray_color(r, camera.max_depth, world, &rng, thread_breakdown)
+                ray_color_end := time.now()
+                ray_color_elapsed := time.diff(ray_color_start, ray_color_end)
+                thread_breakdown.ray_color_time += time.duration_seconds(ray_color_elapsed)
+                
+                pixel_color += color
+                thread_breakdown.total_samples += 1
             }
+            
             pixel_color = pixel_color * camera.pixel_samples_scale
+            
+            pixel_setup_end := time.now()
+            pixel_setup_elapsed := time.diff(pixel_setup_start, pixel_setup_end)
+            thread_breakdown.pixel_setup_time += time.duration_seconds(pixel_setup_elapsed)
+            
             set_pixel(buffer, x, y, pixel_color)
         }
     }
@@ -327,6 +467,13 @@ render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
 // Package-level storage for parallel render contexts (used during parallel rendering)
 parallel_render_contexts: []^ParallelRenderContext = nil
 parallel_thread_counter: i32 = 0
+
+// Per-thread timing (for debugging/analysis)
+thread_tile_times: [dynamic]f64 = nil  // Time spent rendering tiles per thread
+thread_tile_counts: [dynamic]int = nil  // Number of tiles rendered per thread
+
+// Per-thread rendering breakdown
+thread_rendering_breakdowns: [dynamic]ThreadRenderingBreakdown = nil
 
 // Worker thread function
 worker_thread :: proc(t: ^thread.Thread) {
@@ -345,6 +492,10 @@ worker_thread :: proc(t: ^thread.Thread) {
     // Access context from shared array
     ctx := parallel_render_contexts[thread_index]
     
+    // Track per-thread timing
+    thread_start := time.now()
+    tiles_rendered := 0
+    
     for {
         // Atomically fetch next tile index
         tile_index := sync.atomic_add(&ctx.work_queue.next_tile, 1)
@@ -358,8 +509,20 @@ worker_thread :: proc(t: ^thread.Thread) {
         
         // Render the tile
         render_tile(ctx, tile)
+        tiles_rendered += 1
         
         // Atomically increment completed counter
         sync.atomic_add(&ctx.work_queue.completed, 1)
+    }
+    
+    // Record thread timing
+    thread_end := time.now()
+    thread_elapsed := time.diff(thread_start, thread_end)
+    thread_seconds := time.duration_seconds(thread_elapsed)
+    
+    // Store timing data (thread-safe append would be better, but this is just for stats)
+    if thread_tile_times != nil && thread_index < len(thread_tile_times) {
+        thread_tile_times[thread_index] = thread_seconds
+        thread_tile_counts[thread_index] = tiles_rendered
     }
 }

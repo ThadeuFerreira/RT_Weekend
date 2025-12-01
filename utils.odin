@@ -161,6 +161,7 @@ Args :: struct {
     TestMode        : bool,
     OutputFile      : string,
     ThreadCount     : int,  // -c, --cores
+    NoProgress      : bool, // --no-progress, disable progress bar for performance testing
 }
 
 print_usage :: proc(program_name: string) {
@@ -173,6 +174,7 @@ print_usage :: proc(program_name: string) {
     fmt.println("  -n, --number_of_spheres <int> Number of small spheres in the scene (default: 10)")
     fmt.println("  -t, --test_mode          Run in test mode (default: false)")
     fmt.println("  -c, --cores <int>        Number of threads to use (default: number of physical cores)")
+    fmt.println("  --no-progress            Disable progress bar (for performance testing)")
     fmt.println("  --help                   Show this help message")
     fmt.println("\nExample:")
     fmt.printf("  %s -w 100 -h 100 -s 10 -o output.ppm\n", program_name)
@@ -288,6 +290,10 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
                 }
                 i += 2
                 continue
+            }   
+
+            if flag_name == "no-progress" {
+                args.NoProgress = true
             }
         }
         
