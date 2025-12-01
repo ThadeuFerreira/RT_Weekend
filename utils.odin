@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:strings"
 import "core:os"
 import "core:strconv"
+import si "core:sys/info"
 
 infinity := math.inf_f32(1)
 
@@ -278,4 +279,34 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
     }
     
     return true
+}
+
+get_number_of_logical_cores :: proc() -> int {
+    return si.cpu.logical_cores
+}
+get_number_of_physical_cores :: proc() -> int {
+    return si.cpu.physical_cores
+}
+get_total_ram :: proc() -> int {
+    return si.ram.total_ram
+}
+get_gpu_info :: proc() -> string {
+    return si.gpus[0].model_name
+}
+
+print_system_info :: proc() {
+    fmt.printfln("Odin:      %v",      ODIN_VERSION)
+	fmt.printfln("OS:        %v",      si.os_version.as_string)
+	fmt.printfln("OS:        %#v",     si.os_version)
+	fmt.printfln("CPU:       %v",      si.cpu.name)
+	fmt.printfln("CPU cores: %vc/%vt", si.cpu.physical_cores, si.cpu.logical_cores)
+	fmt.printfln("RAM:       %#.1M",   si.ram.total_ram)
+
+	fmt.println()
+	for gpu, i in si.gpus {
+		fmt.printfln("GPU #%v:", i)
+		fmt.printfln("\tVendor: %v",    gpu.vendor_name)
+		fmt.printfln("\tModel:  %v",    gpu.model_name)
+		fmt.printfln("\tVRAM:   %#.1M", gpu.total_ram)
+	}
 }

@@ -108,9 +108,9 @@ render :: proc(camera : ^Camera, output : Output, world : [dynamic]Object){
     f := output.f
     buffer := [8]byte{}
     fmt.fprint(f, "P3\n")
-    fmt.fprint(f, strconv.itoa(buffer[:], camera.image_width))
+    fmt.fprint(f, strconv.write_int(buffer[:], i64(camera.image_width), 10))
     fmt.fprint(f, " ")
-    fmt.fprint(f, strconv.itoa(buffer[:], camera.image_height))
+    fmt.fprint(f, strconv.write_int(buffer[:], i64(camera.image_height), 10))
     fmt.fprint(f, "\n255\n")
 
     // Create RNG instance for rendering
