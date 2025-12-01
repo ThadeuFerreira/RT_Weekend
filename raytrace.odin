@@ -58,7 +58,7 @@ write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string) {
     fmt.fprint(f, strings.to_string(sb))
 }
 
-// Thread work context for parallel test rendering
+// Thread work context for parallel rendering
 TestRenderContext :: struct {
     thread_id: int,
     rng: ThreadRNG,
@@ -162,196 +162,15 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
 }
 
 
-
-// Worker thread function for parallel test rendering
-test_worker_thread :: proc(ctx: ^TestRenderContext) {
-    timer := start_timer()
-    if ctx == nil {
-        fmt.fprintf(os.stderr, "[Thread ?] ERROR: ctx is nil\n")
-        return
-    }
-    
-    if ctx.buffer == nil {
-        fmt.fprintf(os.stderr, "[Thread %d] ERROR: ctx.buffer is nil\n", ctx.thread_id)
-        return
-    }
-    
-    // Ensure bounds are valid
-    start_y := ctx.start_y
-    end_y := ctx.end_y
-
-    if start_y < 0 {
-        start_y = 0
-    }
-    if end_y > ctx.buffer.height {
-        end_y = ctx.buffer.height
-    }
-    if end_y > ctx.image_height {
-        end_y = ctx.image_height
-    }
-    
-    // Render assigned row range
-    for y in start_y..<end_y {
-        for x in 0..<ctx.image_width {
-            if x >= ctx.buffer.width {
-                break
-            }
-            random_r := random_float(&ctx.rng)
-            random_g := random_float(&ctx.rng)
-            random_b := random_float(&ctx.rng)
-            color := [3]f32{random_r, random_g, random_b}
-            pixel_color := ctx.camera.pixel_samples_scale * color
-            set_pixel(ctx.buffer, x, y, pixel_color)
-        }
-    }
-    //add a delay of 1 second to test if there are any performance issues
-    // time.sleep(1 * 1_000_000_000)
-    stop_timer(&timer)
-    fmt.println("Worker thread: ", ctx.thread_id, " completed in: ", get_elapsed_seconds(timer))
-}
-
 // Thread wrapper that captures context
 thread_wrapper :: proc(ctx: ^TestRenderContext) {
-    test_worker_thread(ctx)
+    
 }
 
 // Package-level storage for thread context pointers (heap-allocated)
 test_parallel_context_ptrs: []^TestRenderContext = nil
 test_parallel_thread_counter: sync.Mutex
 test_parallel_current_thread: int
-
-// Worker that gets its index from mutex-protected counter
-parallel_test_worker :: proc(t: ^thread.Thread) {
-    sync.mutex_lock(&test_parallel_thread_counter)
-    thread_id := test_parallel_current_thread
-    test_parallel_current_thread += 1
-    sync.mutex_unlock(&test_parallel_thread_counter)
-    
-    // Bounds check before accessing array
-    if test_parallel_context_ptrs == nil {
-        fmt.fprintf(os.stderr, "[Worker %d] ERROR: test_parallel_context_ptrs is nil\n", thread_id)
-        return
-    }
-    
-    if thread_id < 0 {
-        fmt.fprintf(os.stderr, "[Worker %d] ERROR: thread_id is negative\n", thread_id)
-        return
-    }
-    
-    if thread_id >= len(test_parallel_context_ptrs) {
-        fmt.fprintf(os.stderr, "[Worker %d] ERROR: thread_id %d >= len %d\n", thread_id, thread_id, len(test_parallel_context_ptrs))
-        return
-    }
-    
-    ctx_ptr := test_parallel_context_ptrs[thread_id]
-    
-    if ctx_ptr == nil {
-        fmt.fprintf(os.stderr, "[Worker %d] ERROR: ctx_ptr is nil\n", thread_id)
-        return
-    }
-    
-    test_worker_thread(ctx_ptr)
-}
-
-// Parallel version of test mode function
-test_mode_func_parallel :: proc(file_name: string, image_width: int, image_height: int, num_threads: int) {
-    // Safety checks
-    if num_threads <= 0 {
-        fmt.fprintf(os.stderr, "Error: num_threads must be > 0, got %d\n", num_threads)
-        return
-    }
-    if image_width <= 0 || image_height <= 0 {
-        fmt.fprintf(os.stderr, "Error: Invalid image dimensions: %dx%d\n", image_width, image_height)
-        return
-    }
-    
-    // Create camera
-    camera := make_camera(image_width, image_height, 1)
-    init_camera(camera)
-    
-    // Create pixel buffer
-    pixel_buffer := create_test_pixel_buffer(image_width, image_height)
-    
-    // Calculate rows per thread
-    rows_per_thread := image_height / num_threads
-    remainder_rows := image_height % num_threads
-    
-    // Create thread contexts (allocate on heap to persist across thread lifetime)
-    context_ptrs := make([]^TestRenderContext, num_threads)
-    threads := make([dynamic]^thread.Thread, 0, num_threads)
-    
-    // Distribute work among threads
-    current_y := 0
-    for thread_id in 0..<num_threads {
-        start_y := current_y
-        // Distribute remainder rows to first threads
-        rows_for_this_thread := rows_per_thread
-        if thread_id < remainder_rows {
-            rows_for_this_thread += 1
-        }
-        end_y := start_y + rows_for_this_thread
-        
-        // Ensure end_y doesn't exceed image_height
-        if end_y > image_height {
-            end_y = image_height
-        }
-        
-        // Create RNG with unique seed for this thread
-        rng_seed := u64(thread_id * 1000 + 54321)
-        thread_rng := create_thread_rng(rng_seed)
-        
-        // Allocate context on heap
-        ctx := new(TestRenderContext)
-        ctx^ = TestRenderContext{
-            thread_id = thread_id,
-            rng = thread_rng,
-            buffer = &pixel_buffer,
-            start_y = start_y,
-            end_y = end_y,
-            image_width = image_width,
-            image_height = image_height,
-            camera = camera,
-        }
-        context_ptrs[thread_id] = ctx
-        
-        current_y = end_y
-    }
-    
-    // Store context pointers in package-level variable
-    test_parallel_context_ptrs = context_ptrs
-    
-    // Reset counter
-    sync.mutex_lock(&test_parallel_thread_counter)
-    test_parallel_current_thread = 0
-    sync.mutex_unlock(&test_parallel_thread_counter)
-    
-    // Launch threads
-    for i in 0..<num_threads {
-        t := thread.create(parallel_test_worker)
-        thread.start(t)
-        append(&threads, t)
-    }
-
-    // Wait for all threads to complete
-    for t in threads {
-        thread.join(t)
-        thread.destroy(t)
-    }
-    
-    // Write pixel buffer to file
-    write_buffer_to_ppm(&pixel_buffer, file_name)
-    
-    // Clear package-level variable before cleanup
-    test_parallel_context_ptrs = nil
-    
-    // Cleanup - free allocated contexts
-    for ctx_ptr in context_ptrs {
-        free(ctx_ptr)
-    }
-    delete(context_ptrs)
-    delete(threads)
-    free(camera)
-}
 
 //Generate a random noise texture and output it to file_name+test.ppm
 test_mode_func :: proc(file_name : string, image_width : int, image_height : int) {
