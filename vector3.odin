@@ -137,7 +137,7 @@ ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRN
     intersection_end := time.now()
     if thread_breakdown != nil {
         intersection_elapsed := time.diff(intersection_start, intersection_end)
-        thread_breakdown.intersection_time += time.duration_seconds(intersection_elapsed)
+        thread_breakdown.intersection_time += time.duration_nanoseconds(intersection_elapsed)
     }
     
     if hit_anything{
@@ -150,7 +150,7 @@ ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRN
         scatter_end := time.now()
         if thread_breakdown != nil {
             scatter_elapsed := time.diff(scatter_start, scatter_end)
-            thread_breakdown.scatter_time += time.duration_seconds(scatter_elapsed)
+            thread_breakdown.scatter_time += time.duration_nanoseconds(scatter_elapsed)
         }
         
         if scatter_result {
@@ -169,7 +169,7 @@ ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRN
     background_end := time.now()
     if thread_breakdown != nil {
         background_elapsed := time.diff(background_start, background_end)
-        thread_breakdown.background_time += time.duration_seconds(background_elapsed)
+        thread_breakdown.background_time += time.duration_nanoseconds(background_elapsed)
     }
     return result
 }

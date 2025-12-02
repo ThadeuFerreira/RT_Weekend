@@ -163,26 +163,28 @@ print_parallel_timing_breakdown :: proc(breakdown: ^ParallelTimingBreakdown, ima
 }
 
 // Fine-grained rendering timing breakdown
+// All times stored in nanoseconds (i64) for precision
 RenderingBreakdown :: struct {
-    get_ray_time: f64,           // Time spent generating rays
-    ray_color_time: f64,          // Time spent in ray_color (recursive tracing)
-    intersection_time: f64,       // Time spent in intersection testing
-    scatter_time: f64,            // Time spent in material scattering
-    background_time: f64,         // Time spent computing background color
-    pixel_setup_time: f64,        // Time spent setting up pixels
+    get_ray_time: i64,           // Time spent generating rays (nanoseconds)
+    ray_color_time: i64,          // Time spent in ray_color (recursive tracing) (nanoseconds)
+    intersection_time: i64,       // Time spent in intersection testing (nanoseconds)
+    scatter_time: i64,            // Time spent in material scattering (nanoseconds)
+    background_time: i64,         // Time spent computing background color (nanoseconds)
+    pixel_setup_time: i64,        // Time spent setting up pixels (nanoseconds)
     total_samples: i64,           // Total number of samples processed
     total_rays: i64,              // Total number of rays traced
     total_intersections: i64,     // Total number of intersection tests
 }
 
 // Thread-local rendering breakdown (accumulated per thread, then merged)
+// All times stored in nanoseconds (i64) for precision
 ThreadRenderingBreakdown :: struct {
-    get_ray_time: f64,
-    ray_color_time: f64,
-    intersection_time: f64,
-    scatter_time: f64,
-    background_time: f64,
-    pixel_setup_time: f64,
+    get_ray_time: i64,            // Time in nanoseconds
+    ray_color_time: i64,          // Time in nanoseconds
+    intersection_time: i64,       // Time in nanoseconds
+    scatter_time: i64,            // Time in nanoseconds
+    background_time: i64,         // Time in nanoseconds
+    pixel_setup_time: i64,        // Time in nanoseconds
     total_samples: i64,
     total_rays: i64,
     total_intersections: i64,
@@ -194,50 +196,72 @@ print_rendering_breakdown :: proc(breakdown: ^RenderingBreakdown, total_renderin
     fmt.println("  Fine-Grained Rendering Breakdown:")
     fmt.println(separator)
     
-    total_time := breakdown.get_ray_time + breakdown.ray_color_time + breakdown.intersection_time + 
-                  breakdown.scatter_time + breakdown.background_time + breakdown.pixel_setup_time
+    // Convert nanoseconds to seconds for calculations
+    NANOSECONDS_PER_SECOND :: 1_000_000_000.0
+    NANOSECONDS_PER_MILLISECOND :: 1_000_000.0
+    NANOSECONDS_PER_MICROSECOND :: 1_000.0
     
-    if total_time > 0 {
-        fmt.printf("    Ray generation (get_ray):     %8.3f s (%5.2f%%) - %lld calls\n", 
-            breakdown.get_ray_time, 
-            (breakdown.get_ray_time / total_time) * 100.0,
+    // Calculate ray_color_time as sum of nested operations (to avoid double-counting)
+    // ray_color_time = intersection_time + scatter_time + background_time
+    calculated_ray_color_time_ns := breakdown.intersection_time + breakdown.scatter_time + breakdown.background_time
+    
+    // Total time excludes the separately measured ray_color_time to avoid double-counting
+    // We use the calculated ray_color_time for display, but don't double-count in total
+    total_time_ns := breakdown.get_ray_time + calculated_ray_color_time_ns + breakdown.pixel_setup_time
+    total_time_s := f64(total_time_ns) / NANOSECONDS_PER_SECOND
+    
+    if total_time_ns > 0 {
+        get_ray_time_s := f64(breakdown.get_ray_time) / NANOSECONDS_PER_SECOND
+        ray_color_time_s := f64(calculated_ray_color_time_ns) / NANOSECONDS_PER_SECOND
+        intersection_time_s := f64(breakdown.intersection_time) / NANOSECONDS_PER_SECOND
+        scatter_time_s := f64(breakdown.scatter_time) / NANOSECONDS_PER_SECOND
+        background_time_s := f64(breakdown.background_time) / NANOSECONDS_PER_SECOND
+        pixel_setup_time_s := f64(breakdown.pixel_setup_time) / NANOSECONDS_PER_SECOND
+        
+        fmt.printf("    Ray generation (get_ray):     %8.3f s (%5.2f%%) - %v calls\n", 
+            get_ray_time_s, 
+            (f64(breakdown.get_ray_time) / f64(total_time_ns)) * 100.0,
             breakdown.total_rays)
-        fmt.printf("    Ray tracing (ray_color):      %8.3f s (%5.2f%%) - %lld rays\n", 
-            breakdown.ray_color_time,
-            (breakdown.ray_color_time / total_time) * 100.0,
+        fmt.printf("    Ray tracing (ray_color):      %8.3f s (%5.2f%%) - %v rays\n", 
+            ray_color_time_s,
+            (f64(calculated_ray_color_time_ns) / f64(total_time_ns)) * 100.0,
             breakdown.total_rays)
-        fmt.printf("    Intersection testing:         %8.3f s (%5.2f%%) - %lld tests\n", 
-            breakdown.intersection_time,
-            (breakdown.intersection_time / total_time) * 100.0,
+        fmt.printf("    Intersection testing:         %8.3f s (%5.2f%%) - %v tests\n", 
+            intersection_time_s,
+            (f64(breakdown.intersection_time) / f64(total_time_ns)) * 100.0,
             breakdown.total_intersections)
         fmt.printf("    Material scattering:          %8.3f s (%5.2f%%)\n", 
-            breakdown.scatter_time,
-            (breakdown.scatter_time / total_time) * 100.0)
+            scatter_time_s,
+            (f64(breakdown.scatter_time) / f64(total_time_ns)) * 100.0)
         fmt.printf("    Background computation:       %8.3f s (%5.2f%%)\n", 
-            breakdown.background_time,
-            (breakdown.background_time / total_time) * 100.0)
+            background_time_s,
+            (f64(breakdown.background_time) / f64(total_time_ns)) * 100.0)
         fmt.printf("    Pixel setup/write:            %8.3f s (%5.2f%%)\n", 
-            breakdown.pixel_setup_time,
-            (breakdown.pixel_setup_time / total_time) * 100.0)
+            pixel_setup_time_s,
+            (f64(breakdown.pixel_setup_time) / f64(total_time_ns)) * 100.0)
         fmt.println("")
-        fmt.printf("    Total measured time:          %8.3f s\n", total_time)
+        fmt.printf("    Total CPU time:          %8.3f s\n", total_time_s)
         fmt.printf("    Wall-clock rendering time:    %8.3f s\n", total_rendering_time)
-        fmt.printf("    Unaccounted time:             %8.3f s (%5.2f%%)\n",
-            total_rendering_time - total_time,
-            ((total_rendering_time - total_time) / total_rendering_time) * 100.0)
+        unaccounted_time_s := total_rendering_time - total_time_s
+        fmt.printf("    CPU time vs Wall-clock time:             %8.3f s (%5.2f%%)\n",
+            unaccounted_time_s,
+            (unaccounted_time_s / total_rendering_time) * 100.0)
         fmt.println("")
         
         if breakdown.total_samples > 0 {
-            avg_time_per_sample := total_time / f64(breakdown.total_samples)
-            fmt.printf("    Average time per sample:     %8.3f ms\n", avg_time_per_sample * 1000.0)
+            avg_time_per_sample_ns := f64(total_time_ns) / f64(breakdown.total_samples)
+            avg_time_per_sample_ms := avg_time_per_sample_ns / NANOSECONDS_PER_MILLISECOND
+            fmt.printf("    Average time per sample:     %8.3f ms\n", avg_time_per_sample_ms)
         }
         if breakdown.total_rays > 0 {
-            avg_time_per_ray := breakdown.ray_color_time / f64(breakdown.total_rays)
-            fmt.printf("    Average time per ray:         %8.3f μs\n", avg_time_per_ray * 1000000.0)
+            avg_time_per_ray_ns := f64(calculated_ray_color_time_ns) / f64(breakdown.total_rays)
+            avg_time_per_ray_us := avg_time_per_ray_ns / NANOSECONDS_PER_MICROSECOND
+            fmt.printf("    Average time per ray:         %8.3f μs\n", avg_time_per_ray_us)
         }
         if breakdown.total_intersections > 0 {
-            avg_time_per_intersection := breakdown.intersection_time / f64(breakdown.total_intersections)
-            fmt.printf("    Average time per intersection: %8.3f μs\n", avg_time_per_intersection * 1000000.0)
+            avg_time_per_intersection_ns := f64(breakdown.intersection_time) / f64(breakdown.total_intersections)
+            avg_time_per_intersection_us := avg_time_per_intersection_ns / NANOSECONDS_PER_MICROSECOND
+            fmt.printf("    Average time per intersection: %8.3f μs\n", avg_time_per_intersection_us)
         }
     }
     fmt.println(separator)

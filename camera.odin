@@ -439,15 +439,11 @@ render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
                 r := get_ray(camera, f32(x), f32(y), &rng)
                 get_ray_end := time.now()
                 get_ray_elapsed := time.diff(get_ray_start, get_ray_end)
-                thread_breakdown.get_ray_time += time.duration_seconds(get_ray_elapsed)
+                thread_breakdown.get_ray_time += time.duration_nanoseconds(get_ray_elapsed)
                 thread_breakdown.total_rays += 1
                 
-                // Time ray_color (pass thread_breakdown for fine-grained timing)
-                ray_color_start := time.now()
+                // Call ray_color (it handles its own fine-grained timing internally)
                 color := ray_color(r, camera.max_depth, world, &rng, thread_breakdown)
-                ray_color_end := time.now()
-                ray_color_elapsed := time.diff(ray_color_start, ray_color_end)
-                thread_breakdown.ray_color_time += time.duration_seconds(ray_color_elapsed)
                 
                 pixel_color += color
                 thread_breakdown.total_samples += 1
@@ -457,7 +453,7 @@ render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
             
             pixel_setup_end := time.now()
             pixel_setup_elapsed := time.diff(pixel_setup_start, pixel_setup_end)
-            thread_breakdown.pixel_setup_time += time.duration_seconds(pixel_setup_elapsed)
+            thread_breakdown.pixel_setup_time += time.duration_nanoseconds(pixel_setup_elapsed)
             
             set_pixel(buffer, x, y, pixel_color)
         }
