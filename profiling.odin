@@ -4,6 +4,49 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 
+// Compile-time profiling switch
+// Can be overridden via -define:PROFILING_ENABLED=true/false
+PROFILING_ENABLED :: #config(PROFILING_ENABLED, true)
+
+// Profile scope for zero-cost profiling
+Profile_Scope :: struct {
+    start:    time.Time,
+    field_ns: ^i64,
+}
+
+// Internal helper to begin profiling a scope
+profile_scope_begin :: proc(field_ns: ^i64) -> Profile_Scope {
+    return Profile_Scope{
+        start    = time.now(),
+        field_ns = field_ns,
+    }
+}
+
+// Internal helper to end profiling a scope
+profile_scope_end :: proc(scope: Profile_Scope) {
+    if scope.field_ns != nil {
+        dt := time.diff(scope.start, time.now())
+        scope.field_ns^ += time.duration_nanoseconds(dt)
+    }
+}
+
+// Zero-cost profiling scope begin (compiles out when PROFILING_ENABLED is false)
+PROFILE_SCOPE :: proc(field_ns: ^i64) -> Profile_Scope {
+    when PROFILING_ENABLED {
+        return profile_scope_begin(field_ns)
+    } else {
+        // Zero-cost dummy - compiler removes this entirely
+        return Profile_Scope{}
+    }
+}
+
+// Zero-cost profiling scope end (compiles out when PROFILING_ENABLED is false)
+PROFILE_SCOPE_END :: proc(scope: Profile_Scope) {
+    when PROFILING_ENABLED {
+        profile_scope_end(scope)
+    }
+}
+
 // Timing utilities for performance measurement
 
 Timer :: struct {
@@ -80,6 +123,7 @@ print_timing_stats :: proc(timer: Timer, image_width: int, image_height: int, sa
 ParallelTimingBreakdown :: struct {
     buffer_creation: Timer,
     tile_generation: Timer,
+    bvh_construction: Timer,
     context_setup: Timer,
     thread_creation: Timer,
     rendering: Timer,        // Time from thread start to all tiles complete
@@ -118,6 +162,9 @@ print_parallel_timing_breakdown :: proc(breakdown: ^ParallelTimingBreakdown, ima
     fmt.printf("    Tile generation:      %s (%.2f%%)\n", 
         format_duration(breakdown.tile_generation),
         (get_elapsed_seconds(breakdown.tile_generation) / total_seconds) * 100.0)
+    fmt.printf("    BVH construction:    %s (%.2f%%)\n", 
+        format_duration(breakdown.bvh_construction),
+        (get_elapsed_seconds(breakdown.bvh_construction) / total_seconds) * 100.0)
     fmt.printf("    Context setup:       %s (%.2f%%)\n", 
         format_duration(breakdown.context_setup),
         (get_elapsed_seconds(breakdown.context_setup) / total_seconds) * 100.0)

@@ -179,6 +179,12 @@ render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object,
         total_tiles = len(tiles),
     }
     
+    // Build BVH acceleration structure (once, before spawning threads)
+    timing.bvh_construction = start_timer()
+    world_slice := world[:]  // Convert dynamic array to slice for BVH construction
+    bvh_root := build_bvh(world_slice)
+    stop_timer(&timing.bvh_construction)
+    
     // Create worker thread contexts
     timing.context_setup = start_timer()
     contexts := make([]ParallelRenderContext, num_threads)
@@ -193,7 +199,8 @@ render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object,
             buffer = &pixel_buffer,
             work_queue = &work_queue,
             thread_id = i,
-            rng_seed = base_seed,
+            rng = create_thread_rng(base_seed + u64(i)),
+            bvh_root = bvh_root,  // Shared read-only BVH
         }
     }
     
@@ -301,6 +308,11 @@ render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object,
     delete(heap_contexts)
     parallel_render_contexts = nil
     
+    // Clean up BVH tree
+    if bvh_root != nil {
+        free_bvh(bvh_root)
+    }
+    
     // Print per-thread statistics
     fmt.println("")
     fmt.println("Per-Thread Statistics:")
@@ -349,7 +361,7 @@ render_parallel :: proc(camera: ^Camera, output: Output, world: [dynamic]Object,
     
     // Write buffer to file
     timing.file_writing = start_timer()
-    write_buffer_to_ppm(&pixel_buffer, output.image_file_name)
+    write_buffer_to_ppm(&pixel_buffer, output.image_file_name, camera)
     os.close(output.f)
     stop_timer(&timing.file_writing)
     
@@ -389,7 +401,8 @@ ParallelRenderContext :: struct {
     buffer: ^TestPixelBuffer,
     work_queue: ^TileWorkQueue,
     thread_id: int,
-    rng_seed: u64,
+    rng: ThreadRNG,
+    bvh_root: ^BVHNode,  // Shared read-only BVH acceleration structure
 }
 
 // Generate tiles for parallel rendering
@@ -420,9 +433,7 @@ render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
     camera := ctx.camera
     world := ctx.world
     buffer := ctx.buffer
-    
-    // Create per-thread RNG with unique seed
-    rng := create_thread_rng(ctx.rng_seed + u64(ctx.thread_id * 1000000))
+    rng := &ctx.rng
     
     // Get thread-local breakdown
     thread_breakdown := &thread_rendering_breakdowns[ctx.thread_id]
@@ -430,32 +441,30 @@ render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
     // Render all pixels in this tile
     for y in tile.start_y..<tile.end_y {
         for x in tile.start_x..<tile.end_x {
-            pixel_setup_start := time.now()
-            pixel_color := [3]f32{0, 0, 0}
-            
-            for s in 0..<camera.samples_per_pixel {
-                // Time get_ray
-                get_ray_start := time.now()
-                r := get_ray(camera, f32(x), f32(y), &rng)
-                get_ray_end := time.now()
-                get_ray_elapsed := time.diff(get_ray_start, get_ray_end)
-                thread_breakdown.get_ray_time += time.duration_nanoseconds(get_ray_elapsed)
-                thread_breakdown.total_rays += 1
+            {
+                pixel_setup_scope := PROFILE_SCOPE(&thread_breakdown.pixel_setup_time)
+                defer PROFILE_SCOPE_END(pixel_setup_scope)
                 
-                // Call ray_color (it handles its own fine-grained timing internally)
-                color := ray_color(r, camera.max_depth, world, &rng, thread_breakdown)
+                pixel_color := [3]f32{0, 0, 0}
                 
-                pixel_color += color
-                thread_breakdown.total_samples += 1
+                for s in 0..<camera.samples_per_pixel {
+                    r: ray
+                    {
+                        get_ray_scope := PROFILE_SCOPE(&thread_breakdown.get_ray_time)
+                        defer PROFILE_SCOPE_END(get_ray_scope)
+                        r = get_ray(camera, f32(x), f32(y), rng)
+                        thread_breakdown.total_rays += 1
+                    }
+                    
+                    // Call ray_color (it handles its own fine-grained timing internally)
+                    color := ray_color(r, camera.max_depth, world, rng, thread_breakdown, ctx.bvh_root)
+                    
+                    pixel_color += color
+                    thread_breakdown.total_samples += 1
+                }
+                
+                set_pixel(buffer, x, y, pixel_color)
             }
-            
-            pixel_color = pixel_color * camera.pixel_samples_scale
-            
-            pixel_setup_end := time.now()
-            pixel_setup_elapsed := time.diff(pixel_setup_start, pixel_setup_end)
-            thread_breakdown.pixel_setup_time += time.duration_nanoseconds(pixel_setup_elapsed)
-            
-            set_pixel(buffer, x, y, pixel_color)
         }
     }
 }

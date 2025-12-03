@@ -7,14 +7,16 @@ import "core:strings"
 import "core:strconv"
 import "core:time"
 
-vector_length :: proc(v : [3]f32) -> f32 {
-    return math.sqrt_f32(vector_length_squared(v))
-}
-
+// Small functions - compiler should inline automatically
 vector_length_squared :: proc(v : [3]f32) -> f32 {
     return v[0]*v[0] + v[1]*v[1] + v[2]*v[2]
 }
 
+vector_length :: proc(v : [3]f32) -> f32 {
+    return math.sqrt_f32(vector_length_squared(v))
+}
+
+// Small function - compiler should inline automatically
 vector_near_zero :: proc(v : [3]f32) -> bool {
     // Return true if the vector is close to zero in all dimensions.
     s := f32(1e-8)
@@ -108,11 +110,12 @@ ray :: struct {
     dir : [3]f32,
 }
 
+// Small function - compiler should inline automatically
 ray_at :: proc(r : ray, t : f32) -> [3]f32 {
     return r.orig + t*r.dir
 }
 
-ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRNG, thread_breakdown: ^ThreadRenderingBreakdown = nil) -> [3]f32 {
+ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRNG, thread_breakdown: ^ThreadRenderingBreakdown = nil, bvh_root: ^BVHNode = nil) -> [3]f32 {
     if depth <= 0 {
         return [3]f32{0,0,0}
     }
@@ -122,56 +125,65 @@ ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^ThreadRN
     hit_anything := false
     
     // Time intersection testing
-    intersection_start := time.now()
-    for o in world {
-        if hit(r, ray_t, &hr, o, &closest_so_far) {
-            hit_anything = true
-            if thread_breakdown != nil {
+    {
+        field_ptr := thread_breakdown != nil ? &thread_breakdown.intersection_time : nil
+        scope := PROFILE_SCOPE(field_ptr)
+        defer PROFILE_SCOPE_END(scope)
+        
+        if bvh_root != nil {
+            // Use BVH acceleration structure
+            hit_anything = bvh_hit(bvh_root, r, ray_t, &hr, &closest_so_far)
+            if hit_anything && thread_breakdown != nil {
                 thread_breakdown.total_intersections += 1
             }
+        } else {
+            // Fallback to linear scan
+            for o in world {
+                if hit(r, ray_t, &hr, o, &closest_so_far) {
+                    hit_anything = true
+                    if thread_breakdown != nil {
+                        thread_breakdown.total_intersections += 1
+                    }
+                }
+                if thread_breakdown != nil {
+                    thread_breakdown.total_intersections += 1  // Count all intersection tests
+                }
+            }
         }
-        if thread_breakdown != nil {
-            thread_breakdown.total_intersections += 1  // Count all intersection tests
-        }
-    }
-    intersection_end := time.now()
-    if thread_breakdown != nil {
-        intersection_elapsed := time.diff(intersection_start, intersection_end)
-        thread_breakdown.intersection_time += time.duration_nanoseconds(intersection_elapsed)
     }
     
     if hit_anything{
         scattered := ray{}
         attenuation := [3]f32{}
+        scatter_result: bool
         
         // Time scatter
-        scatter_start := time.now()
-        scatter_result := scatter(hr.material, r, hr, &attenuation, &scattered, rng)
-        scatter_end := time.now()
-        if thread_breakdown != nil {
-            scatter_elapsed := time.diff(scatter_start, scatter_end)
-            thread_breakdown.scatter_time += time.duration_nanoseconds(scatter_elapsed)
+        {
+            field_ptr := thread_breakdown != nil ? &thread_breakdown.scatter_time : nil
+            scope := PROFILE_SCOPE(field_ptr)
+            defer PROFILE_SCOPE_END(scope)
+            scatter_result = scatter(hr.material, r, hr, &attenuation, &scattered, rng)
         }
         
         if scatter_result {
-            return attenuation * ray_color(scattered, depth - 1, world, rng, thread_breakdown)
+            return attenuation * ray_color(scattered, depth - 1, world, rng, thread_breakdown, bvh_root)
         }
         return [3]f32{0,0,0}
     }
     
     // Time background computation
-    background_start := time.now()
-    unit_direction := unit_vector(r.dir)
-    a := 0.5 * (unit_direction[1] + 1.0)
-    ones := [3]f32{1.0, 1.0, 1.0}
-    color := [3]f32{0.5,0.7,1}
-    result := (1.0-a)*ones + a*color
-    background_end := time.now()
-    if thread_breakdown != nil {
-        background_elapsed := time.diff(background_start, background_end)
-        thread_breakdown.background_time += time.duration_nanoseconds(background_elapsed)
+    {
+        field_ptr := thread_breakdown != nil ? &thread_breakdown.background_time : nil
+        scope := PROFILE_SCOPE(field_ptr)
+        defer PROFILE_SCOPE_END(scope)
+        
+        unit_direction := unit_vector(r.dir)
+        a := 0.5 * (unit_direction[1] + 1.0)
+        ones := [3]f32{1.0, 1.0, 1.0}
+        color := [3]f32{0.5,0.7,1}
+        result := (1.0-a)*ones + a*color
+        return result
     }
-    return result
 }
 
 unit_vector :: proc(v : [3]f32) -> [3]f32 {
@@ -188,6 +200,7 @@ normalize_vec3 :: proc(v : [3]f32) -> [3]f32 {
 cross :: proc(u : [3]f32, v : [3]f32) -> [3]f32 {
     return [3]f32{u[1]*v[2] - u[2]*v[1], u[2]*v[0] - u[0]*v[2], u[0]*v[1] - u[1]*v[0]}
 }
+// Small function - compiler should inline automatically
 dot :: proc(u : [3]f32, v : [3]f32) -> f32 {
     return u[0]*v[0] + u[1]*v[1] + u[2]*v[2]
 }

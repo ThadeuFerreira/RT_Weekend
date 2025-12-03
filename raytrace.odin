@@ -10,30 +10,28 @@ import "core:time"
 
 
 // Pixel buffer for parallel test rendering
+// Using 1D contiguous array for better cache locality
 TestPixelBuffer :: struct {
     width: int,
     height: int,
-    pixels: [][][3]f32,  // [height][width][3]f32
+    pixels: [] [3]f32,  // 1D slice: size = width * height
 }
 
 // Create a pixel buffer for test rendering
 create_test_pixel_buffer :: proc(width: int, height: int) -> TestPixelBuffer {
-    pixels := make([][][3]f32, height)
-    for y in 0..<height {
-        pixels[y] = make([][3]f32, width)
-    }
+    pixels := make([] [3]f32, width * height)
     return TestPixelBuffer{width = width, height = height, pixels = pixels}
 }
 
 // Set a pixel color in the buffer
 set_pixel :: proc(buffer: ^TestPixelBuffer, x: int, y: int, color: [3]f32) {
     if x >= 0 && x < buffer.width && y >= 0 && y < buffer.height {
-        buffer.pixels[y][x] = color
+        buffer.pixels[y * buffer.width + x] = color
     }
 }
 
-// Write pixel buffer to PPM file
-write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string) {
+// Write pixel buffer to PPM file using P6 binary format for performance
+write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, camera: ^Camera) {
     f, err := os.open(file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0644)
     if err != os.ERROR_NONE {
         fmt.fprint(os.stderr, "Error opening file: %s\n", err)
@@ -41,21 +39,42 @@ write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string) {
     }
     defer os.close(f)
     
+    // Write P6 binary PPM header
     output_buffer := [8]byte{}
-    fmt.fprint(f, "P3\n")
+    fmt.fprint(f, "P6\n")
     fmt.fprint(f, strconv.write_int(output_buffer[:], i64(buffer.width), 10))
     fmt.fprint(f, " ")
     fmt.fprint(f, strconv.write_int(output_buffer[:], i64(buffer.height), 10))
     fmt.fprint(f, "\n255\n")
     
-    sb := strings.Builder{}
+    // Allocate buffer for binary pixel data (3 bytes per pixel: R, G, B)
+    pixel_data := make([]u8, buffer.width * buffer.height * 3)
+    defer delete(pixel_data)
+    
+    // Convert and write pixels in one pass
+    pixel_idx := 0
+    i := Interval{0.0, 0.999}
+    
     for y in 0..<buffer.height {
         for x in 0..<buffer.width {
-            write_color(&sb, buffer.pixels[y][x])
+            // Apply pixel_samples_scale and gamma correction
+            raw_color := buffer.pixels[y * buffer.width + x] * camera.pixel_samples_scale
+            
+            r := linear_to_gamma(raw_color[0])
+            g := linear_to_gamma(raw_color[1])
+            b := linear_to_gamma(raw_color[2])
+            
+            // Clamp and convert to u8
+            pixel_data[pixel_idx + 0] = u8(interval_clamp(i, r) * 255.0)
+            pixel_data[pixel_idx + 1] = u8(interval_clamp(i, g) * 255.0)
+            pixel_data[pixel_idx + 2] = u8(interval_clamp(i, b) * 255.0)
+            
+            pixel_idx += 3
         }
     }
     
-    fmt.fprint(f, strings.to_string(sb))
+    // Write all pixel data in one operation
+    os.write(f, pixel_data)
 }
 
 // Thread work context for parallel rendering
@@ -94,7 +113,9 @@ ray_trace_world :: proc(output_file_name : string, image_width : int, image_heig
         for b in -11..<11 {
             choose_mat := random_float(&scene_rng)
             center := [3]f32{f32(a) + 0.9*random_float(&scene_rng), 0.2, f32(b) + 0.9*random_float(&scene_rng)}
-            if vector_length(center - [3]f32{4, 0.2, 0}) > 0.9 {
+            // Avoid temporary array creation - compute distance squared directly
+            center_to_check := [3]f32{center[0] - 4.0, center[1] - 0.2, center[2] - 0.0}
+            if vector_length_squared(center_to_check) > 0.81 {  // 0.9^2 = 0.81
                 if choose_mat < 0.8 {
                     // diffuse
                     albedo := vector_random(&scene_rng) * vector_random(&scene_rng)
