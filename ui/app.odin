@@ -2,10 +2,13 @@ package ui
 
 import "base:runtime"
 import "core:fmt"
+import "core:mem"
+import "core:os"
 import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
+import "RT_Weekend:util"
 
 LOG_RING_SIZE :: 64
 
@@ -62,6 +65,60 @@ app_push_log :: proc(app: ^App, msg: string) {
     app.log_count += 1
 }
 
+// apply_editor_layout sets each panel's rect, visible, maximized, and saved_rect from the loaded layout.
+apply_editor_layout :: proc(app: ^App, layout: ^util.EditorLayout) {
+	if app == nil || layout == nil {
+		return
+	}
+	panel_rect :: proc(r: util.RectF) -> rl.Rectangle {
+		return rl.Rectangle{x = r.x, y = r.y, width = r.width, height = r.height}
+	}
+	app.render_panel.rect       = panel_rect(layout.render_panel.rect)
+	app.render_panel.visible    = layout.render_panel.visible
+	app.render_panel.maximized  = layout.render_panel.maximized
+	app.render_panel.saved_rect = panel_rect(layout.render_panel.saved_rect)
+
+	app.stats_panel.rect       = panel_rect(layout.stats_panel.rect)
+	app.stats_panel.visible    = layout.stats_panel.visible
+	app.stats_panel.maximized  = layout.stats_panel.maximized
+	app.stats_panel.saved_rect = panel_rect(layout.stats_panel.saved_rect)
+
+	app.log_panel.rect       = panel_rect(layout.log_panel.rect)
+	app.log_panel.visible    = layout.log_panel.visible
+	app.log_panel.maximized  = layout.log_panel.maximized
+	app.log_panel.saved_rect = panel_rect(layout.log_panel.saved_rect)
+}
+
+// build_editor_layout_from_app allocates an EditorLayout and fills it from the current panel state. Caller must free the result.
+build_editor_layout_from_app :: proc(app: ^App) -> ^util.EditorLayout {
+	if app == nil {
+		return nil
+	}
+	layout := new(util.EditorLayout)
+	rect_from :: proc(r: rl.Rectangle) -> util.RectF {
+		return util.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
+	}
+	layout.render_panel = util.PanelState{
+		rect       = rect_from(app.render_panel.rect),
+		visible    = app.render_panel.visible,
+		maximized  = app.render_panel.maximized,
+		saved_rect = rect_from(app.render_panel.saved_rect),
+	}
+	layout.stats_panel = util.PanelState{
+		rect       = rect_from(app.stats_panel.rect),
+		visible    = app.stats_panel.visible,
+		maximized  = app.stats_panel.maximized,
+		saved_rect = rect_from(app.stats_panel.saved_rect),
+	}
+	layout.log_panel = util.PanelState{
+		rect       = rect_from(app.log_panel.rect),
+		visible    = app.log_panel.visible,
+		maximized  = app.log_panel.maximized,
+		saved_rect = rect_from(app.log_panel.saved_rect),
+	}
+	return layout
+}
+
 app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^rawptr) {
     context = runtime.default_context()
     if g_app == nil { return }
@@ -76,7 +133,13 @@ app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^raw
     app_push_log(g_app, strings.concatenate({prefix, string(text)}))
 }
 
-run_app :: proc(camera: ^rt.Camera, world: [dynamic]rt.Object, num_threads: int) {
+run_app :: proc(
+	camera: ^rt.Camera,
+	world: [dynamic]rt.Object,
+	num_threads: int,
+	initial_editor_layout: ^util.EditorLayout = nil,
+	config_save_path: string = "",
+) {
     WIN_W :: i32(1280)
     WIN_H :: i32(720)
 
@@ -121,6 +184,10 @@ run_app :: proc(camera: ^rt.Camera, world: [dynamic]rt.Object, num_threads: int)
         },
         render_tex    = render_tex,
         pixel_staging = pixel_staging,
+    }
+
+    if initial_editor_layout != nil {
+        apply_editor_layout(&app, initial_editor_layout)
     }
 
     g_app = &app
@@ -187,6 +254,21 @@ run_app :: proc(camera: ^rt.Camera, world: [dynamic]rt.Object, num_threads: int)
     // Early close: finish_render still runs and blocks until workers drain the tile queue (no abort).
     if !app.finished {
         rt.finish_render(session)
+    }
+
+    if len(config_save_path) > 0 {
+        config := util.RenderConfig{
+            width             = camera.image_width,
+            height            = camera.image_height,
+            samples_per_pixel = camera.samples_per_pixel,
+        }
+        config.editor = build_editor_layout_from_app(&app)
+        if !util.save_config(config_save_path, config) {
+            fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
+        }
+        if config.editor != nil {
+            free(config.editor)
+        }
     }
 
     g_app = nil

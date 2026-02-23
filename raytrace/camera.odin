@@ -145,6 +145,15 @@ get_ray :: proc(camera : ^Camera, u : f32, v : f32, rng: ^util.ThreadRNG) -> ray
     return ray{ray_origin, ray_direction}
 }
 
+// pixel_to_ray returns a deterministic ray through the center of pixel (px, py).
+// No antialiasing jitter, no depth-of-field. Intended for mouse picking only.
+pixel_to_ray :: proc(camera: ^Camera, px, py: f32) -> ray {
+    pixel_world := camera.pixel00_loc +
+                   px * camera.pixel_delta_u +
+                   py * camera.pixel_delta_v
+    return ray{camera.center, pixel_world - camera.center}
+}
+
 defocus_disk_sample :: proc(c : ^Camera, rng: ^util.ThreadRNG) -> [3]f32 {
     p := vector_random_in_unit_disk(rng)
     return c.center +(p[0]*c.defocus_disk_u) + (p[1]*c.defocus_disk_v)

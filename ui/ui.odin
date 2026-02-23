@@ -297,7 +297,9 @@ upload_render_texture :: proc(app: ^App) {
     rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
 }
 
-draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
+// render_dest_rect computes the letterboxed on-screen destination rectangle for the
+// render texture inside the given content area. Shared by drawing and hit-testing.
+render_dest_rect :: proc(app: ^App, content: rl.Rectangle) -> rl.Rectangle {
     cam    := app.session.camera
     src_w  := f32(cam.image_width)
     src_h  := f32(cam.image_height)
@@ -313,11 +315,48 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
 
     ox := content.x + (content.width  - dest_w) * 0.5
     oy := content.y + (content.height - dest_h) * 0.5
+    return rl.Rectangle{ox, oy, dest_w, dest_h}
+}
 
-    src  := rl.Rectangle{0, 0, src_w, src_h}
-    dest := rl.Rectangle{ox, oy, dest_w, dest_h}
-
+draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
+    cam  := app.session.camera
+    src  := rl.Rectangle{0, 0, f32(cam.image_width), f32(cam.image_height)}
+    dest := render_dest_rect(app, content)
     rl.DrawTexturePro(app.render_tex, src, dest, rl.Vector2{0, 0}, 0, rl.WHITE)
+}
+
+// screen_to_render_ray maps a screen-space position to an rl.Ray through the
+// corresponding point in the 3D scene. Returns ok=false when the panel is hidden,
+// the session is nil, or the position is outside the letterboxed image.
+screen_to_render_ray :: proc(app: ^App, pos: rl.Vector2) -> (r: rl.Ray, ok: bool) {
+    if !app.render_panel.visible || app.session == nil {
+        return {}, false
+    }
+
+    panel   := app.render_panel
+    content := rl.Rectangle{
+        panel.rect.x,
+        panel.rect.y + TITLE_BAR_HEIGHT,
+        panel.rect.width,
+        panel.rect.height - TITLE_BAR_HEIGHT,
+    }
+
+    dest := render_dest_rect(app, content)
+    if !rl.CheckCollisionPointRec(pos, dest) {
+        return {}, false
+    }
+
+    u := (pos.x - dest.x) / dest.width
+    v := (pos.y - dest.y) / dest.height
+
+    cam := app.session.camera
+    internal_ray := rt.pixel_to_ray(cam, u * f32(cam.image_width), v * f32(cam.image_height))
+
+    dir := rt.unit_vector(internal_ray.dir)
+    return rl.Ray{
+        position  = rl.Vector3{internal_ray.orig[0], internal_ray.orig[1], internal_ray.orig[2]},
+        direction = rl.Vector3{dir[0], dir[1], dir[2]},
+    }, true
 }
 
 draw_panel :: proc(panel: ^FloatingPanel, app: ^App) {
