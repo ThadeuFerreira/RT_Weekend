@@ -1,4 +1,4 @@
-package main
+package raytrace
 
 global_interval_empty : Interval = Interval{min = 0h7ff00000_00000000, max = 0hfff00000_00000000}
 global_interval_universe : Interval = Interval{min = 0hfff00000_00000000, max =0h7ff00000_00000000}
