@@ -86,6 +86,22 @@ update_panel :: proc(panel: ^FloatingPanel, mouse: rl.Vector2, lmb: bool, lmb_pr
     }
 }
 
+// clamp_panel_to_screen keeps the panel inside the window bounds (e.g. after window resize).
+clamp_panel_to_screen :: proc(panel: ^FloatingPanel, screen_w, screen_h: f32) {
+    if !panel.visible { return }
+    sw := screen_w
+    sh := screen_h
+    r := &panel.rect
+    if r.x < 0 { r.x = 0 }
+    if r.y < 0 { r.y = 0 }
+    if r.width < panel.min_size.x { r.width = panel.min_size.x }
+    if r.height < panel.min_size.y { r.height = panel.min_size.y }
+    if r.x + r.width > sw { r.x = sw - r.width }
+    if r.y + r.height > sh { r.y = sh - r.height }
+    if r.x < 0 { r.x = 0 }
+    if r.y < 0 { r.y = 0 }
+}
+
 draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
     if !panel.visible {
         return rl.Rectangle{}
@@ -281,10 +297,7 @@ upload_render_texture :: proc(app: ^App) {
     rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
 }
 
-draw_render_panel :: proc(app: ^App) {
-    content := draw_panel_chrome(app.render_panel)
-    if !app.render_panel.visible { return }
-
+draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
     cam    := app.session.camera
     src_w  := f32(cam.image_width)
     src_h  := f32(cam.image_height)
@@ -307,14 +320,10 @@ draw_render_panel :: proc(app: ^App) {
     rl.DrawTexturePro(app.render_tex, src, dest, rl.Vector2{0, 0}, 0, rl.WHITE)
 }
 
-draw_stats_panel :: proc(app: ^App) {
-    content := draw_panel_chrome(app.stats_panel)
-    if !app.stats_panel.visible { return }
-    draw_stats_content(app, content)
-}
-
-draw_log_panel :: proc(app: ^App) {
-    content := draw_panel_chrome(app.log_panel)
-    if !app.log_panel.visible { return }
-    draw_log_content(app, content)
+draw_panel :: proc(panel: ^FloatingPanel, app: ^App) {
+    content := draw_panel_chrome(panel^)
+    if !panel.visible { return }
+    if panel.draw_content != nil {
+        panel.draw_content(app, content)
+    }
 }
