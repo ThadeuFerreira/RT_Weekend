@@ -17,6 +17,10 @@ FloatingPanel :: struct {
     resizing:    bool,
     drag_offset: rl.Vector2,
     visible:     bool,
+    closeable:   bool,
+    detachable:  bool,
+    maximized:   bool,
+    saved_rect:  rl.Rectangle,
 }
 
 App :: struct {
@@ -100,10 +104,12 @@ run_app :: proc(camera: ^rt.Camera, world: [dynamic]rt.Object, num_threads: int)
             visible  = true,
         },
         log_panel = FloatingPanel{
-            title    = "Log",
-            rect     = rl.Rectangle{840, 240, 430, 470},
-            min_size = rl.Vector2{180, 100},
-            visible  = true,
+            title      = "Log",
+            rect       = rl.Rectangle{840, 240, 430, 470},
+            min_size   = rl.Vector2{180, 100},
+            visible    = true,
+            closeable  = true,
+            detachable = true,
         },
         render_tex    = render_tex,
         pixel_staging = pixel_staging,
@@ -135,6 +141,10 @@ run_app :: proc(camera: ^rt.Camera, world: [dynamic]rt.Object, num_threads: int)
         update_panel(&app.stats_panel,  mouse, lmb, lmb_pressed)
         update_panel(&app.log_panel,    mouse, lmb, lmb_pressed)
 
+        if rl.IsKeyPressed(.L) {
+            app.log_panel.visible = true
+        }
+
         if frame % 4 == 0 {
             upload_render_texture(&app)
         }
@@ -151,6 +161,9 @@ run_app :: proc(camera: ^rt.Camera, world: [dynamic]rt.Object, num_threads: int)
 
         draw_render_panel(&app)
         draw_stats_panel(&app)
+        if app.log_panel.maximized {
+            draw_dim_overlay()
+        }
         draw_log_panel(&app)
 
         rl.EndDrawing()

@@ -32,14 +32,38 @@ update_panel :: proc(panel: ^FloatingPanel, mouse: rl.Vector2, lmb: bool, lmb_pr
         RESIZE_GRIP_SIZE,
     }
 
+    close_rect  := rl.Rectangle{ panel.rect.x + panel.rect.width - 22, panel.rect.y + 4, 16, 16 }
+    detach_rect := rl.Rectangle{ panel.rect.x + panel.rect.width - 42, panel.rect.y + 4, 16, 16 }
+
     if lmb_pressed {
-        if rl.CheckCollisionPointRec(mouse, grip_rect) {
-            panel.resizing = true
-        } else if rl.CheckCollisionPointRec(mouse, title_rect) {
-            panel.dragging = true
-            panel.drag_offset = rl.Vector2{
-                mouse.x - panel.rect.x,
-                mouse.y - panel.rect.y,
+        if panel.closeable && rl.CheckCollisionPointRec(mouse, close_rect) {
+            panel.visible = false
+            return
+        }
+        if panel.detachable && rl.CheckCollisionPointRec(mouse, detach_rect) {
+            if panel.maximized {
+                panel.rect      = panel.saved_rect
+                panel.maximized = false
+            } else {
+                panel.saved_rect = panel.rect
+                sw := f32(rl.GetScreenWidth())
+                sh := f32(rl.GetScreenHeight())
+                mw := sw * 0.85
+                mh := sh * 0.85
+                panel.rect      = rl.Rectangle{ (sw-mw)*0.5, (sh-mh)*0.5, mw, mh }
+                panel.maximized = true
+            }
+            return
+        }
+        if !panel.maximized {
+            if rl.CheckCollisionPointRec(mouse, grip_rect) {
+                panel.resizing = true
+            } else if rl.CheckCollisionPointRec(mouse, title_rect) {
+                panel.dragging = true
+                panel.drag_offset = rl.Vector2{
+                    mouse.x - panel.rect.x,
+                    mouse.y - panel.rect.y,
+                }
             }
         }
     }
@@ -74,14 +98,51 @@ draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
     rl.DrawRectangleRec(title_rect, TITLE_BG_COLOR)
     rl.DrawText(panel.title, i32(panel.rect.x) + 6, i32(panel.rect.y) + 5, 14, TITLE_TEXT_COLOR)
 
-    gx := panel.rect.x + panel.rect.width
-    gy := panel.rect.y + panel.rect.height
-    rl.DrawTriangle(
-        rl.Vector2{gx - RESIZE_GRIP_SIZE, gy},
-        rl.Vector2{gx, gy},
-        rl.Vector2{gx, gy - RESIZE_GRIP_SIZE},
-        BORDER_COLOR,
-    )
+    mouse := rl.GetMousePosition()
+
+    // Close button [X] — rightmost
+    if panel.closeable {
+        close_rect  := rl.Rectangle{ panel.rect.x + panel.rect.width - 22, panel.rect.y + 4, 16, 16 }
+        close_hover := rl.CheckCollisionPointRec(mouse, close_rect)
+        close_color := close_hover ? rl.RED : TITLE_TEXT_COLOR
+        cx := close_rect.x + close_rect.width  * 0.5
+        cy := close_rect.y + close_rect.height * 0.5
+        d  := f32(4)
+        rl.DrawLineEx(rl.Vector2{cx-d, cy-d}, rl.Vector2{cx+d, cy+d}, 2, close_color)
+        rl.DrawLineEx(rl.Vector2{cx+d, cy-d}, rl.Vector2{cx-d, cy+d}, 2, close_color)
+    }
+
+    // Detach/restore button — second from right
+    if panel.detachable {
+        detach_rect  := rl.Rectangle{ panel.rect.x + panel.rect.width - 42, panel.rect.y + 4, 16, 16 }
+        detach_hover := rl.CheckCollisionPointRec(mouse, detach_rect)
+        detach_color := detach_hover ? ACCENT_COLOR : TITLE_TEXT_COLOR
+        if panel.maximized {
+            // Restore icon: two offset overlapping boxes
+            rl.DrawRectangleLinesEx(rl.Rectangle{detach_rect.x+2, detach_rect.y+4, 9, 9}, 1, detach_color)
+            rl.DrawRectangleLinesEx(rl.Rectangle{detach_rect.x+5, detach_rect.y+2, 9, 9}, 1, detach_color)
+        } else {
+            // Maximize icon: single hollow box
+            rl.DrawRectangleLinesEx(rl.Rectangle{detach_rect.x+2, detach_rect.y+2, 12, 12}, 1, detach_color)
+        }
+    }
+
+    // Resize grip: two parallel diagonal lines (only when not maximized)
+    if !panel.maximized {
+        gx := panel.rect.x + panel.rect.width
+        gy := panel.rect.y + panel.rect.height
+        gs := RESIZE_GRIP_SIZE
+        rl.DrawLineEx(
+            rl.Vector2{gx - gs,       gy},
+            rl.Vector2{gx,       gy - gs},
+            2, BORDER_COLOR,
+        )
+        rl.DrawLineEx(
+            rl.Vector2{gx - gs*0.55, gy},
+            rl.Vector2{gx,       gy - gs*0.55},
+            2, BORDER_COLOR,
+        )
+    }
 
     return rl.Rectangle{
         panel.rect.x,
@@ -89,6 +150,12 @@ draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
         panel.rect.width,
         panel.rect.height - TITLE_BAR_HEIGHT,
     }
+}
+
+draw_dim_overlay :: proc() {
+    sw := rl.GetScreenWidth()
+    sh := rl.GetScreenHeight()
+    rl.DrawRectangle(0, 0, sw, sh, rl.Color{0, 0, 0, 140})
 }
 
 draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
