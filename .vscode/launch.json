@@ -7,7 +7,7 @@
             "request": "launch",
             "preLaunchTask": "build-windows",
             "program": "${workspaceFolder}/build/debug.exe",
-            "args": [],
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -16,17 +16,27 @@
             "request": "launch",
             "preLaunchTask": "build-linux",
             "program": "${workspaceFolder}/build/debug",
-            "args": ["--no-progress"],
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
             "cwd": "${workspaceFolder}",
             "miDebuggerPath": "/usr/bin/gdb"
         },
         {
-            "name": "Debug (Test Mode)",
+            "name": "Debug (Linux) Large",
             "type": "cppdbg",
             "request": "launch",
             "preLaunchTask": "build-linux",
             "program": "${workspaceFolder}/build/debug",
-            "args": ["-t"],
+            "args": ["-w", "1600", "-h", "900", "-s", "100", "-c", "8"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Linux, small)",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "160", "-h", "90", "-s", "2", "-n", "2", "-c", "2"],
             "cwd": "${workspaceFolder}",
             "miDebuggerPath": "/usr/bin/gdb"
         }
