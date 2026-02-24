@@ -3,6 +3,7 @@ package ui
 import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
+import rt "RT_Weekend:raytrace"
 
 EDIT_TOOLBAR_H :: f32(32)
 EDIT_PROPS_H   :: f32(70)
@@ -52,6 +53,37 @@ init_edit_view :: proc(ev: ^EditViewState) {
 
 	update_orbit_camera(ev)
 	ev.initialized = true
+}
+
+// build_world_from_edit_view converts the panel's EditSphere list into a raytrace Object
+// slice ready to be passed to rt.start_render. Adds a grey ground plane automatically.
+// Caller owns the returned dynamic array and must delete it when done.
+build_world_from_edit_view :: proc(ev: ^EditViewState) -> [dynamic]rt.Object {
+    world := make([dynamic]rt.Object)
+
+    // Ground plane
+    append(&world, rt.Object(rt.Sphere{
+        center   = {0, -1000, 0},
+        radius   = 1000,
+        material = rt.lambertian{albedo = {0.5, 0.5, 0.5}},
+    }))
+
+    for s in ev.objects {
+        mat: rt.material
+        switch s.mat_type {
+        case 0: mat = rt.lambertian{albedo = s.color}
+        case 1: mat = rt.metalic{albedo = s.color, fuzz = 0.1}
+        case 2: mat = rt.dieletric{ref_idx = 1.5}
+        case:   mat = rt.lambertian{albedo = s.color}
+        }
+        append(&world, rt.Object(rt.Sphere{
+            center   = s.center,
+            radius   = s.radius,
+            material = mat,
+        }))
+    }
+
+    return world
 }
 
 update_orbit_camera :: proc(ev: ^EditViewState) {
@@ -233,6 +265,17 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		rl.DrawText("Delete", i32(btn_del.x) + 8, i32(btn_del.y) + 4, 12, rl.RAYWHITE)
 	}
 
+	// "Render" button — right-aligned; dimmed while a render is in progress
+	btn_render     := rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
+	render_busy    := !app.finished
+	render_hover   := !render_busy && rl.CheckCollisionPointRec(mouse, btn_render)
+	render_bg      := render_busy   ? rl.Color{45, 75, 45, 200} :
+	                  render_hover  ? rl.Color{80, 190, 80, 255} :
+	                                  rl.Color{50, 140, 50, 255}
+	render_label   := render_busy   ? cstring("Rendering…") : cstring("Render")
+	rl.DrawRectangleRec(btn_render, render_bg)
+	rl.DrawText(render_label, i32(btn_render.x) + 6, i32(btn_render.y) + 4, 12, rl.RAYWHITE)
+
 	// 3D viewport
 	vp_rect := rl.Rectangle{
 		content.x,
@@ -260,6 +303,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	btn_add := rl.Rectangle{content.x + 8, content.y + 5, 90, 22}
 	btn_del := rl.Rectangle{content.x + 106, content.y + 5, 60, 22}
 
+	btn_render := rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
+
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, btn_add) {
 			append(&ev.objects, EditSphere{
@@ -272,6 +317,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		} else if ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, btn_del) {
 			ordered_remove(&ev.objects, ev.selected_idx)
 			ev.selected_idx = -1
+		} else if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
+			app_restart_render(app, build_world_from_edit_view(ev))
 		}
 	}
 

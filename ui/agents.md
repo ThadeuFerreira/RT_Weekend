@@ -174,12 +174,13 @@ A `FloatingPanel` with `closeable = false`, `dragging = false`, paired with a `d
 
 | File | Responsibility |
 |---|---|
-| `ui/app.odin` | `App` and `FloatingPanel` structs; `PanelDesc` builder; `make_panel` factory; `app_add_panel` / `app_find_panel` registry; `run_app` (main event loop); log ring; layout save/load |
+| `ui/app.odin` | `App` and `FloatingPanel` structs; `PanelDesc` builder; `make_panel` factory; `app_add_panel` / `app_find_panel` / `app_restart_render` registry; `run_app` (main event loop); log ring; layout save/load |
 | `ui/ui.odin` | Shared draw/interaction primitives: `update_panel`, `draw_panel_chrome`, `draw_panel`, `draw_dim_overlay`, `upload_render_texture`, `render_dest_rect`, `screen_to_render_ray`; `PanelStyle` + `DEFAULT_PANEL_STYLE`; color/size constants |
 | `ui/rt_render_panel.odin` | `draw_render_content` — renders the live ray-trace preview into a panel content area |
 | `ui/stats_panel.odin` | `draw_stats_content` — tile progress, thread count, elapsed time, progress bar |
 | `ui/log_panel.odin` | `draw_log_content` — scrolling ring-buffer log display |
 | `ui/system_info.odin` | `draw_system_info_content` — OS, CPU, RAM, GPU info display |
+| `ui/edit_view_panel.odin` | `EditViewState`, `EditSphere`; `draw_edit_view_content` / `update_edit_view_content` — 3D orbit viewport with sphere editing; `build_world_from_edit_view` — converts edit spheres to raytrace objects for re-rendering |
 
 New files to add as the UI grows:
 
@@ -187,13 +188,13 @@ New files to add as the UI grows:
 |---|---|
 | `ui/widgets.odin` | `draw_button`, `draw_slider`, `draw_text_field`, `draw_dropdown`, `draw_progress_bar`, etc. |
 | `ui/overlays.odin` | `Overlay` type, overlay stack management, `push_overlay`, `draw_overlay_stack` |
-| `ui/options_panel.odin` | `draw_options_content` — editable render settings |
+| `ui/options_panel.odin` | `draw_options_content` — editable render settings (samples, resolution, max depth) |
 | `ui/tools.odin` | Tool enum, active tool state, per-tool update/draw procs |
-| `ui/terminal_panel.odin` | `draw_terminal_content` — command input + output |
+| `ui/terminal_panel.odin` | `draw_terminal_content` / `update_terminal_content` — command input + output; follows the same Strategy pattern as Edit View |
 
 ### Adding a new panel
 
-Create `ui/<name>_panel.odin`. Define `draw_<name>_content :: proc(app: ^App, content: rl.Rectangle)`. Add a panel ID constant in `app.odin` (`PANEL_ID_<NAME> :: "<name>"`). In `run_app`, call `app_add_panel(&app, make_panel(PanelDesc{ id = PANEL_ID_<NAME>, ... }))`. No other files need to change.
+Create `ui/<name>_panel.odin`. Define `draw_<name>_content :: proc(app: ^App, content: rl.Rectangle)`. For interactive panels also define `update_<name>_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool)`. Add a panel ID constant in `app.odin` (`PANEL_ID_<NAME> :: "<name>"`). In `run_app`, call `app_add_panel(&app, make_panel(PanelDesc{ id = PANEL_ID_<NAME>, ..., draw_content = draw_<name>_content, update_content = update_<name>_content }))`. No other files need to change. See `ui/edit_view_panel.odin` as the reference implementation for a panel with both draw and update content procs.
 
 ### Adding a new widget
 
@@ -257,6 +258,7 @@ PanelDesc :: struct {
 | `make_panel(desc: PanelDesc) -> ^FloatingPanel` | Allocates and initialises a panel from a builder struct. |
 | `app_add_panel(app, panel)` | Appends a heap-allocated panel to `app.panels`; app takes ownership. |
 | `app_find_panel(app, id) -> ^FloatingPanel` | Returns the first panel whose `id` matches, or nil. |
+| `app_restart_render(app, new_world)` | Replaces the current world and starts a fresh render session. No-op if `!app.finished`. Frees the old session and world, resets `app.session`, `app.finished`, `app.elapsed_secs`, and `app.render_start`. |
 
 ### Panel ID constants
 
@@ -265,6 +267,7 @@ PANEL_ID_RENDER      :: "render_preview"
 PANEL_ID_STATS       :: "stats"
 PANEL_ID_LOG         :: "log"
 PANEL_ID_SYSTEM_INFO :: "system_info"
+PANEL_ID_EDIT_VIEW   :: "edit_view"
 ```
 
 IDs are also the map keys used for config persistence (`util.EditorLayout.panels`).
@@ -272,6 +275,12 @@ IDs are also the map keys used for config persistence (`util.EditorLayout.panels
 ### `App`
 
 Central mutable state for a running editor session. `panels: [dynamic]^FloatingPanel` is the registry — all panels live here. Iterate with `for p in app.panels`. Lookup by ID with `app_find_panel`.
+
+Three fields support re-rendering from the Edit View:
+
+- `num_threads: int` — stored once at startup; reused by `app_restart_render`.
+- `camera: ^rt.Camera` — pointer to the single camera; reused across renders (same dimensions).
+- `world: [dynamic]rt.Object` — currently active world; owned by `App`. Replaced (and freed) by `app_restart_render`. Freed by a defer in `run_app` on exit.
 
 `g_app` is a package-level pointer used only by the Raylib trace log callback (which requires a C calling convention and cannot close over Odin state). Treat it as internal plumbing — do not read or write it from panel content procs.
 
@@ -352,7 +361,7 @@ UPDATE PHASE (input → state):
   4. For each panel in app.panels:
        update_panel + clamp_panel_to_screen
        if panel.update_content != nil && panel.visible: call update_content
-  5. Per-frame logic: tool input, keyboard shortcuts (L = reopen log, S = reopen system info), render progress check
+  5. Per-frame logic: tool input, keyboard shortcuts (L = reopen log, S = reopen system info, E = reopen edit view), render progress check
 
 DRAW PHASE (state → screen):
   6. upload_render_texture (every 4 frames and on completion)
@@ -387,7 +396,7 @@ JSON config format:
 | Category | Convention | Example |
 |---|---|---|
 | Panel content proc | `draw_<name>_content` | `draw_stats_content` |
-| Panel input proc | `update_<name>_content` | (future interactive panels) |
+| Panel input proc | `update_<name>_content` | `update_edit_view_content` |
 | Widget draw proc | `draw_<widget>` | `draw_button`, `draw_dropdown` |
 | Widget update proc | `update_<widget>` | `update_button`, `update_dropdown` |
 | Widget result type | `<Widget>Result` | `ButtonResult`, `DropdownResult` |
@@ -399,6 +408,115 @@ JSON config format:
 | Overlay push | `push_<overlay_type>` | `push_dropdown_overlay`, `push_context_menu` |
 | Layout helpers | `apply_<source>_layout`, `build_<dest>_layout_from_<source>` | `apply_editor_layout` |
 | Constants | `SCREAMING_SNAKE_CASE` | `TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, `PANEL_ID_RENDER` |
+
+---
+
+## Edit View Panel (`ui/edit_view_panel.odin`)
+
+The Edit View is the first fully interactive panel — it has both `draw_content` and `update_content` set. It provides a live 3D Raylib viewport for constructing the ray-traced scene before committing a render.
+
+### Data types
+
+```odin
+EditSphere :: struct {
+    center:   [3]f32,   // world position
+    radius:   f32,
+    mat_type: int,      // 0=lambertian  1=metallic  2=dielectric
+    color:    [3]f32,   // albedo / base color
+}
+
+EditViewState :: struct {
+    viewport_tex:   rl.RenderTexture2D, // off-screen 3D render target
+    tex_w, tex_h:   i32,
+
+    cam3d:          rl.Camera3D,        // recomputed each frame from orbit params
+    orbit_yaw:      f32,
+    orbit_pitch:    f32,
+    orbit_distance: f32,
+    orbit_target:   rl.Vector3,
+
+    rmb_held:       bool,               // right-drag orbit tracking
+    last_mouse:     rl.Vector2,
+
+    objects:        [dynamic]EditSphere,
+    selected_idx:   int,                // -1 = none selected
+    initialized:    bool,
+}
+```
+
+`App.edit_view` holds the single `EditViewState`. The dynamic `objects` slice is cleaned up by `defer delete(app.edit_view.objects)` in `run_app`. The off-screen texture is cleaned up by `defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)`.
+
+### Layout
+
+```
+┌──────────────────────────────────────────┐
+│  Title bar (panel chrome)                │
+├──────────────────────────────────────────┤
+│  Toolbar (32px)  [Add Sphere] [Delete] [Render] │
+├──────────────────────────────────────────┤
+│                                          │
+│  3D viewport (off-screen RenderTexture)  │
+│  • orbit camera (right-drag)             │
+│  • scroll zoom                           │
+│  • left-click picks spheres              │
+│                                          │
+├──────────────────────────────────────────┤
+│  Properties strip (70px)                 │
+│  selected sphere: pos / radius / mat     │
+└──────────────────────────────────────────┘
+```
+
+### Key procs
+
+| Proc | Role |
+|---|---|
+| `init_edit_view(ev)` | Seeds orbit params, adds 3 default spheres (red, blue, green), calls `update_orbit_camera`. |
+| `update_orbit_camera(ev)` | Clamps pitch/distance; computes spherical-to-Cartesian position; writes `ev.cam3d`. |
+| `draw_viewport_3d(ev, vp_rect)` | Reallocates `viewport_tex` on resize; renders scene + grid to off-screen texture; draws to panel with Y-flip (`src.height = -tex_h`). |
+| `compute_viewport_ray(ev, mouse, vp_rect) -> (rl.Ray, bool)` | Perspective ray from mouse position using camera basis vectors + `fovy`. Returns `false` outside viewport. |
+| `pick_sphere(ev, ray) -> int` | `rl.GetRayCollisionSphere` loop; returns closest hit index or `-1`. |
+| `draw_edit_properties(ev, rect)` | Shows pos/radius/material of selected sphere, or "No object selected". |
+| `build_world_from_edit_view(ev) -> [dynamic]rt.Object` | Converts `EditSphere` list to raytrace `Object` slice. Prepends a grey ground sphere at `{0, -1000, 0}`. Caller owns the result. |
+
+### Scene integration
+
+Clicking **Render** in the toolbar (when `app.finished`) calls:
+```odin
+app_restart_render(app, build_world_from_edit_view(ev))
+```
+This replaces `app.world`, calls `rt.free_session` on the old session, and starts a new `rt.start_render`. The Render Preview panel then shows the new render as tiles complete.
+
+### Keyboard controls (when Edit View panel is focused with a sphere selected)
+
+| Key | Action |
+|---|---|
+| W / Up | Move sphere −Z |
+| S / Down | Move sphere +Z |
+| A / Left | Move sphere −X |
+| D / Right | Move sphere +X |
+| Q | Move sphere −Y |
+| E | Move sphere +Y |
+| + / KP+ | Increase radius |
+| − / KP− | Decrease radius (min 0.05) |
+
+**Note:** `D` and `S` are also used by the "right-mouse orbit" for XZ movement, and `E` is the global shortcut to re-show the Edit View panel. These only conflict if the panel is closed and re-opened — when the panel is visible, the per-sphere key handling takes priority.
+
+### Off-screen rendering pattern
+
+`draw_viewport_3d` uses a `rl.RenderTexture2D` to render the 3D scene without interfering with the main `BeginDrawing / EndDrawing` pair. The texture is resized whenever `vp_rect` dimensions change. The Y-flip (`src.height = -tex_h`) corrects the OpenGL bottom-left origin.
+
+```odin
+rl.BeginTextureMode(ev.viewport_tex)
+    rl.ClearBackground(...)
+    rl.BeginMode3D(ev.cam3d)
+        rl.DrawGrid(...)
+        // draw spheres ...
+    rl.EndMode3D()
+rl.EndTextureMode()
+
+src := rl.Rectangle{0, 0, f32(ev.tex_w), -f32(ev.tex_h)}  // negative height = Y-flip
+rl.DrawTexturePro(ev.viewport_tex.texture, src, vp_rect, {}, 0, rl.WHITE)
+```
 
 ---
 

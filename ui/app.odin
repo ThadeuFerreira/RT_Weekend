@@ -88,6 +88,28 @@ app_find_panel :: proc(app: ^App, id: string) -> ^FloatingPanel {
     return nil
 }
 
+// app_restart_render replaces the current world with new_world and starts a fresh render.
+// No-op if the current render has not yet finished (finish_render must have been called).
+app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
+    if !app.finished { return }
+
+    // Free old session (pixel buffer + tiles + session struct).
+    rt.free_session(app.session)
+    app.session = nil
+
+    // Replace world.
+    delete(app.world)
+    app.world = new_world
+
+    // Reset render state.
+    app.finished     = false
+    app.elapsed_secs = 0
+    app.render_start = time.now()
+
+    app.session = rt.start_render(app.camera, app.world, app.num_threads)
+    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
+}
+
 App :: struct {
     panels:        [dynamic]^FloatingPanel,
 
@@ -95,6 +117,11 @@ App :: struct {
     pixel_staging: []rl.Color,
 
     session:       ^rt.RenderSession,
+
+    // Kept separately so re-renders can reuse the same camera and replace the world.
+    num_threads:   int,
+    camera:        ^rt.Camera,
+    world:         [dynamic]rt.Object,
 
     log_lines:     [LOG_RING_SIZE]string,
     log_count:     int,
@@ -104,6 +131,7 @@ App :: struct {
     render_start:  time.Time,
 
     edit_view:     EditViewState,
+    menu_bar:      MenuBarState,
 }
 
 g_app: ^App = nil
@@ -202,9 +230,15 @@ run_app :: proc(
         render_tex    = render_tex,
         pixel_staging = pixel_staging,
     }
+    app.camera      = camera
+    app.world       = world
+    app.num_threads = num_threads
+    app.menu_bar    = MenuBarState{open_menu_index = -1}
     init_edit_view(&app.edit_view)
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer delete(app.edit_view.objects)
+    defer { rt.free_session(app.session) }
+    defer delete(app.world)
     defer {
         for p in app.panels { free(p) }
         delete(app.panels)
@@ -213,7 +247,7 @@ run_app :: proc(
     app_add_panel(&app, make_panel(PanelDesc{
         id           = PANEL_ID_RENDER,
         title        = "Render Preview",
-        rect         = rl.Rectangle{10, 10, 820, 700},
+        rect         = rl.Rectangle{10, 30, 820, 700},
         min_size     = rl.Vector2{200, 150},
         visible      = true,
         draw_content = draw_render_content,
@@ -221,7 +255,7 @@ run_app :: proc(
     app_add_panel(&app, make_panel(PanelDesc{
         id           = PANEL_ID_STATS,
         title        = "Stats",
-        rect         = rl.Rectangle{840, 10, 430, 220},
+        rect         = rl.Rectangle{840, 30, 430, 220},
         min_size     = rl.Vector2{180, 140},
         visible      = true,
         draw_content = draw_stats_content,
@@ -250,7 +284,7 @@ run_app :: proc(
     app_add_panel(&app, make_panel(PanelDesc{
         id             = PANEL_ID_EDIT_VIEW,
         title          = "Edit View",
-        rect           = rl.Rectangle{10, 820, 820, 700},
+        rect           = rl.Rectangle{10, 850, 820, 700},
         min_size       = rl.Vector2{300, 250},
         visible        = true,
         closeable      = true,
@@ -270,8 +304,7 @@ run_app :: proc(
     app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))
     app_push_log(&app, strings.clone("Starting render..."))
 
-    session := rt.start_render(camera, world, num_threads)
-    app.session      = session
+    app.session      = rt.start_render(app.camera, app.world, app.num_threads)
     app.render_start = time.now()
 
     frame := 0
@@ -287,6 +320,7 @@ run_app :: proc(
 
         sw := f32(rl.GetScreenWidth())
         sh := f32(rl.GetScreenHeight())
+        menu_bar_update(&app, &app.menu_bar, mouse, lmb_pressed)
         for p in app.panels {
             update_panel(p, mouse, lmb, lmb_pressed)
             clamp_panel_to_screen(p, sw, sh)
@@ -321,8 +355,8 @@ run_app :: proc(
             upload_render_texture(&app)
         }
 
-        if !app.finished && rt.get_render_progress(session) >= 1.0 {
-            rt.finish_render(session)
+        if !app.finished && rt.get_render_progress(app.session) >= 1.0 {
+            rt.finish_render(app.session)
             app.finished = true
             upload_render_texture(&app)
             app_push_log(&app, fmt.aprintf("Done! (%.2fs)", app.elapsed_secs))
@@ -335,6 +369,7 @@ run_app :: proc(
             if p.dim_when_maximized && p.maximized { draw_dim_overlay() }
             draw_panel(p, &app)
         }
+        menu_bar_draw(&app, &app.menu_bar)
 
         rl.EndDrawing()
 
@@ -343,7 +378,7 @@ run_app :: proc(
 
     // Early close: finish_render still runs and blocks until workers drain the tile queue (no abort).
     if !app.finished {
-        rt.finish_render(session)
+        rt.finish_render(app.session)
     }
 
     if len(config_save_path) > 0 {

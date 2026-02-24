@@ -322,6 +322,16 @@ start_render :: proc(camera: ^Camera, world: [dynamic]Object, num_threads: int) 
     return session
 }
 
+// free_session releases the remaining allocations left over after finish_render:
+// the pixel buffer, the tile list, and the session struct itself.
+// Must only be called after finish_render returns.
+free_session :: proc(session: ^RenderSession) {
+    if session == nil { return }
+    delete(session.pixel_buffer.pixels)
+    delete(session.work_queue.tiles)
+    free(session)
+}
+
 get_render_progress :: proc(session: ^RenderSession) -> f32 {
     if session.work_queue.total_tiles == 0 {
         return 1.0
