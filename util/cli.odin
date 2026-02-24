@@ -17,6 +17,7 @@ Args :: struct {
 	SaveScenePath:    string,
 }
 
+
 // Parse -w, -h, -s, -n, -c and -config, -scene, -save-config, -save-scene from os.args. Returns false on parse error or -help.
 parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 	i := 1
@@ -95,17 +96,14 @@ get_gpu_info :: proc() -> string {
 }
 
 print_system_info :: proc() {
-    fmt.printfln("Odin:      %v",      ODIN_VERSION)
-	fmt.printfln("OS:        %v",      si.os_version.as_string)
-	fmt.printfln("CPU:       %v",      si.cpu.name)
-	fmt.printfln("CPU cores: %vc/%vt", si.cpu.physical_cores, si.cpu.logical_cores)
-	fmt.printfln("RAM:       %#.1M",   si.ram.total_ram)
-
-	fmt.println()
-	for gpu, i in si.gpus {
-		fmt.printfln("GPU #%v:", i)
-		fmt.printfln("\tVendor: %v",    gpu.vendor_name)
-		fmt.printfln("\tModel:  %v",    gpu.model_name)
-		fmt.printfln("\tVRAM:   %#.1M", gpu.total_ram)
+    system_info := get_system_info()
+    fmt.printfln("Odin:      %v",      system_info.OdinVersion)
+	fmt.printfln("OS:        %v",      system_info.OS.Name)
+	fmt.printfln("CPU:       %v",      system_info.CPU.Name)
+	fmt.printfln("CPU cores: %vc/%vt", system_info.CPU.Cores, system_info.CPU.LogicalCores)
+	fmt.printfln("RAM:       %#.1M",   system_info.RAM.Total)
+	for gpu in system_info.GPUs {
+		fmt.printfln("GPU:       %v",      gpu.Model)
+		fmt.printfln("GPU VRAM:  %#.1M", gpu.VRAM)
 	}
 }
