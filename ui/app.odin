@@ -55,7 +55,7 @@ PanelDesc :: struct {
     update_content:     proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool),
 }
 
-// make_panel allocates a FloatingPanel from a PanelDesc. Caller must free via app_add_panel or free().
+// make_panel allocates a FloatingPanel from a PanelDesc. Caller must either transfer ownership via app_add_panel or free() the panel.
 make_panel :: proc(desc: PanelDesc) -> ^FloatingPanel {
     p := new(FloatingPanel)
     p^ = FloatingPanel{

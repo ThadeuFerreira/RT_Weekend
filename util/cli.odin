@@ -104,6 +104,7 @@ print_system_info :: proc() {
 	fmt.printfln("RAM:       %#.1M",   system_info.RAM.Total)
 	for gpu in system_info.GPUs {
 		fmt.printfln("GPU:       %v",      gpu.Model)
+		fmt.printfln("GPU Vendor: %v",      gpu.Vendor)
 		fmt.printfln("GPU VRAM:  %#.1M", gpu.VRAM)
 	}
 }

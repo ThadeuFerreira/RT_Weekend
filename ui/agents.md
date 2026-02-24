@@ -50,7 +50,7 @@ Level 2 — Widget
 - **`draw_content: proc(app: ^App, content: rl.Rectangle)`** — called during the draw phase to render the panel body.
 - **`update_content: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool)`** — called during the update phase for panels with custom input handling. Nil = no custom input.
 
-Any proc matching the respective signature can be assigned at construction time via `PanelDesc`. This replaces type switches and avoids inheritance. Panels that only display (Stats, Log, Render, SystemInfo) set only `draw_content`. Interactive panels (terminal, tool options) set both.
+Any proc matching the respective signature can be assigned at construction time via `PanelDesc`. This replaces type switches and avoids inheritance. Panels that only display (Stats, Log, Render, System_Info) set only `draw_content`. Interactive panels (terminal, tool options) set both.
 
 ### Proc-variable seam (`draw_content`)
 
@@ -333,6 +333,10 @@ RESIZE_GRIP_SIZE      size of the bottom-right resize handle (14 px)
 ```
 
 When adding new UI elements, reuse these constants rather than introducing new magic colors.
+
+### Deferred: `update_panel` title-bar hit testing
+
+`update_panel` still uses the `TITLE_BAR_HEIGHT` package constant for title-bar hit testing. If a panel has a custom `style.title_bar_height`, drag hit detection will diverge from the drawn bar height (e.g. a 32px title bar drawn with only 24px hit area). Same applies to `RESIZE_GRIP_SIZE` vs `style.resize_grip_size`, and to `app.odin` / `screen_to_render_ray` which compute content rects with `TITLE_BAR_HEIGHT`. Fix: resolve `PanelStyle` in `update_panel` and use `style.title_bar_height` / `style.resize_grip_size`; propagate style-aware content rects where needed.
 
 ---
 

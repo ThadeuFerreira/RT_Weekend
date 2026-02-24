@@ -17,7 +17,7 @@ No other package should reimplement CLI parsing, system-info queries, config fil
 | Category | Description | Examples |
 |----------|-------------|----------|
 | **CLI** | Parsing process arguments and filling a structured `Args` (or similar). | `-w`, `-h`, `-s`, `-n`, `-c`, `-config`, `-scene`, `-save-config`, `-save-scene`, `-help`. |
-| **System info** | Detecting CPU core count, OS name/version, RAM, GPUs. Used for default thread count, about dialogs, and tuning. | `get_number_of_physical_cores`, `get_system_info`, `SystemInfo`, `CPUInfo`, etc. |
+| **System info** | Detecting CPU core count, OS name/version, RAM, GPUs. Used for default thread count, about dialogs, and tuning. | `get_number_of_physical_cores`, `get_system_info`, `System_Info`, `CPU_Info`, etc. |
 | **Configuration** | Reading/writing config files (paths, JSON shape). No UI or render logic. | `load_config`, `save_config`, `RenderConfig`, `EditorLayout`, `PanelState`. |
 | **RNG / basic math** | Shared PRNG and small numeric helpers used across packages. | `ThreadRNG`, `create_thread_rng`, `random_float`, `random_float_range` (Xoshiro256++). |
 
@@ -30,7 +30,7 @@ If a routine is “generic infrastructure” used by more than one of `main`, `u
 | File | Responsibility |
 |------|----------------|
 | `util/cli.odin` | `Args` struct; `parse_args_with_short_flags`; `get_number_of_physical_cores` (via `core:sys/info`); help text. |
-| `util/system_info.odin` | `SystemInfo`, `OSInfo`, `CPUInfo`, `RAMInfo`, `GPUInfo`; `get_system_info()` using `core:sys/info`. |
+| `util/system_info.odin` | `System_Info`, `OS_Info`, `CPU_Info`, `RAM_Info`, `GPU_Info`; `get_system_info()` using `core:sys/info`. |
 | `util/config.odin` | `RenderConfig`, `EditorLayout`, `PanelState`, `RectF`; `load_config`, `save_config` (JSON). |
 | `util/rng.odin` | `ThreadRNG` (Xoshiro256++); `create_thread_rng`, `random_float`, `random_float_range`. |
 
@@ -48,8 +48,8 @@ New generic helpers (e.g. more math, file path helpers, or additional system que
 
 ### System info (`system_info.odin`)
 
-- **`SystemInfo`** — Aggregates `OdinVersion`, `OS`, `CPU`, `RAM`, `GPUs`.
-- **`get_system_info() -> SystemInfo`** — One-shot query; used by UI or startup for display/tuning.
+- **`System_Info`** — Aggregates `OdinVersion`, `OS`, `CPU`, `RAM`, `GPUs`.
+- **`get_system_info() -> System_Info`** — One-shot query; used by UI or startup for display/tuning.
 
 ### Configuration (`config.odin`)
 

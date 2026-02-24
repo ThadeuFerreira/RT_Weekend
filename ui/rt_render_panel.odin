@@ -2,7 +2,6 @@ package ui
 
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
-import "RT_Weekend:util"
 
 draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
     cam  := app.session.camera

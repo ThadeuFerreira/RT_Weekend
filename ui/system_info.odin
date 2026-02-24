@@ -14,6 +14,7 @@ draw_system_info_content :: proc(app: ^App, content: rl.Rectangle) {
     rl.DrawText(fmt.ctprintf("RAM:       %#.1M", system_info.RAM.Total), 10, 90, 12, rl.WHITE)
     for gpu in system_info.GPUs {
         rl.DrawText(fmt.ctprintf("GPU:       %v", gpu.Model), 10, 110, 12, rl.WHITE)
+        rl.DrawText(fmt.ctprintf("GPU Vendor: %v", gpu.Vendor), 10, 130, 12, rl.WHITE)
         rl.DrawText(fmt.ctprintf("GPU VRAM:  %#.1M", gpu.VRAM), 10, 130, 12, rl.WHITE)
     }
 }
