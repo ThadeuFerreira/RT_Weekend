@@ -2,7 +2,6 @@ package ui
 
 import "base:runtime"
 import "core:fmt"
-import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:time"
@@ -12,27 +11,84 @@ import "RT_Weekend:util"
 
 LOG_RING_SIZE :: 64
 
+PANEL_ID_RENDER      :: "render_preview"
+PANEL_ID_STATS       :: "stats"
+PANEL_ID_LOG         :: "log"
+PANEL_ID_SYSTEM_INFO :: "system_info"
+
 FloatingPanel :: struct {
-    title:        cstring,
-    rect:         rl.Rectangle,
-    min_size:     rl.Vector2,
-    dragging:     bool,
-    resizing:     bool,
-    drag_offset:  rl.Vector2,
-    visible:      bool,
-    closeable:    bool,
-    detachable:   bool,
-    maximized:    bool,
-    saved_rect:   rl.Rectangle,
+    id:                 string,
+    title:              cstring,
+    rect:               rl.Rectangle,
+    min_size:           rl.Vector2,
+    dragging:           bool,
+    resizing:           bool,
+    drag_offset:        rl.Vector2,
+    visible:            bool,
+    closeable:          bool,
+    detachable:         bool,
+    maximized:          bool,
+    saved_rect:         rl.Rectangle,
+    dim_when_maximized: bool,
+    style:              ^PanelStyle,
 
     // Composable content renderer. Nil = empty body (chrome still draws).
-    draw_content: proc(app: ^App, content: rl.Rectangle),
+    draw_content:   proc(app: ^App, content: rl.Rectangle),
+
+    // Input strategy. Called during the update phase after chrome interaction is resolved.
+    // Nil = panel has no custom input handling.
+    update_content: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool),
+}
+
+// PanelDesc is a builder struct for constructing a FloatingPanel via make_panel.
+PanelDesc :: struct {
+    id:                 string,
+    title:              cstring,
+    rect:               rl.Rectangle,
+    min_size:           rl.Vector2,
+    visible:            bool,
+    closeable:          bool,
+    detachable:         bool,
+    dim_when_maximized: bool,
+    style:              ^PanelStyle,
+    draw_content:       proc(app: ^App, content: rl.Rectangle),
+    update_content:     proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool),
+}
+
+// make_panel allocates a FloatingPanel from a PanelDesc. Caller must either transfer ownership via app_add_panel or free() the panel.
+make_panel :: proc(desc: PanelDesc) -> ^FloatingPanel {
+    p := new(FloatingPanel)
+    p^ = FloatingPanel{
+        id                 = desc.id,
+        title              = desc.title,
+        rect               = desc.rect,
+        min_size           = desc.min_size,
+        visible            = desc.visible,
+        closeable          = desc.closeable,
+        detachable         = desc.detachable,
+        dim_when_maximized = desc.dim_when_maximized,
+        style              = desc.style,
+        draw_content       = desc.draw_content,
+        update_content     = desc.update_content,
+    }
+    return p
+}
+
+// app_add_panel appends a heap-allocated panel to app.panels. App takes ownership.
+app_add_panel :: proc(app: ^App, panel: ^FloatingPanel) {
+    append(&app.panels, panel)
+}
+
+// app_find_panel returns the panel with the given id, or nil if not found.
+app_find_panel :: proc(app: ^App, id: string) -> ^FloatingPanel {
+    for p in app.panels {
+        if p.id == id { return p }
+    }
+    return nil
 }
 
 App :: struct {
-    render_panel:  FloatingPanel,
-    stats_panel:   FloatingPanel,
-    log_panel:     FloatingPanel,
+    panels:        [dynamic]^FloatingPanel,
 
     render_tex:    rl.Texture2D,
     pixel_staging: []rl.Color,
@@ -67,56 +123,37 @@ app_push_log :: proc(app: ^App, msg: string) {
 
 // apply_editor_layout sets each panel's rect, visible, maximized, and saved_rect from the loaded layout.
 apply_editor_layout :: proc(app: ^App, layout: ^util.EditorLayout) {
-	if app == nil || layout == nil {
-		return
-	}
-	panel_rect :: proc(r: util.RectF) -> rl.Rectangle {
-		return rl.Rectangle{x = r.x, y = r.y, width = r.width, height = r.height}
-	}
-	app.render_panel.rect       = panel_rect(layout.render_panel.rect)
-	app.render_panel.visible    = layout.render_panel.visible
-	app.render_panel.maximized  = layout.render_panel.maximized
-	app.render_panel.saved_rect = panel_rect(layout.render_panel.saved_rect)
-
-	app.stats_panel.rect       = panel_rect(layout.stats_panel.rect)
-	app.stats_panel.visible    = layout.stats_panel.visible
-	app.stats_panel.maximized  = layout.stats_panel.maximized
-	app.stats_panel.saved_rect = panel_rect(layout.stats_panel.saved_rect)
-
-	app.log_panel.rect       = panel_rect(layout.log_panel.rect)
-	app.log_panel.visible    = layout.log_panel.visible
-	app.log_panel.maximized  = layout.log_panel.maximized
-	app.log_panel.saved_rect = panel_rect(layout.log_panel.saved_rect)
+    if app == nil || layout == nil { return }
+    panel_rect :: proc(r: util.RectF) -> rl.Rectangle {
+        return rl.Rectangle{x = r.x, y = r.y, width = r.width, height = r.height}
+    }
+    for p in app.panels {
+        if state, ok := layout.panels[p.id]; ok {
+            p.rect       = panel_rect(state.rect)
+            p.visible    = state.visible
+            p.maximized  = state.maximized
+            p.saved_rect = panel_rect(state.saved_rect)
+        }
+    }
 }
 
 // build_editor_layout_from_app allocates an EditorLayout and fills it from the current panel state. Caller must free the result.
 build_editor_layout_from_app :: proc(app: ^App) -> ^util.EditorLayout {
-	if app == nil {
-		return nil
-	}
-	layout := new(util.EditorLayout)
-	rect_from :: proc(r: rl.Rectangle) -> util.RectF {
-		return util.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
-	}
-	layout.render_panel = util.PanelState{
-		rect       = rect_from(app.render_panel.rect),
-		visible    = app.render_panel.visible,
-		maximized  = app.render_panel.maximized,
-		saved_rect = rect_from(app.render_panel.saved_rect),
-	}
-	layout.stats_panel = util.PanelState{
-		rect       = rect_from(app.stats_panel.rect),
-		visible    = app.stats_panel.visible,
-		maximized  = app.stats_panel.maximized,
-		saved_rect = rect_from(app.stats_panel.saved_rect),
-	}
-	layout.log_panel = util.PanelState{
-		rect       = rect_from(app.log_panel.rect),
-		visible    = app.log_panel.visible,
-		maximized  = app.log_panel.maximized,
-		saved_rect = rect_from(app.log_panel.saved_rect),
-	}
-	return layout
+    if app == nil { return nil }
+    layout := new(util.EditorLayout)
+    layout.panels = make(map[string]util.PanelState)
+    rect_from :: proc(r: rl.Rectangle) -> util.RectF {
+        return util.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
+    }
+    for p in app.panels {
+        layout.panels[p.id] = util.PanelState{
+            rect       = rect_from(p.rect),
+            visible    = p.visible,
+            maximized  = p.maximized,
+            saved_rect = rect_from(p.saved_rect),
+        }
+    }
+    return layout
 }
 
 app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^rawptr) {
@@ -134,11 +171,11 @@ app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^raw
 }
 
 run_app :: proc(
-	camera: ^rt.Camera,
-	world: [dynamic]rt.Object,
-	num_threads: int,
-	initial_editor_layout: ^util.EditorLayout = nil,
-	config_save_path: string = "",
+    camera: ^rt.Camera,
+    world: [dynamic]rt.Object,
+    num_threads: int,
+    initial_editor_layout: ^util.EditorLayout = nil,
+    config_save_path: string = "",
 ) {
     WIN_W :: i32(1280)
     WIN_H :: i32(720)
@@ -159,32 +196,51 @@ run_app :: proc(
     defer delete(pixel_staging)
 
     app := App{
-        render_panel = FloatingPanel{
-            title        = "Render Preview",
-            rect         = rl.Rectangle{10, 10, 820, 700},
-            min_size     = rl.Vector2{200, 150},
-            visible      = true,
-            draw_content = draw_render_content,
-        },
-        stats_panel = FloatingPanel{
-            title        = "Stats",
-            rect         = rl.Rectangle{840, 10, 430, 220},
-            min_size     = rl.Vector2{180, 140},
-            visible      = true,
-            draw_content = draw_stats_content,
-        },
-        log_panel = FloatingPanel{
-            title        = "Log",
-            rect         = rl.Rectangle{840, 240, 430, 470},
-            min_size     = rl.Vector2{180, 100},
-            visible      = true,
-            closeable    = true,
-            detachable   = true,
-            draw_content = draw_log_content,
-        },
         render_tex    = render_tex,
         pixel_staging = pixel_staging,
     }
+    defer {
+        for p in app.panels { free(p) }
+        delete(app.panels)
+    }
+
+    app_add_panel(&app, make_panel(PanelDesc{
+        id           = PANEL_ID_RENDER,
+        title        = "Render Preview",
+        rect         = rl.Rectangle{10, 10, 820, 700},
+        min_size     = rl.Vector2{200, 150},
+        visible      = true,
+        draw_content = draw_render_content,
+    }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id           = PANEL_ID_STATS,
+        title        = "Stats",
+        rect         = rl.Rectangle{840, 10, 430, 220},
+        min_size     = rl.Vector2{180, 140},
+        visible      = true,
+        draw_content = draw_stats_content,
+    }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id                 = PANEL_ID_LOG,
+        title              = "Log",
+        rect               = rl.Rectangle{840, 240, 430, 470},
+        min_size           = rl.Vector2{180, 100},
+        visible            = true,
+        closeable          = true,
+        detachable         = true,
+        dim_when_maximized = true,
+        draw_content       = draw_log_content,
+    }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id           = PANEL_ID_SYSTEM_INFO,
+        title        = "System Info",
+        rect         = rl.Rectangle{840, 470, 430, 220},
+        min_size     = rl.Vector2{180, 140},
+        visible      = true,
+        closeable    = true,
+        detachable   = true,
+        draw_content = draw_system_info_content,
+    }))
 
     if initial_editor_layout != nil {
         apply_editor_layout(&app, initial_editor_layout)
@@ -212,17 +268,31 @@ run_app :: proc(
         lmb         := rl.IsMouseButtonDown(.LEFT)
         lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
 
-        panels := [3]^FloatingPanel{&app.render_panel, &app.stats_panel, &app.log_panel}
-
         sw := f32(rl.GetScreenWidth())
         sh := f32(rl.GetScreenHeight())
-        for p in panels {
+        for p in app.panels {
             update_panel(p, mouse, lmb, lmb_pressed)
             clamp_panel_to_screen(p, sw, sh)
+            if p.update_content != nil && p.visible {
+                content_rect := rl.Rectangle{
+                    p.rect.x,
+                    p.rect.y + TITLE_BAR_HEIGHT,
+                    p.rect.width,
+                    p.rect.height - TITLE_BAR_HEIGHT,
+                }
+                p.update_content(&app, content_rect, mouse, lmb, lmb_pressed)
+            }
         }
 
         if rl.IsKeyPressed(.L) {
-            app.log_panel.visible = true
+            if log := app_find_panel(&app, PANEL_ID_LOG); log != nil {
+                log.visible = true
+            }
+        }
+        if rl.IsKeyPressed(.S) {
+            if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil {
+                si.visible = true
+            }
         }
 
         if frame % 4 == 0 {
@@ -239,10 +309,8 @@ run_app :: proc(
         rl.BeginDrawing()
         rl.ClearBackground(rl.Color{20, 20, 30, 255})
 
-        for p in panels {
-            if p == &app.log_panel && p.maximized {
-                draw_dim_overlay()
-            }
+        for p in app.panels {
+            if p.dim_when_maximized && p.maximized { draw_dim_overlay() }
             draw_panel(p, &app)
         }
 
@@ -267,6 +335,7 @@ run_app :: proc(
             fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
         }
         if config.editor != nil {
+            delete(config.editor.panels)
             free(config.editor)
         }
     }

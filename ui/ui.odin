@@ -1,20 +1,45 @@
 package ui
 
-import "core:fmt"
-import "core:sync"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 
-TITLE_BAR_HEIGHT  :: f32(24)
-RESIZE_GRIP_SIZE  :: f32(14)
+// PanelStyle holds the intrinsic immutable visual theme for a panel (Flyweight pattern).
+// Shared across many panels with the same look; per-instance state lives in FloatingPanel.
+PanelStyle :: struct {
+    bg_color:           rl.Color,
+    title_bg_color:     rl.Color,
+    title_text_color:   rl.Color,
+    border_color:       rl.Color,
+    content_text_color: rl.Color,
+    accent_color:       rl.Color,
+    done_color:         rl.Color,
+    title_bar_height:   f32,
+    resize_grip_size:   f32,
+}
 
-PANEL_BG_COLOR    :: rl.Color{35,  35,  50,  230}
-TITLE_BG_COLOR    :: rl.Color{55,  55,  80,  255}
-TITLE_TEXT_COLOR  :: rl.RAYWHITE
-BORDER_COLOR      :: rl.Color{80,  80, 110,  255}
+DEFAULT_PANEL_STYLE :: PanelStyle{
+    bg_color           = rl.Color{35,  35,  50,  230},
+    title_bg_color     = rl.Color{55,  55,  80,  255},
+    title_text_color   = rl.RAYWHITE,
+    border_color       = rl.Color{80,  80, 110,  255},
+    content_text_color = rl.Color{200, 210, 220, 255},
+    accent_color       = rl.Color{100, 180, 255, 255},
+    done_color         = rl.Color{100, 220, 120, 255},
+    title_bar_height   = 24,
+    resize_grip_size   = 14,
+}
+
+// Package-level constants kept for content procs that have not yet been migrated to PanelStyle.
+TITLE_BAR_HEIGHT   :: f32(24)
+RESIZE_GRIP_SIZE   :: f32(14)
+
+PANEL_BG_COLOR     :: rl.Color{35,  35,  50,  230}
+TITLE_BG_COLOR     :: rl.Color{55,  55,  80,  255}
+TITLE_TEXT_COLOR   :: rl.RAYWHITE
+BORDER_COLOR       :: rl.Color{80,  80, 110,  255}
 CONTENT_TEXT_COLOR :: rl.Color{200, 210, 220, 255}
-ACCENT_COLOR      :: rl.Color{100, 180, 255, 255}
-DONE_COLOR        :: rl.Color{100, 220, 120, 255}
+ACCENT_COLOR       :: rl.Color{100, 180, 255, 255}
+DONE_COLOR         :: rl.Color{100, 220, 120, 255}
 
 update_panel :: proc(panel: ^FloatingPanel, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
     if !panel.visible { return }
@@ -107,12 +132,17 @@ draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
         return rl.Rectangle{}
     }
 
-    rl.DrawRectangleRec(panel.rect, PANEL_BG_COLOR)
-    rl.DrawRectangleLinesEx(panel.rect, 1, BORDER_COLOR)
+    style := DEFAULT_PANEL_STYLE
+    if panel.style != nil {
+        style = panel.style^
+    }
 
-    title_rect := rl.Rectangle{panel.rect.x, panel.rect.y, panel.rect.width, TITLE_BAR_HEIGHT}
-    rl.DrawRectangleRec(title_rect, TITLE_BG_COLOR)
-    rl.DrawText(panel.title, i32(panel.rect.x) + 6, i32(panel.rect.y) + 5, 14, TITLE_TEXT_COLOR)
+    rl.DrawRectangleRec(panel.rect, style.bg_color)
+    rl.DrawRectangleLinesEx(panel.rect, 1, style.border_color)
+
+    title_rect := rl.Rectangle{panel.rect.x, panel.rect.y, panel.rect.width, style.title_bar_height}
+    rl.DrawRectangleRec(title_rect, style.title_bg_color)
+    rl.DrawText(panel.title, i32(panel.rect.x) + 6, i32(panel.rect.y) + 5, 14, style.title_text_color)
 
     mouse := rl.GetMousePosition()
 
@@ -120,7 +150,7 @@ draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
     if panel.closeable {
         close_rect  := rl.Rectangle{ panel.rect.x + panel.rect.width - 22, panel.rect.y + 4, 16, 16 }
         close_hover := rl.CheckCollisionPointRec(mouse, close_rect)
-        close_color := close_hover ? rl.RED : TITLE_TEXT_COLOR
+        close_color := close_hover ? rl.RED : style.title_text_color
         cx := close_rect.x + close_rect.width  * 0.5
         cy := close_rect.y + close_rect.height * 0.5
         d  := f32(4)
@@ -132,7 +162,7 @@ draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
     if panel.detachable {
         detach_rect  := rl.Rectangle{ panel.rect.x + panel.rect.width - 42, panel.rect.y + 4, 16, 16 }
         detach_hover := rl.CheckCollisionPointRec(mouse, detach_rect)
-        detach_color := detach_hover ? ACCENT_COLOR : TITLE_TEXT_COLOR
+        detach_color := detach_hover ? style.accent_color : style.title_text_color
         if panel.maximized {
             // Restore icon: two offset overlapping boxes
             rl.DrawRectangleLinesEx(rl.Rectangle{detach_rect.x+2, detach_rect.y+4, 9, 9}, 1, detach_color)
@@ -147,24 +177,24 @@ draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
     if !panel.maximized {
         gx := panel.rect.x + panel.rect.width
         gy := panel.rect.y + panel.rect.height
-        gs := RESIZE_GRIP_SIZE
+        gs := style.resize_grip_size
         rl.DrawLineEx(
             rl.Vector2{gx - gs,       gy},
             rl.Vector2{gx,       gy - gs},
-            2, BORDER_COLOR,
+            2, style.border_color,
         )
         rl.DrawLineEx(
             rl.Vector2{gx - gs*0.55, gy},
             rl.Vector2{gx,       gy - gs*0.55},
-            2, BORDER_COLOR,
+            2, style.border_color,
         )
     }
 
     return rl.Rectangle{
         panel.rect.x,
-        panel.rect.y + TITLE_BAR_HEIGHT,
+        panel.rect.y + style.title_bar_height,
         panel.rect.width,
-        panel.rect.height - TITLE_BAR_HEIGHT,
+        panel.rect.height - style.title_bar_height,
     }
 }
 
@@ -172,100 +202,6 @@ draw_dim_overlay :: proc() {
     sw := rl.GetScreenWidth()
     sh := rl.GetScreenHeight()
     rl.DrawRectangle(0, 0, sw, sh, rl.Color{0, 0, 0, 140})
-}
-
-draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
-    x := i32(content.x) + 10
-    y := i32(content.y) + 8
-    line_h := i32(20)
-    fs := i32(14)
-
-    session := app.session
-    if session == nil { return }
-
-    completed  := int(sync.atomic_load(&session.work_queue.completed))
-    total      := session.work_queue.total_tiles
-    progress   := f32(0)
-    if total > 0 {
-        progress = f32(completed) / f32(total) * 100.0
-    }
-
-    elapsed := app.elapsed_secs
-
-    progress_color := CONTENT_TEXT_COLOR
-    if app.finished {
-        progress_color = DONE_COLOR
-    }
-
-    rl.DrawText(
-        fmt.ctprintf("Tiles:    %d / %d  (%.1f%%)", completed, total, progress),
-        x, y, fs, progress_color,
-    )
-    y += line_h
-
-    rl.DrawText(
-        fmt.ctprintf("Threads:  %d", session.num_threads),
-        x, y, fs, CONTENT_TEXT_COLOR,
-    )
-    y += line_h
-
-    mins := int(elapsed) / 60
-    secs := elapsed - f64(mins*60)
-    rl.DrawText(
-        fmt.ctprintf("Elapsed:  %dm %.2fs", mins, secs),
-        x, y, fs, CONTENT_TEXT_COLOR,
-    )
-    y += line_h
-
-    rl.DrawText(
-        fmt.ctprintf("Size:     %dx%d", session.camera.image_width, session.camera.image_height),
-        x, y, fs, CONTENT_TEXT_COLOR,
-    )
-    y += line_h
-
-    rl.DrawText(
-        fmt.ctprintf("Samples:  %d/px", session.camera.samples_per_pixel),
-        x, y, fs, CONTENT_TEXT_COLOR,
-    )
-    y += line_h
-
-    status := app.finished ? cstring("Complete") : cstring("Rendering...")
-    status_color := app.finished ? DONE_COLOR : ACCENT_COLOR
-    rl.DrawText(status, x, y, fs, status_color)
-    y += line_h
-
-    if total > 0 {
-        bar_y := y + 4
-        bar_w := content.width - 20
-        bar_h := f32(12)
-        bar_rect := rl.Rectangle{content.x + 10, f32(bar_y), bar_w, bar_h}
-        rl.DrawRectangleRec(bar_rect, rl.Color{60, 60, 80, 255})
-        fill_w := bar_w * (f32(completed) / f32(total))
-        fill_rect := rl.Rectangle{bar_rect.x, bar_rect.y, fill_w, bar_h}
-        fill_color := app.finished ? DONE_COLOR : ACCENT_COLOR
-        rl.DrawRectangleRec(fill_rect, fill_color)
-        rl.DrawRectangleLinesEx(bar_rect, 1, BORDER_COLOR)
-    }
-}
-
-draw_log_content :: proc(app: ^App, content: rl.Rectangle) {
-    x    := i32(content.x) + 8
-    y    := i32(content.y) + 6
-    fs   := i32(12)
-    lh   := i32(16)
-    max_lines := int((content.height - 10) / f32(lh))
-    if max_lines <= 0 { return }
-
-    count   := app.log_count
-    visible := min(count, max_lines)
-    start   := count - visible
-
-    for i in 0..<visible {
-        idx := (start + i) % LOG_RING_SIZE
-        msg := app.log_lines[idx]
-        if len(msg) == 0 { continue }
-        rl.DrawText(fmt.ctprintf("%s", msg), x, y + i32(i)*lh, fs, CONTENT_TEXT_COLOR)
-    }
 }
 
 upload_render_texture :: proc(app: ^App) {
@@ -297,43 +233,16 @@ upload_render_texture :: proc(app: ^App) {
     rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
 }
 
-// render_dest_rect computes the letterboxed on-screen destination rectangle for the
-// render texture inside the given content area. Shared by drawing and hit-testing.
-render_dest_rect :: proc(app: ^App, content: rl.Rectangle) -> rl.Rectangle {
-    cam    := app.session.camera
-    src_w  := f32(cam.image_width)
-    src_h  := f32(cam.image_height)
-    aspect := src_w / src_h
-
-    dest_w := content.width
-    dest_h := content.height
-    if dest_w / dest_h > aspect {
-        dest_w = dest_h * aspect
-    } else {
-        dest_h = dest_w / aspect
-    }
-
-    ox := content.x + (content.width  - dest_w) * 0.5
-    oy := content.y + (content.height - dest_h) * 0.5
-    return rl.Rectangle{ox, oy, dest_w, dest_h}
-}
-
-draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
-    cam  := app.session.camera
-    src  := rl.Rectangle{0, 0, f32(cam.image_width), f32(cam.image_height)}
-    dest := render_dest_rect(app, content)
-    rl.DrawTexturePro(app.render_tex, src, dest, rl.Vector2{0, 0}, 0, rl.WHITE)
-}
-
 // screen_to_render_ray maps a screen-space position to an rl.Ray through the
 // corresponding point in the 3D scene. Returns ok=false when the panel is hidden,
 // the session is nil, or the position is outside the letterboxed image.
 screen_to_render_ray :: proc(app: ^App, pos: rl.Vector2) -> (r: rl.Ray, ok: bool) {
-    if !app.render_panel.visible || app.session == nil {
+    render_panel := app_find_panel(app, PANEL_ID_RENDER)
+    if render_panel == nil || !render_panel.visible || app.session == nil {
         return {}, false
     }
 
-    panel   := app.render_panel
+    panel   := render_panel^
     content := rl.Rectangle{
         panel.rect.x,
         panel.rect.y + TITLE_BAR_HEIGHT,

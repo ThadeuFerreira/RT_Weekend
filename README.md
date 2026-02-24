@@ -18,7 +18,7 @@ To build the project, run the following command in the terminal:
 
 ```sh
 mkdir build
-odin build . -debug -out:build/debug.exe
+odin build . -collection:RT_Weekend=. -debug -out:build/debug.exe
 ```
 
 Alternatively, you can use the provided VS Code tasks:
