@@ -178,7 +178,7 @@ run_app :: proc(
     config_save_path: string = "",
 ) {
     WIN_W :: i32(1280)
-    WIN_H :: i32(720)
+    WIN_H :: i32(1280)
 
     rl.SetTraceLogLevel(.WARNING)
     rl.InitWindow(WIN_W, WIN_H, "Ray Tracer — Live Preview")

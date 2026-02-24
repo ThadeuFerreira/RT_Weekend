@@ -5,16 +5,25 @@ import "RT_Weekend:util"
 import rl "vendor:raylib"
 
 draw_system_info_content :: proc(app: ^App, content: rl.Rectangle) {
+
+    x    := i32(content.x) + 8
+    y    := i32(content.y) + 6
+    fs   := i32(12)
+    lh   := i32(16)
+    max_lines := int((content.height - 10) / f32(lh))
+    if max_lines <= 0 { return }
+
+
     system_info := util.get_system_info()
 
-    rl.DrawText(fmt.ctprintf("Odin:      %v", system_info.OdinVersion), 10, 10, 12, rl.WHITE)
-    rl.DrawText(fmt.ctprintf("OS:        %v", system_info.OS.Name), 10, 30, 12, rl.WHITE)
-    rl.DrawText(fmt.ctprintf("CPU:       %v", system_info.CPU.Name), 10, 50, 12, rl.WHITE)
-    rl.DrawText(fmt.ctprintf("CPU cores: %vc/%vt", system_info.CPU.Cores, system_info.CPU.LogicalCores), 10, 70, 12, rl.WHITE)
-    rl.DrawText(fmt.ctprintf("RAM:       %#.1M", system_info.RAM.Total), 10, 90, 12, rl.WHITE)
+    rl.DrawText(fmt.ctprintf("Odin:      %v", system_info.OdinVersion), x+10, y+10, 12, rl.WHITE)
+    rl.DrawText(fmt.ctprintf("OS:        %v", system_info.OS.Name), x+10, y+30, 12, rl.WHITE)
+    rl.DrawText(fmt.ctprintf("CPU:       %v", system_info.CPU.Name), x+10, y+50, 12, rl.WHITE)
+    rl.DrawText(fmt.ctprintf("CPU cores: %vc/%vt", system_info.CPU.Cores, system_info.CPU.LogicalCores), x+10, y+70, 12, rl.WHITE)
+    rl.DrawText(fmt.ctprintf("RAM:       %#.1M", system_info.RAM.Total), x+10, y+90, 12, rl.WHITE)
     for gpu in system_info.GPUs {
-        rl.DrawText(fmt.ctprintf("GPU:       %v", gpu.Model), 10, 110, 12, rl.WHITE)
-        rl.DrawText(fmt.ctprintf("GPU Vendor: %v", gpu.Vendor), 10, 130, 12, rl.WHITE)
-        rl.DrawText(fmt.ctprintf("GPU VRAM:  %#.1M", gpu.VRAM), 10, 130, 12, rl.WHITE)
+        rl.DrawText(fmt.ctprintf("GPU:       %v", gpu.Model), x+10, y+110, 12, rl.WHITE)
+        rl.DrawText(fmt.ctprintf("GPU Vendor: %v", gpu.Vendor), x+10, y+130, 12, rl.WHITE)
+        rl.DrawText(fmt.ctprintf("GPU VRAM:  %#.1M", gpu.VRAM), x+10, y+130, 12, rl.WHITE)
     }
 }
