@@ -165,6 +165,8 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	}
 
 	s  := ev.objects[ev.selected_idx]   // value copy — read only
+	// Intentional duplicate with update_object_props_content: draw/update run in separate
+	// phases and both need the same geometry. If layout work grows, cache OpLayout in state.
 	lo := op_compute_layout(content, s.material_kind)
 
 	// TRANSFORM 
@@ -245,6 +247,8 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		return
 	}
 
+	// Intentional duplicate with draw_object_props_content for phase separation.
+	// TODO(Future improvement): cache OpLayout on ObjectPropsPanelState per frame.
 	lo := op_compute_layout(rect, s.material_kind)
 
 	// ── Material toggle clicks 
@@ -254,8 +258,10 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[1]) {
+			// Only give default fuzz when switching to Metallic from another material.
+			// fuzz=0 is valid (perfect mirror); don't clobber it on re-click.
+			if s.material_kind != .Metallic && s.fuzz <= 0 { s.fuzz = 0.1 }
 			s.material_kind = .Metallic
-			if s.fuzz <= 0 { s.fuzz = 0.1 }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[2]) {
