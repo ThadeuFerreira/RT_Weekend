@@ -8,6 +8,9 @@ MAX_DOCK_PANELS     :: 64
 
 DOCK_TAB_BAR_HEIGHT :: f32(22)
 DOCK_TAB_PADDING    :: f32(8)
+CENTER_SPLIT_GAP    :: f32(6)
+CENTER_SPLIT_MIN    :: f32(0.2)
+CENTER_SPLIT_MAX    :: f32(0.8)
 
 DockNodeType :: enum {
     DOCK_NODE_LEAF,
@@ -53,6 +56,8 @@ DockLayout :: struct {
     root:       int,
     center_leaf:int,
     center_split_view: bool,
+    center_split_ratio: f32,
+    center_split_dragging: bool,
 
     panels:     [MAX_DOCK_PANELS]DockPanel,
     panelCount: int,
@@ -64,7 +69,9 @@ layout_init :: proc(layout: ^DockLayout) {
     layout.panelCount = 0
     layout.root = -1
     layout.center_leaf = -1
-    layout.center_split_view = false
+    layout.center_split_view = true
+    layout.center_split_ratio = 0.5
+    layout.center_split_dragging = false
 }
 
 layout_add_panel :: proc(layout: ^DockLayout, panel_idx: int) -> int {
@@ -149,7 +156,9 @@ layout_build_default :: proc(app: ^App, layout: ^DockLayout) {
     root        := layout_add_split(layout, .DOCK_SPLIT_VERTICAL, center_leaf, right_split, 0.72)
     layout.root = root
     layout.center_leaf = center_leaf
-    layout.center_split_view = false
+    layout.center_split_view = true
+    layout.center_split_ratio = 0.5
+    layout.center_split_dragging = false
 }
 
 layout_compute_rects :: proc(layout: ^DockLayout, node_idx: int, rect: rl.Rectangle) {
@@ -251,9 +260,40 @@ layout_draw_center_split_view :: proc(app: ^App, layout: ^DockLayout, node: ^Doc
     edit_panel   := layout_leaf_panel_by_id(app, layout, node, PANEL_ID_EDIT_VIEW)
     if render_panel == nil || edit_panel == nil { return }
 
-    gap := f32(4)
+    gap := CENTER_SPLIT_GAP
     available := node.rect
-    top_h := (available.height - gap) * 0.5
+    if available.height <= gap {
+        return
+    }
+    if !lmb {
+        layout.center_split_dragging = false
+    }
+
+    ratio := clamp(layout.center_split_ratio, CENTER_SPLIT_MIN, CENTER_SPLIT_MAX)
+    if available.height > gap {
+        split_y := available.y + (available.height - gap) * ratio
+        splitter_rect := rl.Rectangle{available.x, split_y, available.width, gap}
+        splitter_hovered := rl.CheckCollisionPointRec(mouse, splitter_rect)
+        if lmb_pressed && splitter_hovered {
+            layout.center_split_dragging = true
+        }
+        if layout.center_split_dragging && lmb {
+            new_ratio := (mouse.y - available.y) / (available.height - gap)
+            ratio = clamp(new_ratio, CENTER_SPLIT_MIN, CENTER_SPLIT_MAX)
+            layout.center_split_ratio = ratio
+        } else {
+            layout.center_split_ratio = ratio
+        }
+
+        if splitter_hovered || layout.center_split_dragging {
+            rl.SetMouseCursor(.RESIZE_NS)
+        }
+
+        rl.DrawRectangleRec(splitter_rect, rl.Color{58, 66, 92, 255})
+        rl.DrawRectangleLinesEx(splitter_rect, 1, BORDER_COLOR)
+    }
+
+    top_h := (available.height - gap) * layout.center_split_ratio
     bottom_h := available.height - gap - top_h
 
     render_panel.rect = rl.Rectangle{available.x, available.y, available.width, top_h}
@@ -326,6 +366,10 @@ layout_update_and_draw_leaf :: proc(app: ^App, layout: ^DockLayout, node_idx: in
     draw_panel(p, app)
 }
 
+// Leaf-iteration ordering: we iterate leaf nodes in declaration order (the flat
+// layout.nodes array), not depth-first. For overlapping panels (e.g. split-view
+// mode) this may draw them in the wrong Z-order. The current layout has no
+// intentional overlap, so this is harmless; document here for future changes.
 layout_update_and_draw :: proc(app: ^App, layout: ^DockLayout, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
     if app == nil || layout == nil || layout.root < 0 { return }
 

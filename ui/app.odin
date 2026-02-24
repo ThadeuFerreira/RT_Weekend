@@ -335,7 +335,7 @@ run_app :: proc(
     app_add_panel(&app, make_panel(PanelDesc{
         id             = PANEL_ID_OBJECT_PROPS,
         title          = "Object Properties",
-        rect           = rl.Rectangle{1100, 30, 170, 340},
+        rect           = rl.Rectangle{1100, 30, 260, 340},
         min_size       = rl.Vector2{240, 240},
         visible        = true,
         closeable      = true,
