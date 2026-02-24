@@ -91,4 +91,8 @@ main :: proc() {
     }
 
     ui.run_app(camera, world, thread_count, initial_editor, args.SaveConfigPath)
+    if initial_editor != nil {
+        delete(initial_editor.panels)
+        free(initial_editor)
+    }
 }

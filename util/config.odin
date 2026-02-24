@@ -20,11 +20,9 @@ PanelState :: struct {
 	saved_rect: RectF,
 }
 
-// EditorLayout holds the three panel states for the config file.
+// EditorLayout holds the panel states for the config file, keyed by panel ID string.
 EditorLayout :: struct {
-	render_panel: PanelState,
-	stats_panel:  PanelState,
-	log_panel:    PanelState,
+	panels: map[string]PanelState,
 }
 
 // RenderConfig is the full config file: render settings and optional editor layout.
