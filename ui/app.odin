@@ -7,6 +7,7 @@ import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
+import "RT_Weekend:scene"
 import "RT_Weekend:util"
 
 LOG_RING_SIZE :: 64
@@ -102,6 +103,25 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     app.world = new_world
 
     // Reset render state.
+    app.finished     = false
+    app.elapsed_secs = 0
+    app.render_start = time.now()
+
+    app.session = rt.start_render(app.camera, app.world, app.num_threads)
+    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
+}
+
+// app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
+// Used by the edit view so it does not need to import raytrace.
+app_restart_render_with_scene :: proc(app: ^App, scene_objects: []scene.SceneSphere) {
+    if !app.finished { return }
+
+    rt.free_session(app.session)
+    app.session = nil
+
+    delete(app.world)
+    app.world = rt.build_world_from_scene(scene_objects)
+
     app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()

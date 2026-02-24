@@ -3,17 +3,10 @@ package ui
 import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
-import rt "RT_Weekend:raytrace"
+import "RT_Weekend:scene"
 
 EDIT_TOOLBAR_H :: f32(32)
 EDIT_PROPS_H   :: f32(90)
-
-EditSphere :: struct {
-	center:   [3]f32, // world position
-	radius:   f32,
-	mat_type: int,    // 0=lambertian, 1=metallic, 2=dielectric
-	color:    [3]f32, // albedo/base color
-}
 
 EditViewState :: struct {
 	// Off-screen 3D viewport
@@ -33,8 +26,8 @@ EditViewState :: struct {
 	rmb_held:   bool,
 	last_mouse: rl.Vector2,
 
-	// Scene
-	objects:      [dynamic]EditSphere,
+	// Scene (shared definition; raytrace converts via build_world_from_scene)
+	objects:      [dynamic]scene.SceneSphere,
 	selected_idx: int, // -1 = nothing selected
 
 	// Drag-float property fields
@@ -59,41 +52,12 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
 
-	append(&ev.objects, EditSphere{center = {-3, 0.5, 0}, radius = 0.5, mat_type = 0, color = {0.8, 0.2, 0.2}})
-	append(&ev.objects, EditSphere{center = { 0, 0.5, 0}, radius = 0.5, mat_type = 1, color = {0.2, 0.2, 0.8}})
-	append(&ev.objects, EditSphere{center = { 3, 0.5, 0}, radius = 0.5, mat_type = 0, color = {0.2, 0.8, 0.2}})
+	append(&ev.objects, scene.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
+	append(&ev.objects, scene.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
+	append(&ev.objects, scene.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
 
 	update_orbit_camera(ev)
 	ev.initialized = true
-}
-
-// build_world_from_edit_view converts EditSpheres to raytrace Objects for rt.start_render.
-// Prepends a grey ground plane. Caller owns and must delete the returned slice.
-build_world_from_edit_view :: proc(ev: ^EditViewState) -> [dynamic]rt.Object {
-	world := make([dynamic]rt.Object)
-
-	append(&world, rt.Object(rt.Sphere{
-		center   = {0, -1000, 0},
-		radius   = 1000,
-		material = rt.lambertian{albedo = {0.5, 0.5, 0.5}},
-	}))
-
-	for s in ev.objects {
-		mat: rt.material
-		switch s.mat_type {
-		case 0: mat = rt.lambertian{albedo = s.color}
-		case 1: mat = rt.metalic{albedo = s.color, fuzz = 0.1}
-		case 2: mat = rt.dieletric{ref_idx = 1.5}
-		case:   mat = rt.lambertian{albedo = s.color}
-		}
-		append(&world, rt.Object(rt.Sphere{
-			center   = s.center,
-			radius   = s.radius,
-			material = mat,
-		}))
-	}
-
-	return world
 }
 
 update_orbit_camera :: proc(ev: ^EditViewState) {
@@ -211,7 +175,7 @@ draw_viewport_3d :: proc(ev: ^EditViewState, vp_rect: rl.Rectangle) {
 		if i == ev.selected_idx {
 			col = rl.YELLOW
 		} else {
-			col = rl.Color{u8(s.color[0]*255), u8(s.color[1]*255), u8(s.color[2]*255), 255}
+			col = rl.Color{u8(s.albedo[0]*255), u8(s.albedo[1]*255), u8(s.albedo[2]*255), 255}
 		}
 		rl.DrawSphere(center, s.radius, col)
 		rl.DrawSphereWires(center, s.radius, 8, 8, rl.Color{30, 30, 30, 180})
@@ -301,7 +265,7 @@ draw_edit_properties :: proc(ev: ^EditViewState, rect: rl.Rectangle, mouse: rl.V
 	draw_drag_field("R", s.radius, fields[3], ev.prop_drag_idx == 3, mouse)
 
 	mat_names := [3]cstring{"Lambertian", "Metallic", "Dielectric"}
-	mat_name  := mat_names[clamp(s.mat_type, 0, 2)]
+	mat_name  := mat_names[clamp(int(s.material_kind), 0, 2)]
 	mat_x := i32(rect.x) + 8 + i32(PROP_COL)
 	mat_y := i32(rect.y) + 8 + 30 + 4
 	rl.DrawText("Mat:",    mat_x,      mat_y, 12, CONTENT_TEXT_COLOR)
@@ -434,8 +398,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// ── Toolbar buttons ─────────────────────────────────────────────────
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, btn_add) {
-			append(&ev.objects, EditSphere{
-				center = {0, 0.5, 0}, radius = 0.5, mat_type = 0, color = {0.7, 0.7, 0.7},
+			append(&ev.objects, scene.SceneSphere{
+				center = {0, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.7, 0.7, 0.7},
 			})
 			ev.selected_idx = len(ev.objects) - 1
 			return
@@ -446,7 +410,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			return
 		}
 		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
-			app_restart_render(app, build_world_from_edit_view(ev))
+			app_restart_render_with_scene(app, ev.objects[:])
 			return
 		}
 	}
