@@ -15,6 +15,7 @@ PANEL_ID_RENDER      :: "render_preview"
 PANEL_ID_STATS       :: "stats"
 PANEL_ID_LOG         :: "log"
 PANEL_ID_SYSTEM_INFO :: "system_info"
+PANEL_ID_EDIT_VIEW   :: "edit_view"
 
 FloatingPanel :: struct {
     id:                 string,
@@ -101,6 +102,8 @@ App :: struct {
     finished:      bool,
     elapsed_secs:  f64,
     render_start:  time.Time,
+
+    edit_view:     EditViewState,
 }
 
 g_app: ^App = nil
@@ -199,6 +202,9 @@ run_app :: proc(
         render_tex    = render_tex,
         pixel_staging = pixel_staging,
     }
+    init_edit_view(&app.edit_view)
+    defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
+    defer delete(app.edit_view.objects)
     defer {
         for p in app.panels { free(p) }
         delete(app.panels)
@@ -240,6 +246,17 @@ run_app :: proc(
         closeable    = true,
         detachable   = true,
         draw_content = draw_system_info_content,
+    }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id             = PANEL_ID_EDIT_VIEW,
+        title          = "Edit View",
+        rect           = rl.Rectangle{10, 820, 820, 700},
+        min_size       = rl.Vector2{300, 250},
+        visible        = true,
+        closeable      = true,
+        detachable     = true,
+        draw_content   = draw_edit_view_content,
+        update_content = update_edit_view_content,
     }))
 
     if initial_editor_layout != nil {
@@ -292,6 +309,11 @@ run_app :: proc(
         if rl.IsKeyPressed(.S) {
             if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil {
                 si.visible = true
+            }
+        }
+        if rl.IsKeyPressed(.E) {
+            if ev := app_find_panel(&app, PANEL_ID_EDIT_VIEW); ev != nil {
+                ev.visible = true
             }
         }
 
