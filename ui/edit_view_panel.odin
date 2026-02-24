@@ -86,6 +86,20 @@ update_orbit_camera :: proc(ev: ^EditViewState) {
 	}
 }
 
+// get_orbit_camera_pose returns lookfrom and lookat for the current orbit (for translating to path-tracer camera).
+get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
+	pitch := ev.orbit_pitch
+	dist  := ev.orbit_distance
+	t     := ev.orbit_target
+	lookat = {t.x, t.y, t.z}
+	lookfrom = {
+		t.x + dist * math.cos(pitch) * math.sin(ev.orbit_yaw),
+		t.y + dist * math.sin(pitch),
+		t.z + dist * math.cos(pitch) * math.cos(ev.orbit_yaw),
+	}
+	return
+}
+
 // compute_viewport_ray casts a perspective ray through the given mouse position.
 // When require_inside=true (default) returns false if mouse is outside vp_rect.
 // When require_inside=false the UV is clamped to viewport edges — useful during
@@ -410,6 +424,10 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			return
 		}
 		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
+			lookfrom, lookat := get_orbit_camera_pose(ev)
+			app.camera_params.lookfrom = lookfrom
+			app.camera_params.lookat   = lookat
+			app.camera_params.vup      = [3]f32{0, 1, 0}
 			app_restart_render_with_scene(app, ev.objects[:])
 			return
 		}

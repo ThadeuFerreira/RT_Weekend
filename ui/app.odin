@@ -17,6 +17,7 @@ PANEL_ID_STATS       :: "stats"
 PANEL_ID_LOG         :: "log"
 PANEL_ID_SYSTEM_INFO :: "system_info"
 PANEL_ID_EDIT_VIEW   :: "edit_view"
+PANEL_ID_CAMERA      :: "camera"
 
 FloatingPanel :: struct {
     id:                 string,
@@ -94,19 +95,18 @@ app_find_panel :: proc(app: ^App, id: string) -> ^FloatingPanel {
 app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     if !app.finished { return }
 
-    // Free old session (pixel buffer + tiles + session struct).
     rt.free_session(app.session)
     app.session = nil
 
-    // Replace world.
     delete(app.world)
     app.world = new_world
 
-    // Reset render state.
     app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
 
+    rt.apply_scene_camera(app.camera, &app.camera_params)
+    rt.init_camera(app.camera)
     app.session = rt.start_render(app.camera, app.world, app.num_threads)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
@@ -126,6 +126,8 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []scene.SceneSph
     app.elapsed_secs = 0
     app.render_start = time.now()
 
+    rt.apply_scene_camera(app.camera, &app.camera_params)
+    rt.init_camera(app.camera)
     app.session = rt.start_render(app.camera, app.world, app.num_threads)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
@@ -142,6 +144,7 @@ App :: struct {
     num_threads:   int,
     camera:        ^rt.Camera,
     world:         [dynamic]rt.Object,
+    camera_params: scene.CameraParams, // shared camera definition; applied to camera before each render
 
     log_lines:     [LOG_RING_SIZE]string,
     log_count:     int,
@@ -150,8 +153,9 @@ App :: struct {
     elapsed_secs:  f64,
     render_start:  time.Time,
 
-    edit_view:     EditViewState,
-    menu_bar:      MenuBarState,
+    edit_view:      EditViewState,
+    camera_panel:   CameraPanelState,
+    menu_bar:       MenuBarState,
 }
 
 g_app: ^App = nil
@@ -254,6 +258,7 @@ run_app :: proc(
     app.world       = world
     app.num_threads = num_threads
     app.menu_bar    = MenuBarState{open_menu_index = -1}
+    rt.copy_camera_to_scene_params(&app.camera_params, camera)
     init_edit_view(&app.edit_view)
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer delete(app.edit_view.objects)
@@ -312,6 +317,17 @@ run_app :: proc(
         draw_content   = draw_edit_view_content,
         update_content = update_edit_view_content,
     }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id             = PANEL_ID_CAMERA,
+        title          = "Camera",
+        rect           = rl.Rectangle{840, 700, 250, 220},
+        min_size       = rl.Vector2{200, 180},
+        visible        = true,
+        closeable      = true,
+        detachable     = true,
+        draw_content   = draw_camera_panel_content,
+        update_content = update_camera_panel_content,
+    }))
 
     if initial_editor_layout != nil {
         apply_editor_layout(&app, initial_editor_layout)
@@ -324,6 +340,8 @@ run_app :: proc(
     app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))
     app_push_log(&app, strings.clone("Starting render..."))
 
+    rt.apply_scene_camera(app.camera, &app.camera_params)
+    rt.init_camera(app.camera)
     app.session      = rt.start_render(app.camera, app.world, app.num_threads)
     app.render_start = time.now()
 
@@ -368,6 +386,11 @@ run_app :: proc(
         if rl.IsKeyPressed(.E) {
             if ev := app_find_panel(&app, PANEL_ID_EDIT_VIEW); ev != nil {
                 ev.visible = true
+            }
+        }
+        if rl.IsKeyPressed(.C) {
+            if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil {
+                cam.visible = true
             }
         }
 
