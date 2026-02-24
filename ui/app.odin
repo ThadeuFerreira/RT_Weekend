@@ -17,7 +17,8 @@ PANEL_ID_STATS       :: "stats"
 PANEL_ID_LOG         :: "log"
 PANEL_ID_SYSTEM_INFO :: "system_info"
 PANEL_ID_EDIT_VIEW   :: "edit_view"
-PANEL_ID_CAMERA      :: "camera"
+PANEL_ID_CAMERA        :: "camera"
+PANEL_ID_OBJECT_PROPS  :: "object_props"
 
 FloatingPanel :: struct {
     id:                 string,
@@ -156,6 +157,7 @@ App :: struct {
     edit_view:      EditViewState,
     camera_panel:   CameraPanelState,
     menu_bar:       MenuBarState,
+    object_props:   ObjectPropsPanelState,
 }
 
 g_app: ^App = nil
@@ -260,6 +262,7 @@ run_app :: proc(
     app.menu_bar    = MenuBarState{open_menu_index = -1}
     rt.copy_camera_to_scene_params(&app.camera_params, camera)
     init_edit_view(&app.edit_view)
+    app.object_props = ObjectPropsPanelState{prop_drag_idx = -1}
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer delete(app.edit_view.objects)
     defer { rt.free_session(app.session) }
@@ -328,6 +331,17 @@ run_app :: proc(
         draw_content   = draw_camera_panel_content,
         update_content = update_camera_panel_content,
     }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id             = PANEL_ID_OBJECT_PROPS,
+        title          = "Object Properties",
+        rect           = rl.Rectangle{1100, 30, 170, 340},
+        min_size       = rl.Vector2{240, 240},
+        visible        = true,
+        closeable      = true,
+        detachable     = true,
+        draw_content   = draw_object_props_content,
+        update_content = update_object_props_content,
+    }))
 
     if initial_editor_layout != nil {
         apply_editor_layout(&app, initial_editor_layout)
@@ -391,6 +405,11 @@ run_app :: proc(
         if rl.IsKeyPressed(.C) {
             if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil {
                 cam.visible = true
+            }
+        }
+        if rl.IsKeyPressed(.O) {
+            if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil {
+                op.visible = true
             }
         }
 
