@@ -135,6 +135,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []scene.SceneSph
 
 App :: struct {
     panels:        [dynamic]^FloatingPanel,
+    dock_layout:   DockLayout,
 
     render_tex:    rl.Texture2D,
     pixel_staging: []rl.Color,
@@ -346,6 +347,7 @@ run_app :: proc(
     if initial_editor_layout != nil {
         apply_editor_layout(&app, initial_editor_layout)
     }
+    layout_build_default(&app, &app.dock_layout)
 
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)
@@ -370,22 +372,7 @@ run_app :: proc(
         lmb         := rl.IsMouseButtonDown(.LEFT)
         lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
 
-        sw := f32(rl.GetScreenWidth())
-        sh := f32(rl.GetScreenHeight())
         menu_bar_update(&app, &app.menu_bar, mouse, lmb_pressed)
-        for p in app.panels {
-            update_panel(p, mouse, lmb, lmb_pressed)
-            clamp_panel_to_screen(p, sw, sh)
-            if p.update_content != nil && p.visible {
-                content_rect := rl.Rectangle{
-                    p.rect.x,
-                    p.rect.y + TITLE_BAR_HEIGHT,
-                    p.rect.width,
-                    p.rect.height - TITLE_BAR_HEIGHT,
-                }
-                p.update_content(&app, content_rect, mouse, lmb, lmb_pressed)
-            }
-        }
 
         if rl.IsKeyPressed(.L) {
             if log := app_find_panel(&app, PANEL_ID_LOG); log != nil {
@@ -427,10 +414,7 @@ run_app :: proc(
         rl.BeginDrawing()
         rl.ClearBackground(rl.Color{20, 20, 30, 255})
 
-        for p in app.panels {
-            if p.dim_when_maximized && p.maximized { draw_dim_overlay() }
-            draw_panel(p, &app)
-        }
+        layout_update_and_draw(&app, &app.dock_layout, mouse, lmb, lmb_pressed)
         menu_bar_draw(&app, &app.menu_bar)
 
         rl.EndDrawing()

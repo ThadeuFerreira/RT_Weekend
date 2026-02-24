@@ -127,7 +127,15 @@ clamp_panel_to_screen :: proc(panel: ^FloatingPanel, screen_w, screen_h: f32) {
     if r.y < 0 { r.y = 0 }
 }
 
-draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
+panel_has_split_toggle :: proc(panel: FloatingPanel) -> bool {
+    return panel.id == PANEL_ID_RENDER || panel.id == PANEL_ID_EDIT_VIEW
+}
+
+panel_split_toggle_rect :: proc(panel: FloatingPanel) -> rl.Rectangle {
+    return rl.Rectangle{ panel.rect.x + panel.rect.width - 62, panel.rect.y + 4, 16, 16 }
+}
+
+draw_panel_chrome :: proc(panel: FloatingPanel, split_view_on: bool) -> rl.Rectangle {
     if !panel.visible {
         return rl.Rectangle{}
     }
@@ -171,6 +179,24 @@ draw_panel_chrome :: proc(panel: FloatingPanel) -> rl.Rectangle {
             // Maximize icon: single hollow box
             rl.DrawRectangleLinesEx(rl.Rectangle{detach_rect.x+2, detach_rect.y+2, 12, 12}, 1, detach_color)
         }
+    }
+
+    // Split-view toggle for Render Preview and Edit View.
+    if panel_has_split_toggle(panel) {
+        toggle_rect  := panel_split_toggle_rect(panel)
+        toggle_hover := rl.CheckCollisionPointRec(mouse, toggle_rect)
+        toggle_color := style.title_text_color
+        if split_view_on {
+            toggle_color = style.accent_color
+        } else if toggle_hover {
+            toggle_color = rl.Color{200, 220, 255, 255}
+        }
+        rl.DrawRectangleLinesEx(rl.Rectangle{toggle_rect.x+2, toggle_rect.y+2, 12, 12}, 1, toggle_color)
+        rl.DrawLineEx(
+            rl.Vector2{toggle_rect.x+2, toggle_rect.y+8},
+            rl.Vector2{toggle_rect.x+14, toggle_rect.y+8},
+            1, toggle_color,
+        )
     }
 
     // Resize grip: two parallel diagonal lines (only when not maximized)
@@ -269,7 +295,11 @@ screen_to_render_ray :: proc(app: ^App, pos: rl.Vector2) -> (r: rl.Ray, ok: bool
 }
 
 draw_panel :: proc(panel: ^FloatingPanel, app: ^App) {
-    content := draw_panel_chrome(panel^)
+    split_view_on := false
+    if app != nil {
+        split_view_on = app.dock_layout.center_split_view
+    }
+    content := draw_panel_chrome(panel^, split_view_on)
     if !panel.visible { return }
     if panel.draw_content != nil {
         panel.draw_content(app, content)
