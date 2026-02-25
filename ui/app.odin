@@ -346,7 +346,7 @@ run_app :: proc(
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer delete(app.edit_view.export_scratch)
-    defer delete(app.edit_view.scene_mgr.Objects)
+    defer ed.free_scene_manager(app.edit_view.scene_mgr)
     defer { rt.free_session(app.session) }
     defer delete(app.world)
     defer {

@@ -16,6 +16,13 @@ new_scene_manager :: proc() -> ^SceneManager {
 	return sm
 }
 
+// free_scene_manager deletes Objects and frees the SceneManager. Call on shutdown.
+free_scene_manager :: proc(sm: ^SceneManager) {
+	if sm == nil { return }
+	delete(sm.Objects)
+	free(sm)
+}
+
 // Load from canonical scene representation
 LoadFromSceneSpheres :: proc(sm: ^SceneManager, src: [dynamic]scene.SceneSphere) {
 	if sm == nil { return }
