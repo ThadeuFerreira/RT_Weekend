@@ -1,9 +1,10 @@
 package ui
 
 import rl "vendor:raylib"
+import ed "RT_Weekend:ui/editor"
 
 // draw_preview_port_content renders a rasterized 3D preview from the render camera
-// (app.camera_params) and scene (app.edit_view.objects) into the panel content area.
+// (app.camera_params) and scene (app.edit_view.scene_mgr.Objects) into the panel content area.
 draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	new_w := i32(content.width)
 	new_h := i32(content.height)
@@ -35,7 +36,7 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.BeginMode3D(cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	for s in app.edit_view.objects {
+	for s in ed.ExportToSceneSpheres(app.edit_view.scene_mgr) {
 		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 		col := rl.Color{
 			u8(clamp(s.albedo[0], f32(0), f32(1)) * 255),

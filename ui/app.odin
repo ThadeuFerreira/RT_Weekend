@@ -6,6 +6,7 @@ import "core:os"
 import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
+import ed "RT_Weekend:ui/editor"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:scene"
 import "RT_Weekend:util"
@@ -334,16 +335,18 @@ run_app :: proc(
     // Otherwise the edit view keeps its 3 default spheres.
     if len(world) > 0 {
         converted := rt.convert_world_to_edit_spheres(world)
-        delete(app.edit_view.objects)
-        app.edit_view.objects = converted
+        ed.LoadFromSceneSpheres(app.edit_view.scene_mgr, converted)
+        delete(converted)
     }
     delete(world) // edit view is now the source of truth; free the raw rt.Object array
     // Build the startup world from the edit view (always).
-    app.world = rt.build_world_from_scene(app.edit_view.objects[:])
+    converted_out := ed.ExportToSceneSpheres(app.edit_view.scene_mgr)
+    app.world = rt.build_world_from_scene(converted_out[:])
+    defer delete(converted_out)
     app.object_props = ObjectPropsPanelState{prop_drag_idx = -1}
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
-    defer delete(app.edit_view.objects)
+    defer delete(app.edit_view.scene_mgr.Objects)
     defer { rt.free_session(app.session) }
     defer delete(app.world)
     defer {
