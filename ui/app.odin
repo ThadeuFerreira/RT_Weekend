@@ -19,6 +19,7 @@ PANEL_ID_SYSTEM_INFO :: "system_info"
 PANEL_ID_EDIT_VIEW   :: "edit_view"
 PANEL_ID_CAMERA        :: "camera"
 PANEL_ID_OBJECT_PROPS  :: "object_props"
+PANEL_ID_PREVIEW_PORT  :: "preview_port"
 
 FloatingPanel :: struct {
     id:                 string,
@@ -159,6 +160,11 @@ App :: struct {
     camera_panel:   CameraPanelState,
     menu_bar:       MenuBarState,
     object_props:   ObjectPropsPanelState,
+
+    // Preview Port: rasterized view from render camera (app.camera_params)
+    preview_port_tex: rl.RenderTexture2D,
+    preview_port_w:   i32,
+    preview_port_h:   i32,
 }
 
 g_app: ^App = nil
@@ -265,6 +271,7 @@ run_app :: proc(
     init_edit_view(&app.edit_view)
     app.object_props = ObjectPropsPanelState{prop_drag_idx = -1}
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
+    defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer delete(app.edit_view.objects)
     defer { rt.free_session(app.session) }
     defer delete(app.world)
@@ -342,6 +349,16 @@ run_app :: proc(
         detachable     = true,
         draw_content   = draw_object_props_content,
         update_content = update_object_props_content,
+    }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id           = PANEL_ID_PREVIEW_PORT,
+        title        = "Preview Port",
+        rect         = rl.Rectangle{840, 920, 250, 180},
+        min_size     = rl.Vector2{160, 120},
+        visible      = true,
+        closeable    = true,
+        detachable   = true,
+        draw_content = draw_preview_port_content,
     }))
 
     if initial_editor_layout != nil {
