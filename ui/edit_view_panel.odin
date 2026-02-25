@@ -70,7 +70,7 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	append(&initial, scene.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
 	append(&initial, scene.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
 	append(&initial, scene.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
-	ed.LoadFromSceneSpheres(ev.scene_mgr, initial)
+	ed.LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 	delete(initial)
 
 	update_orbit_camera(ev)
@@ -124,7 +124,7 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 // NOTE: viewport / picking helpers were moved into the editor package so they
 // can be shared by object implementations without creating package cycles.
 
-draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
+draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []scene.SceneSphere) {
 	ev := &app.edit_view
 	new_w := i32(vp_rect.width)
 	new_h := i32(vp_rect.height)
@@ -145,9 +145,8 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	rl.BeginMode3D(ev.cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-	for i in 0..<len(ev.export_scratch) {
-		s      := ev.export_scratch[i]
+	for i in 0..<len(objs) {
+		s      := objs[i]
 		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 		col: rl.Color
 		if ev.selection_kind == .Sphere && i == ev.selected_idx {
@@ -192,8 +191,8 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 
 	// Draw a move indicator on the selected sphere during drag
 	if ev.drag_obj_active && ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
-		if ev.selected_idx >= 0 && ev.selected_idx < len(ev.export_scratch) {
-			s := ev.export_scratch[ev.selected_idx]
+		if ev.selected_idx >= 0 && ev.selected_idx < len(objs) {
+			s := objs[ev.selected_idx]
 			c := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 			rl.DrawCircle3D(c, s.radius + 0.08, rl.Vector3{1, 0, 0}, 90, rl.Color{255, 220, 0, 200})
 		}
@@ -252,7 +251,7 @@ draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: b
 	draw_ui_text(g_app, label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
 }
 
-draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
+draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []scene.SceneSphere) {
 	ev := &app.edit_view
 	rl.DrawRectangleRec(rect, rl.Color{25, 28, 40, 240})
 	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
@@ -274,9 +273,8 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
 	}
 
 	// Sphere selected
-	ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.export_scratch) { return }
-	s      := ev.export_scratch[ev.selected_idx]
+	if ev.selected_idx < 0 || ev.selected_idx >= len(objs) { return }
+	s      := objs[ev.selected_idx]
 	fields := prop_field_rects(rect)
 
 	// Row 0 — position X Y Z
@@ -348,7 +346,8 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		content.width,
 		content.height - EDIT_TOOLBAR_H - EDIT_PROPS_H,
 	}
-	draw_viewport_3d(app, vp_rect)
+	ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+	draw_viewport_3d(app, vp_rect, ev.export_scratch[:])
 
 	// Properties strip
 	props_rect := rl.Rectangle{
@@ -357,7 +356,7 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		content.width,
 		EDIT_PROPS_H,
 	}
-	draw_edit_properties(app, props_rect, mouse)
+	draw_edit_properties(app, props_rect, mouse, ev.export_scratch[:])
 }
 
 // ── Panel update ───────────────────────────────────────────────────────────
@@ -391,9 +390,9 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		if !lmb {
 			ev.prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
-		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < len(ev.scene_mgr.Objects) {
+		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
 			delta := mouse.x - ev.prop_drag_start_x
-			if ok, s := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 				switch ev.prop_drag_idx {
 				case 0: s.center[0] = ev.prop_drag_start_val + delta * 0.01
 				case 1: s.center[1] = ev.prop_drag_start_val + delta * 0.01
@@ -412,11 +411,11 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	if ev.drag_obj_active {
 		if !lmb {
 			ev.drag_obj_active = false
-		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < len(ev.scene_mgr.Objects) {
+		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
 			// require_inside=false: keep dragging even when mouse leaves viewport
 			if ray, ok := ed.compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
 				if xz, ok2 := ed.ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
-					if ok, s := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+					if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 						s.center[0]  = xz.x - ev.drag_offset_xz[0]
 						s.center[2]  = xz.y - ev.drag_offset_xz[1]
 						ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
@@ -432,7 +431,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		if rl.CheckCollisionPointRec(mouse, btn_add) {
 			ed.AppendDefaultSphere(ev.scene_mgr)
 			ev.selection_kind = .Sphere
-			ev.selected_idx   = len(ev.scene_mgr.Objects) - 1
+			ev.selected_idx   = ed.SceneManagerLen(ev.scene_mgr) - 1
 			return
 		}
 		// Delete only for sphere (camera is non-deletable)
@@ -462,7 +461,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// ── Property drag-field: start drag on click (sphere only) ───────────
 	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, props_rect) {
 		fields := prop_field_rects(props_rect)
-		if ok, tmp := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+		if tmp, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 			vals := [4]f32{ tmp.center[0], tmp.center[1], tmp.center[2], tmp.radius }
 			// Hover cursor
 			any_hovered := false
@@ -514,17 +513,17 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			picked_sphere := ed.PickSphereInManager(ev.scene_mgr, ray)
 			if picked_sphere >= 0 {
 				ev.selection_kind  = .Sphere
-					ev.selected_idx    = picked_sphere
-					ev.drag_obj_active = true
-					if ok, s := ed.GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
-						ev.drag_plane_y    = s.center[1]
-						if xz, ok2 := ed.ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
-							ev.drag_offset_xz = {
-								xz.x - s.center[0],
-								xz.y - s.center[2],
-							}
+				ev.selected_idx    = picked_sphere
+				ev.drag_obj_active = true
+				if s, ok := ed.GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
+					ev.drag_plane_y    = s.center[1]
+					if xz, ok2 := ed.ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+						ev.drag_offset_xz = {
+							xz.x - s.center[0],
+							xz.y - s.center[2],
 						}
 					}
+				}
 			} else if ed.pick_camera(ray, app.camera_params.lookfrom) {
 				ev.selection_kind  = .Camera
 				ev.selected_idx    = -1
@@ -540,8 +539,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// Keyboard nudge (sphere only)
 	MOVE_SPEED   :: f32(0.05)
 	RADIUS_SPEED :: f32(0.02)
-	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < len(ev.scene_mgr.Objects) {
-		if ok, s := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
+		if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 			if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)    { s.center[2] -= MOVE_SPEED }
 			if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)  { s.center[2] += MOVE_SPEED }
 			if rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT)  { s.center[0] -= MOVE_SPEED }

@@ -335,7 +335,7 @@ run_app :: proc(
     // Otherwise the edit view keeps its 3 default spheres.
     if len(world) > 0 {
         converted := rt.convert_world_to_edit_spheres(world)
-        ed.LoadFromSceneSpheres(app.edit_view.scene_mgr, converted)
+        ed.LoadFromSceneSpheres(app.edit_view.scene_mgr, converted[:])
         delete(converted)
     }
     delete(world) // edit view is now the source of truth; free the raw rt.Object array

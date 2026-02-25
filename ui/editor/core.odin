@@ -5,7 +5,7 @@ import rl "vendor:raylib"
 import "RT_Weekend:scene"
 
 // EditorObject is a discriminated union; add variants here for new object types.
-// Enables switch obj in sm.Objects[i] with exhaustiveness checking.
+// Enables switch obj in SceneManager with exhaustiveness checking.
 EditorObject :: union { scene.SceneSphere }
 
 // compute_viewport_ray casts a perspective ray through the given mouse position.

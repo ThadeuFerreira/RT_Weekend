@@ -4,7 +4,7 @@ import rl "vendor:raylib"
 import ed "RT_Weekend:ui/editor"
 
 // draw_preview_port_content renders a rasterized 3D preview from the render camera
-// (app.camera_params) and scene (app.edit_view.scene_mgr.Objects) into the panel content area.
+// (app.camera_params) and scene (via scene manager export) into the panel content area.
 draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	new_w := i32(content.width)
 	new_h := i32(content.height)

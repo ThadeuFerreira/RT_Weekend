@@ -205,8 +205,8 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	}
 
 	// Sphere selected
-	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.scene_mgr.Objects) { return }
-	ok, s := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	if ev.selected_idx < 0 || ev.selected_idx >= ed.SceneManagerLen(ev.scene_mgr) { return }
+	s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx)
 	if !ok { return }
 	lo := op_compute_layout(content, s.material_kind)
 
@@ -309,7 +309,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	}
 
 	// ── Sphere selected
-	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.scene_mgr.Objects) {
+	if ev.selected_idx < 0 || ev.selected_idx >= ed.SceneManagerLen(ev.scene_mgr) {
 		if st.prop_drag_idx >= 0 {
 			st.prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
@@ -317,7 +317,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		return
 	}
 	// read-modify-write via scene manager so different object types can be supported
-	ok2, s2 := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	s2, ok2 := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx)
 	if !ok2 { return }
 	s := s2
 

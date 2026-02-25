@@ -7,28 +7,28 @@ import "RT_Weekend:scene"
 // Stores scene.SceneSphere directly in EditorObject; no conversion on Get/Set.
 // Single place to add adapters later (EditorObject polymorphism).
 SceneManager :: struct {
-	Objects: [dynamic]EditorObject,
+	objects: [dynamic]EditorObject,
 }
 
 new_scene_manager :: proc() -> ^SceneManager {
 	sm := new(SceneManager)
-	sm.Objects = make([dynamic]EditorObject)
+	sm.objects = make([dynamic]EditorObject)
 	return sm
 }
 
 // free_scene_manager deletes Objects and frees the SceneManager. Call on shutdown.
 free_scene_manager :: proc(sm: ^SceneManager) {
 	if sm == nil { return }
-	delete(sm.Objects)
+	delete(sm.objects)
 	free(sm)
 }
 
 // Load from canonical scene representation
-LoadFromSceneSpheres :: proc(sm: ^SceneManager, src: [dynamic]scene.SceneSphere) {
+LoadFromSceneSpheres :: proc(sm: ^SceneManager, src: []scene.SceneSphere) {
 	if sm == nil { return }
-	delete(sm.Objects)
+	clear(&sm.objects)
 	for i in 0..<len(src) {
-		append(&sm.Objects, src[i])
+		append(&sm.objects, src[i])
 	}
 }
 
@@ -36,7 +36,7 @@ LoadFromSceneSpheres :: proc(sm: ^SceneManager, src: [dynamic]scene.SceneSphere)
 ExportToSceneSpheres :: proc(sm: ^SceneManager, out: ^[dynamic]scene.SceneSphere) {
 	if sm == nil { clear(out); return }
 	clear(out)
-	for obj in sm.Objects {
+	for obj in sm.objects {
 		switch s in obj {
 		case scene.SceneSphere:
 			append(out, s)
@@ -47,21 +47,26 @@ ExportToSceneSpheres :: proc(sm: ^SceneManager, out: ^[dynamic]scene.SceneSphere
 AppendDefaultSphere :: proc(sm: ^SceneManager) {
 	if sm == nil { return }
 	s := scene.SceneSphere{center = {0, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.7, 0.7, 0.7}}
-	append(&sm.Objects, s)
+	append(&sm.objects, s)
 }
 
 OrderedRemove :: proc(sm: ^SceneManager, idx: int) {
 	if sm == nil { return }
-	if idx < 0 || idx >= len(sm.Objects) { return }
-	ordered_remove(&sm.Objects, idx)
+	if idx < 0 || idx >= len(sm.objects) { return }
+	ordered_remove(&sm.objects, idx)
+}
+
+SceneManagerLen :: proc(sm: ^SceneManager) -> int {
+	if sm == nil { return 0 }
+	return len(sm.objects)
 }
 
 PickSphereInManager :: proc(sm: ^SceneManager, ray: rl.Ray) -> int {
 	if sm == nil { return -1 }
 	best_idx  := -1
 	best_dist := f32(1e30)
-	for i in 0..<len(sm.Objects) {
-		switch s in sm.Objects[i] {
+	for i in 0..<len(sm.objects) {
+		switch s in sm.objects[i] {
 		case scene.SceneSphere:
 			center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 			hit    := rl.GetRayCollisionSphere(ray, center, s.radius)
@@ -74,20 +79,20 @@ PickSphereInManager :: proc(sm: ^SceneManager, ray: rl.Ray) -> int {
 	return best_idx
 }
 
-GetSceneSphere :: proc(sm: ^SceneManager, idx: int) -> (ok: bool, s: scene.SceneSphere) {
-	if sm == nil { return false, scene.SceneSphere{} }
-	if idx < 0 || idx >= len(sm.Objects) { return false, scene.SceneSphere{} }
-	switch s in sm.Objects[idx] {
+GetSceneSphere :: proc(sm: ^SceneManager, idx: int) -> (s: scene.SceneSphere, ok: bool) {
+	if sm == nil { return scene.SceneSphere{}, false }
+	if idx < 0 || idx >= len(sm.objects) { return scene.SceneSphere{}, false }
+	switch s in sm.objects[idx] {
 	case scene.SceneSphere:
-		return true, s
+		return s, true
 	case:
-		return false, scene.SceneSphere{}
+		return scene.SceneSphere{}, false
 	}
 }
 
 SetSceneSphere :: proc(sm: ^SceneManager, idx: int, s: scene.SceneSphere) {
 	if sm == nil { return }
-	if idx < 0 || idx >= len(sm.Objects) { return }
-	sm.Objects[idx] = s
+	if idx < 0 || idx >= len(sm.objects) { return }
+	sm.objects[idx] = s
 }
 
