@@ -83,7 +83,6 @@ load_sdf_font :: proc(font_path: cstring, shader_path: cstring, base_size: i32) 
 	}
 
 	rl.SetTextureFilter(font.texture, .BILINEAR)
-	fmt.eprintln("[SDF] OK: SDF font loaded successfully")
 	ok = true
 	return
 }
