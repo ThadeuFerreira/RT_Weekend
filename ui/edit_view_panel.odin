@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
 import "RT_Weekend:scene"
+import ed "RT_Weekend:ui/editor"
 
 EDIT_TOOLBAR_H :: f32(32)
 EDIT_PROPS_H   :: f32(90)
@@ -33,9 +34,10 @@ EditViewState :: struct {
 	rmb_held:   bool,
 	last_mouse: rl.Vector2,
 
-	// Scene (shared definition; raytrace converts via build_world_from_scene)
-	objects:      [dynamic]scene.SceneSphere,
-	selection_kind: EditViewSelectionKind, // what is selected
+	// Scene manager (holds scene spheres for now; adapter for future polymorphism)
+	scene_mgr:      ^ed.SceneManager,
+	export_scratch: [dynamic]scene.SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
+	selection_kind: EditViewSelectionKind,      // what is selected
 	selected_idx:   int,                   // when Sphere: index into objects; else -1
 
 	// Drag-float property fields (sphere only)
@@ -61,9 +63,15 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
 
-	append(&ev.objects, scene.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
-	append(&ev.objects, scene.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
-	append(&ev.objects, scene.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
+	// initialize scene manager and seed with a few spheres
+	ev.scene_mgr = ed.new_scene_manager()
+	ev.export_scratch = make([dynamic]scene.SceneSphere)
+	initial := make([dynamic]scene.SceneSphere)
+	append(&initial, scene.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
+	append(&initial, scene.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
+	append(&initial, scene.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
+	ed.LoadFromSceneSpheres(ev.scene_mgr, initial[:])
+	delete(initial)
 
 	update_orbit_camera(ev)
 	ev.initialized = true
@@ -113,74 +121,10 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 // When require_inside=true (default) returns false if mouse is outside vp_rect.
 // When require_inside=false the UV is clamped to viewport edges — useful during
 // active drags where the mouse may wander outside the panel.
-compute_viewport_ray :: proc(
-	ev: ^EditViewState, mouse: rl.Vector2, vp_rect: rl.Rectangle,
-	require_inside: bool = true,
-) -> (ray: rl.Ray, ok: bool) {
-	if require_inside && !rl.CheckCollisionPointRec(mouse, vp_rect) {
-		return {}, false
-	}
-	if ev.tex_w <= 0 || ev.tex_h <= 0 { return {}, false }
+// NOTE: viewport / picking helpers were moved into the editor package so they
+// can be shared by object implementations without creating package cycles.
 
-	u := clamp((mouse.x - vp_rect.x) / vp_rect.width,  f32(0), f32(1))
-	v := clamp((mouse.y - vp_rect.y) / vp_rect.height, f32(0), f32(1))
-
-	forward := rl.Vector3Normalize(ev.cam3d.target - ev.cam3d.position)
-	right   := rl.Vector3Normalize(rl.Vector3CrossProduct(forward, ev.cam3d.up))
-	up      := rl.Vector3CrossProduct(right, forward)
-
-	aspect := f32(ev.tex_w) / f32(ev.tex_h)
-	half_h := math.tan(ev.cam3d.fovy * math.PI / 360.0)
-	half_w := half_h * aspect
-
-	ndc_x := (u * 2.0 - 1.0) * half_w
-	ndc_y := (1.0 - v * 2.0) * half_h
-
-	dir := rl.Vector3Normalize(forward + right * ndc_x + up * ndc_y)
-	return rl.Ray{position = ev.cam3d.position, direction = dir}, true
-}
-
-// ray_hit_plane_y intersects a ray with the horizontal plane y=plane_y.
-// Returns the XZ world hit as Vector2{x, z}, or false when the ray is
-// nearly parallel to the plane or points away from it.
-ray_hit_plane_y :: proc(ray: rl.Ray, plane_y: f32) -> (xz: rl.Vector2, ok: bool) {
-	dy := ray.direction.y
-	if abs(dy) < 1e-4 { return {}, false }
-	t := (plane_y - ray.position.y) / dy
-	if t < 0 { return {}, false }
-	return rl.Vector2{
-		ray.position.x + t * ray.direction.x,
-		ray.position.z + t * ray.direction.z,
-	}, true
-}
-
-pick_sphere :: proc(ev: ^EditViewState, ray: rl.Ray) -> int {
-	best_idx  := -1
-	best_dist := f32(1e30)
-
-	for i in 0..<len(ev.objects) {
-		s      := ev.objects[i]
-		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
-		hit    := rl.GetRayCollisionSphere(ray, center, s.radius)
-		if hit.hit && hit.distance > 0 && hit.distance < best_dist {
-			best_dist = hit.distance
-			best_idx  = i
-		}
-	}
-
-	return best_idx
-}
-
-// Camera gizmo pick radius in world units (small sphere at lookfrom).
-CAMERA_GIZMO_RADIUS :: f32(0.35)
-
-pick_camera :: proc(ray: rl.Ray, lookfrom: [3]f32) -> bool {
-	center := rl.Vector3{lookfrom[0], lookfrom[1], lookfrom[2]}
-	hit    := rl.GetRayCollisionSphere(ray, center, CAMERA_GIZMO_RADIUS)
-	return hit.hit && hit.distance > 0
-}
-
-draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
+draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []scene.SceneSphere) {
 	ev := &app.edit_view
 	new_w := i32(vp_rect.width)
 	new_h := i32(vp_rect.height)
@@ -201,8 +145,8 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	rl.BeginMode3D(ev.cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	for i in 0..<len(ev.objects) {
-		s      := ev.objects[i]
+	for i in 0..<len(objs) {
+		s      := objs[i]
 		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 		col: rl.Color
 		if ev.selection_kind == .Sphere && i == ev.selected_idx {
@@ -247,9 +191,11 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 
 	// Draw a move indicator on the selected sphere during drag
 	if ev.drag_obj_active && ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
-		s := ev.objects[ev.selected_idx]
-		c := rl.Vector3{s.center[0], s.center[1], s.center[2]}
-		rl.DrawCircle3D(c, s.radius + 0.08, rl.Vector3{1, 0, 0}, 90, rl.Color{255, 220, 0, 200})
+		if ev.selected_idx >= 0 && ev.selected_idx < len(objs) {
+			s := objs[ev.selected_idx]
+			c := rl.Vector3{s.center[0], s.center[1], s.center[2]}
+			rl.DrawCircle3D(c, s.radius + 0.08, rl.Vector3{1, 0, 0}, 90, rl.Color{255, 220, 0, 200})
+		}
 	}
 
 	rl.EndMode3D()
@@ -305,7 +251,7 @@ draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: b
 	draw_ui_text(g_app, label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
 }
 
-draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
+draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []scene.SceneSphere) {
 	ev := &app.edit_view
 	rl.DrawRectangleRec(rect, rl.Color{25, 28, 40, 240})
 	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
@@ -327,8 +273,8 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
 	}
 
 	// Sphere selected
-	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.objects) { return }
-	s      := ev.objects[ev.selected_idx]
+	if ev.selected_idx < 0 || ev.selected_idx >= len(objs) { return }
+	s      := objs[ev.selected_idx]
 	fields := prop_field_rects(rect)
 
 	// Row 0 — position X Y Z
@@ -339,8 +285,7 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
 	// Row 1 — radius + material label
 	draw_drag_field("R", s.radius, fields[3], ev.prop_drag_idx == 3, mouse)
 
-	mat_names := [3]cstring{"Lambertian", "Metallic", "Dielectric"}
-	mat_name  := mat_names[clamp(int(s.material_kind), 0, 2)]
+	mat_name  := ed.material_name(s.material_kind)
 	mat_x := i32(rect.x) + 8 + i32(PROP_COL)
 	mat_y := i32(rect.y) + 8 + 30 + 4
 	draw_ui_text(app, "Mat:",    mat_x,      mat_y, 12, CONTENT_TEXT_COLOR)
@@ -401,7 +346,8 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		content.width,
 		content.height - EDIT_TOOLBAR_H - EDIT_PROPS_H,
 	}
-	draw_viewport_3d(app, vp_rect)
+	ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+	draw_viewport_3d(app, vp_rect, ev.export_scratch[:])
 
 	// Properties strip
 	props_rect := rl.Rectangle{
@@ -410,7 +356,7 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		content.width,
 		EDIT_PROPS_H,
 	}
-	draw_edit_properties(app, props_rect, mouse)
+	draw_edit_properties(app, props_rect, mouse, ev.export_scratch[:])
 }
 
 // ── Panel update ───────────────────────────────────────────────────────────
@@ -444,16 +390,18 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		if !lmb {
 			ev.prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
-		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < len(ev.objects) {
+		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
 			delta := mouse.x - ev.prop_drag_start_x
-			s     := &ev.objects[ev.selected_idx]
-			switch ev.prop_drag_idx {
-			case 0: s.center[0] = ev.prop_drag_start_val + delta * 0.01
-			case 1: s.center[1] = ev.prop_drag_start_val + delta * 0.01
-			case 2: s.center[2] = ev.prop_drag_start_val + delta * 0.01
-			case 3:
-				s.radius = ev.prop_drag_start_val + delta * 0.005
-				if s.radius < 0.05 { s.radius = 0.05 }
+			if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+				switch ev.prop_drag_idx {
+				case 0: s.center[0] = ev.prop_drag_start_val + delta * 0.01
+				case 1: s.center[1] = ev.prop_drag_start_val + delta * 0.01
+				case 2: s.center[2] = ev.prop_drag_start_val + delta * 0.01
+				case 3:
+					s.radius = ev.prop_drag_start_val + delta * 0.005
+					if s.radius < 0.05 { s.radius = 0.05 }
+				}
+				ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 			}
 		}
 		return
@@ -463,13 +411,15 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	if ev.drag_obj_active {
 		if !lmb {
 			ev.drag_obj_active = false
-		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < len(ev.objects) {
+		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
 			// require_inside=false: keep dragging even when mouse leaves viewport
-			if ray, ok := compute_viewport_ray(ev, mouse, vp_rect, false); ok {
-				if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
-					s           := &ev.objects[ev.selected_idx]
-					s.center[0]  = xz.x - ev.drag_offset_xz[0]
-					s.center[2]  = xz.y - ev.drag_offset_xz[1]
+			if ray, ok := ed.compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
+				if xz, ok2 := ed.ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+					if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+						s.center[0]  = xz.x - ev.drag_offset_xz[0]
+						s.center[2]  = xz.y - ev.drag_offset_xz[1]
+						ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+					}
 				}
 			}
 		}
@@ -479,23 +429,22 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// ── Toolbar buttons ─────────────────────────────────────────────────
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, btn_add) {
-			append(&ev.objects, scene.SceneSphere{
-				center = {0, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.7, 0.7, 0.7},
-			})
+			ed.AppendDefaultSphere(ev.scene_mgr)
 			ev.selection_kind = .Sphere
-			ev.selected_idx   = len(ev.objects) - 1
+			ev.selected_idx   = ed.SceneManagerLen(ev.scene_mgr) - 1
 			return
 		}
 		// Delete only for sphere (camera is non-deletable)
 		if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, btn_del) {
-			ordered_remove(&ev.objects, ev.selected_idx)
+			ed.OrderedRemove(ev.scene_mgr, ev.selected_idx)
 			ev.selection_kind = .None
 			ev.selected_idx   = -1
 			return
 		}
 		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
 			// Apply current app.camera_params to raytracer and start render
-			app_restart_render_with_scene(app, ev.objects[:])
+			ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+			app_restart_render_with_scene(app, ev.export_scratch[:])
 			return
 		}
 	}
@@ -512,27 +461,25 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// ── Property drag-field: start drag on click (sphere only) ───────────
 	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, props_rect) {
 		fields := prop_field_rects(props_rect)
-		vals   := [4]f32{
-			ev.objects[ev.selected_idx].center[0],
-			ev.objects[ev.selected_idx].center[1],
-			ev.objects[ev.selected_idx].center[2],
-			ev.objects[ev.selected_idx].radius,
-		}
-		// Hover cursor
-		any_hovered := false
-		for i in 0..<4 {
-			if rl.CheckCollisionPointRec(mouse, fields[i]) {
-				any_hovered = true
-				if lmb_pressed {
-					ev.prop_drag_idx       = i
-					ev.prop_drag_start_x   = mouse.x
-					ev.prop_drag_start_val = vals[i]
-					rl.SetMouseCursor(.RESIZE_EW)
-					return
+		if tmp, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			vals := [4]f32{ tmp.center[0], tmp.center[1], tmp.center[2], tmp.radius }
+			// Hover cursor
+			any_hovered := false
+			for i in 0..<4 {
+				if rl.CheckCollisionPointRec(mouse, fields[i]) {
+					any_hovered = true
+					if lmb_pressed {
+						ev.prop_drag_idx       = i
+						ev.prop_drag_start_x   = mouse.x
+						ev.prop_drag_start_val = vals[i]
+						rl.SetMouseCursor(.RESIZE_EW)
+						return
+					}
 				}
 			}
+			if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else { rl.SetMouseCursor(.DEFAULT) }
 		}
-		if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else { rl.SetMouseCursor(.DEFAULT) }
+		// (handled above)
 	} else {
 		rl.SetMouseCursor(.DEFAULT)
 	}
@@ -562,20 +509,22 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 
 	// Left-click: select sphere or camera (sphere first, then camera)
 	if lmb_pressed && mouse_in_vp {
-		if ray, ok := compute_viewport_ray(ev, mouse, vp_rect); ok {
-			picked_sphere := pick_sphere(ev, ray)
+		if ray, ok := ed.compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect); ok {
+			picked_sphere := ed.PickSphereInManager(ev.scene_mgr, ray)
 			if picked_sphere >= 0 {
 				ev.selection_kind  = .Sphere
 				ev.selected_idx    = picked_sphere
 				ev.drag_obj_active = true
-				ev.drag_plane_y    = ev.objects[picked_sphere].center[1]
-				if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
-					ev.drag_offset_xz = {
-						xz.x - ev.objects[picked_sphere].center[0],
-						xz.y - ev.objects[picked_sphere].center[2],
+				if s, ok := ed.GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
+					ev.drag_plane_y    = s.center[1]
+					if xz, ok2 := ed.ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+						ev.drag_offset_xz = {
+							xz.x - s.center[0],
+							xz.y - s.center[2],
+						}
 					}
 				}
-			} else if pick_camera(ray, app.camera_params.lookfrom) {
+			} else if ed.pick_camera(ray, app.camera_params.lookfrom) {
 				ev.selection_kind  = .Camera
 				ev.selected_idx    = -1
 				ev.drag_obj_active = false
@@ -590,20 +539,22 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// Keyboard nudge (sphere only)
 	MOVE_SPEED   :: f32(0.05)
 	RADIUS_SPEED :: f32(0.02)
-	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < len(ev.objects) {
-		s := &ev.objects[ev.selected_idx]
-		if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)    { s.center[2] -= MOVE_SPEED }
-		if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)  { s.center[2] += MOVE_SPEED }
-		if rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT)  { s.center[0] -= MOVE_SPEED }
-		if rl.IsKeyDown(.D) || rl.IsKeyDown(.RIGHT) { s.center[0] += MOVE_SPEED }
-		if rl.IsKeyDown(.Q)                         { s.center[1] -= MOVE_SPEED }
-		if rl.IsKeyDown(.E)                         { s.center[1] += MOVE_SPEED }
-		if rl.IsKeyDown(.EQUAL) || rl.IsKeyDown(.KP_ADD) {
-			s.radius += RADIUS_SPEED
-		}
-		if rl.IsKeyDown(.MINUS) || rl.IsKeyDown(.KP_SUBTRACT) {
-			s.radius -= RADIUS_SPEED
-			if s.radius < 0.05 { s.radius = 0.05 }
+	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
+		if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)    { s.center[2] -= MOVE_SPEED }
+			if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)  { s.center[2] += MOVE_SPEED }
+			if rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT)  { s.center[0] -= MOVE_SPEED }
+			if rl.IsKeyDown(.D) || rl.IsKeyDown(.RIGHT) { s.center[0] += MOVE_SPEED }
+			if rl.IsKeyDown(.Q)                         { s.center[1] -= MOVE_SPEED }
+			if rl.IsKeyDown(.E)                         { s.center[1] += MOVE_SPEED }
+			if rl.IsKeyDown(.EQUAL) || rl.IsKeyDown(.KP_ADD) {
+				s.radius += RADIUS_SPEED
+			}
+			if rl.IsKeyDown(.MINUS) || rl.IsKeyDown(.KP_SUBTRACT) {
+				s.radius -= RADIUS_SPEED
+				if s.radius < 0.05 { s.radius = 0.05 }
+			}
+			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 		}
 	}
 }
