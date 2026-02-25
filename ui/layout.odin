@@ -209,7 +209,7 @@ layout_draw_tabs :: proc(app: ^App, layout: ^DockLayout, node: ^DockNode, mouse:
         p := app.panels[panel_idx]
         if p == nil { continue }
         label := p.title
-        w := f32(rl.MeasureText(label, 14)) + DOCK_TAB_PADDING * 2
+        w := f32(measure_ui_text(app, label, 14).width) + DOCK_TAB_PADDING * 2
         tab_rect := rl.Rectangle{x, tab_bar.y + 2, w, tab_bar.height - 4}
         hovered := rl.CheckCollisionPointRec(mouse, tab_rect)
         active := node.activePanel == i
@@ -219,7 +219,7 @@ layout_draw_tabs :: proc(app: ^App, layout: ^DockLayout, node: ^DockNode, mouse:
         }
         rl.DrawRectangleRec(tab_rect, color)
         rl.DrawRectangleLinesEx(tab_rect, 1, BORDER_COLOR)
-        rl.DrawText(label, i32(tab_rect.x + DOCK_TAB_PADDING), i32(tab_rect.y + 3), 14, TITLE_TEXT_COLOR)
+        draw_ui_text(app, label, i32(tab_rect.x + DOCK_TAB_PADDING), i32(tab_rect.y + 3), 14, TITLE_TEXT_COLOR)
 
         if lmb_pressed && hovered {
             node.activePanel = i

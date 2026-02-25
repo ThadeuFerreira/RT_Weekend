@@ -150,7 +150,7 @@ draw_panel_chrome :: proc(panel: FloatingPanel, split_view_on: bool) -> rl.Recta
 
     title_rect := rl.Rectangle{panel.rect.x, panel.rect.y, panel.rect.width, style.title_bar_height}
     rl.DrawRectangleRec(title_rect, style.title_bg_color)
-    rl.DrawText(panel.title, i32(panel.rect.x) + 6, i32(panel.rect.y) + 5, 14, style.title_text_color)
+    draw_ui_text(g_app, panel.title, i32(panel.rect.x) + 6, i32(panel.rect.y) + 5, 14, style.title_text_color)
 
     mouse := rl.GetMousePosition()
 

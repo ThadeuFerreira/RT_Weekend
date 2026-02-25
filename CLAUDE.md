@@ -45,6 +45,12 @@ ls $(odin root)/vendor/raylib/linux/libraylib.so
 ```
 exists. If not, install Odin from [odin-lang.org](https://odin-lang.org/) with the full vendor collection.
 
+### UI assets (SDF font and shader)
+- **`assets/fonts/Inter-Regular.ttf`** — Inter (OFL-licensed, Arial-like) used for UI text when SDF font loading succeeds. Sourced from [rsms/inter](https://github.com/rsms/inter).
+- **`assets/shaders/sdf.fs`** — Raylib SDF fragment shader (GLSL 330) for signed-distance-field text rendering.
+
+Paths are resolved **relative to the current working directory** at launch. Run the binary from the repository root (e.g. `./build/debug`) so `assets/fonts/` and `assets/shaders/` are found. If the font or shader fails to load, the UI falls back to Raylib’s default font.
+
 ## Project layout (packages)
 
 - **`main.odin`** (package `main`) — entry point; imports `RT_Weekend:util`, `RT_Weekend:raytrace`, `RT_Weekend:ui`.
@@ -73,6 +79,7 @@ The renderer is a standard path tracer built around these layers:
 - `draw_panel_chrome` — rounded rect + title bar + resize grip
 - `draw_stats_content` / `draw_log_content` — panel content renderers
 - `upload_render_texture` — converts float buffer → RGBA u8 → `rl.UpdateTexture`
+- **SDF UI font**: `ui/font_sdf.odin` loads an SDF font and shader from `assets/`; `draw_ui_text` / `measure_ui_text` in `app.odin` use it when available, otherwise the default font.
 
 ### Non-blocking Render API (`raytrace/camera.odin`)
 Three procedures replace the old blocking `render_parallel`:

@@ -20,6 +20,6 @@ draw_log_content :: proc(app: ^App, content: rl.Rectangle) {
         idx := (start + i) % LOG_RING_SIZE
         msg := app.log_lines[idx]
         if len(msg) == 0 { continue }
-        rl.DrawText(fmt.ctprintf("%s", msg), x, y + i32(i)*lh, fs, CONTENT_TEXT_COLOR)
+        draw_ui_text(app, fmt.ctprintf("%s", msg), x, y + i32(i)*lh, fs, CONTENT_TEXT_COLOR)
     }
 }
