@@ -5,20 +5,20 @@ import "RT_Weekend:util"
 
 material :: union{
     lambertian,
-    metalic,
-    dieletric,
+    metallic,
+    dielectric,
 }
 
 lambertian :: struct{
     albedo : [3]f32,
 }
 
-metalic :: struct{
+metallic :: struct{
     albedo : [3]f32,
     fuzz : f32,
 }
 
-dieletric :: struct{
+dielectric :: struct{
     ref_idx : f32,
 }
 
@@ -34,13 +34,13 @@ scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3
         scattered^ = ray{rec.p, scatter_dir}
         attenuation^ = m.albedo
         return true
-    case metalic:
+    case metallic:
         reflected := vector_reflect(r_in.dir, rec.normal)
         reflected = unit_vector(reflected) + m.fuzz * vector_random_unit(rng)
         scattered^ = ray{rec.p, reflected}
         attenuation^ = m.albedo
         return dot(scattered.dir, rec.normal) > 0
-    case dieletric:
+    case dielectric:
         attenuation^ = [3]f32{1.0, 1.0, 1.0}
         ri := rec.front_face ? 1.0/m.ref_idx : m.ref_idx
 

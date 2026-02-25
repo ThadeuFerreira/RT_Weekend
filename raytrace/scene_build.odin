@@ -22,11 +22,11 @@ build_world_from_scene :: proc(scene_objects: []scene.SceneSphere) -> [dynamic]O
 		case .Metallic:
 			fuzz := s.fuzz
 			if fuzz <= 0 { fuzz = 0.1 }
-			mat = material(metalic{albedo = s.albedo, fuzz = fuzz})
+			mat = material(metallic{albedo = s.albedo, fuzz = fuzz})
 		case .Dielectric:
 			ref_idx := s.ref_idx
 			if ref_idx <= 0 { ref_idx = 1.5 }
-			mat = material(dieletric{ref_idx = ref_idx})
+			mat = material(dielectric{ref_idx = ref_idx})
 		case:
 			mat = material(lambertian{albedo = s.albedo})
 		}

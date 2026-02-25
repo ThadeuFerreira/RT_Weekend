@@ -147,13 +147,17 @@ layout_build_default :: proc(app: ^App, layout: ^DockLayout) {
     p_log    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_LOG))
     p_cam    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA))
     p_props  := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_OBJECT_PROPS))
+    p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_PREVIEW_PORT))
 
-    center_leaf := layout_add_leaf(layout, []int{p_render, p_edit}, 0)
-    upper_right := layout_add_leaf(layout, []int{p_stats, p_sys}, 0)
-    lower_right := layout_add_leaf(layout, []int{p_log, p_cam, p_props}, 0)
+    center_leaf  := layout_add_leaf(layout, []int{p_render, p_edit}, 0)
+    upper_right  := layout_add_leaf(layout, []int{p_stats, p_sys}, 0)
+    lower_right  := layout_add_leaf(layout, []int{p_log, p_cam, p_props}, 0)
+    preview_leaf := layout_add_leaf(layout, []int{p_preview}, 0)
 
-    right_split := layout_add_split(layout, .DOCK_SPLIT_HORIZONTAL, upper_right, lower_right, 0.45)
-    root        := layout_add_split(layout, .DOCK_SPLIT_VERTICAL, center_leaf, right_split, 0.72)
+    // Right column: top = stats/sys, middle = log/camera/props, bottom = Preview Port
+    right_bottom := layout_add_split(layout, .DOCK_SPLIT_HORIZONTAL, lower_right, preview_leaf, 0.72)
+    right_split  := layout_add_split(layout, .DOCK_SPLIT_HORIZONTAL, upper_right, right_bottom, 0.45)
+    root         := layout_add_split(layout, .DOCK_SPLIT_VERTICAL, center_leaf, right_split, 0.72)
     layout.root = root
     layout.center_leaf = center_leaf
     layout.center_split_view = true

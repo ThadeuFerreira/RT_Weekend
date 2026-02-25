@@ -14,13 +14,9 @@ OP_SP  :: f32(4)                           // spacing after a field group
 OP_COL :: OP_LW + OP_GAP + OP_FW + OP_SP  // = 68 px per column
 
 // ObjectPropsPanelState holds per-frame drag state for the Object Properties panel.
-// The actual object data lives in app.edit_view.objects[app.edit_view.selected_idx].
+// For sphere: data in app.edit_view.objects[selected_idx]. For camera: app.camera_params.
+// Drag indices: sphere 0–7 (xyz, radius, rgb, mat_param); camera 0–9 (from xyz, at xyz, vfov, defocus, focus, max_depth).
 ObjectPropsPanelState :: struct {
-	// Active drag field index:
-	//   -1 = none
-	//    0 = center.x   1 = center.y   2 = center.z   3 = radius
-	//    4 = albedo.r   5 = albedo.g   6 = albedo.b
-	//    7 = fuzz (metallic) or ref_idx (dielectric)
 	prop_drag_idx:       int,
 	prop_drag_start_x:   f32,
 	prop_drag_start_val: f32,
@@ -95,6 +91,27 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: scene.MaterialKind) -
 	return lo
 }
 
+// Camera layout in Object Properties: same 10 fields as camera panel, using OP_* for consistency.
+OP_CAM_ROW :: f32(20)
+op_camera_field_rects :: proc(content: rl.Rectangle) -> [10]rl.Rectangle {
+	x0 := content.x + 8
+	y0 := content.y + 6
+	off := OP_LW + OP_GAP
+	row := OP_CAM_ROW
+	return [10]rl.Rectangle{
+		{x0 + off,             y0 + 0*row, OP_FW, OP_FH},
+		{x0 + off + OP_COL,   y0 + 0*row, OP_FW, OP_FH},
+		{x0 + off + 2*OP_COL, y0 + 0*row, OP_FW, OP_FH},
+		{x0 + off,             y0 + 1*row, OP_FW, OP_FH},
+		{x0 + off + OP_COL,   y0 + 1*row, OP_FW, OP_FH},
+		{x0 + off + 2*OP_COL, y0 + 1*row, OP_FW, OP_FH},
+		{x0 + off,             y0 + 2*row, OP_FW, OP_FH},
+		{x0 + off + OP_COL,   y0 + 2*row, OP_FW, OP_FH},
+		{x0 + off + 2*OP_COL, y0 + 2*row, OP_FW, OP_FH},
+		{x0 + off,             y0 + 3*row, OP_FW, OP_FH},
+	}
+}
+
 // ── visual helpers 
 
 op_section_label :: proc(text: cstring, x, y: f32) {
@@ -156,17 +173,39 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	st    := &app.object_props
 	mouse := rl.GetMousePosition()
 
-	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.objects) {
+	if ev.selection_kind == .None {
 		rl.DrawText("No object selected.",
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-		rl.DrawText("Click a sphere in the Edit View.",
+		rl.DrawText("Click a sphere or the camera in the Edit View.",
 			i32(content.x) + 10, i32(content.y) + 40, 11, rl.Color{140, 150, 165, 200})
 		return
 	}
 
+	if ev.selection_kind == .Camera {
+		p := &app.camera_params
+		op_section_label("CAMERA (non-deletable)", content.x + 8, content.y + 6)
+		fields := op_camera_field_rects(content)
+		y0 := content.y + 6 + 18
+		rl.DrawText("From", i32(content.x) + 8, i32(y0), 10, CONTENT_TEXT_COLOR)
+		rl.DrawText("At",   i32(content.x) + 8, i32(y0 + OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		rl.DrawText("FOV / Defocus / Focus", i32(content.x) + 8, i32(y0 + 2*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		rl.DrawText("Max depth", i32(content.x) + 8, i32(y0 + 3*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		op_drag_field("X", p.lookfrom[0], fields[0], st.prop_drag_idx == 0, mouse)
+		op_drag_field("Y", p.lookfrom[1], fields[1], st.prop_drag_idx == 1, mouse)
+		op_drag_field("Z", p.lookfrom[2], fields[2], st.prop_drag_idx == 2, mouse)
+		op_drag_field("X", p.lookat[0], fields[3], st.prop_drag_idx == 3, mouse)
+		op_drag_field("Y", p.lookat[1], fields[4], st.prop_drag_idx == 4, mouse)
+		op_drag_field("Z", p.lookat[2], fields[5], st.prop_drag_idx == 5, mouse)
+		op_drag_field("", p.vfov, fields[6], st.prop_drag_idx == 6, mouse)
+		op_drag_field("", p.defocus_angle, fields[7], st.prop_drag_idx == 7, mouse)
+		op_drag_field("", p.focus_dist, fields[8], st.prop_drag_idx == 8, mouse)
+		op_drag_field("D", f32(p.max_depth), fields[9], st.prop_drag_idx == 9, mouse)
+		return
+	}
+
+	// Sphere selected
+	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.objects) { return }
 	s  := ev.objects[ev.selected_idx]   // value copy — read only
-	// Intentional duplicate with update_object_props_content: draw/update run in separate
-	// phases and both need the same geometry. If layout work grows, cache OpLayout in state.
 	lo := op_compute_layout(content, s.material_kind)
 
 	// TRANSFORM 
@@ -210,7 +249,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	ev := &app.edit_view
 	st := &app.object_props
 
-	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.objects) {
+	if ev.selection_kind == .None {
 		if st.prop_drag_idx >= 0 {
 			st.prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
@@ -218,6 +257,63 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		return
 	}
 
+	// ── Camera selected: drag 0–9 → app.camera_params
+	if ev.selection_kind == .Camera {
+		p := &app.camera_params
+		if st.prop_drag_idx >= 0 {
+			if !lmb {
+				st.prop_drag_idx = -1
+				rl.SetMouseCursor(.DEFAULT)
+			} else {
+				delta := mouse.x - st.prop_drag_start_x
+				switch st.prop_drag_idx {
+				case 0: p.lookfrom[0] = st.prop_drag_start_val + delta * 0.02
+				case 1: p.lookfrom[1] = st.prop_drag_start_val + delta * 0.02
+				case 2: p.lookfrom[2] = st.prop_drag_start_val + delta * 0.02
+				case 3: p.lookat[0] = st.prop_drag_start_val + delta * 0.02
+				case 4: p.lookat[1] = st.prop_drag_start_val + delta * 0.02
+				case 5: p.lookat[2] = st.prop_drag_start_val + delta * 0.02
+				case 6:
+					p.vfov = st.prop_drag_start_val + delta * 0.1
+					if p.vfov < 1 { p.vfov = 1 }
+					if p.vfov > 120 { p.vfov = 120 }
+				case 7:
+					p.defocus_angle = st.prop_drag_start_val + delta * 0.02
+					if p.defocus_angle < 0 { p.defocus_angle = 0 }
+				case 8:
+					p.focus_dist = st.prop_drag_start_val + delta * 0.05
+					if p.focus_dist < 0.1 { p.focus_dist = 0.1 }
+				case 9:
+					p.max_depth = int(st.prop_drag_start_val + delta * 0.5)
+					if p.max_depth < 1 { p.max_depth = 1 }
+					if p.max_depth > 100 { p.max_depth = 100 }
+				}
+				rl.SetMouseCursor(.RESIZE_EW)
+			}
+			return
+		}
+		fields := op_camera_field_rects(rect)
+		vals := [10]f32{
+			p.lookfrom[0], p.lookfrom[1], p.lookfrom[2],
+			p.lookat[0], p.lookat[1], p.lookat[2],
+			p.vfov, p.defocus_angle, p.focus_dist, f32(p.max_depth),
+		}
+		any_hovered := false
+		for i in 0..<10 {
+			if op_try_start_drag(fields[i], i, vals[i], st, mouse, lmb_pressed) { any_hovered = true }
+		}
+		if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else if rl.CheckCollisionPointRec(mouse, rect) { rl.SetMouseCursor(.DEFAULT) }
+		return
+	}
+
+	// ── Sphere selected
+	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.objects) {
+		if st.prop_drag_idx >= 0 {
+			st.prop_drag_idx = -1
+			rl.SetMouseCursor(.DEFAULT)
+		}
+		return
+	}
 	s := &ev.objects[ev.selected_idx]
 
 	// ── Priority 1: active drag 
@@ -247,8 +343,6 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		return
 	}
 
-	// Intentional duplicate with draw_object_props_content for phase separation.
-	// TODO(Future improvement): cache OpLayout on ObjectPropsPanelState per frame.
 	lo := op_compute_layout(rect, s.material_kind)
 
 	// ── Material toggle clicks 
@@ -258,8 +352,6 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[1]) {
-			// Only give default fuzz when switching to Metallic from another material.
-			// fuzz=0 is valid (perfect mirror); don't clobber it on re-click.
 			if s.material_kind != .Metallic && s.fuzz <= 0 { s.fuzz = 0.1 }
 			s.material_kind = .Metallic
 			return
