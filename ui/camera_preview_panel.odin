@@ -36,7 +36,8 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.BeginMode3D(cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	for s in ed.ExportToSceneSpheres(app.edit_view.scene_mgr) {
+	ed.ExportToSceneSpheres(app.edit_view.scene_mgr, &app.edit_view.export_scratch)
+	for s in app.edit_view.export_scratch {
 		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 		col := rl.Color{
 			u8(clamp(s.albedo[0], f32(0), f32(1)) * 255),

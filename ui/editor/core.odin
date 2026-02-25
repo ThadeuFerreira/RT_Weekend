@@ -6,12 +6,6 @@ import "RT_Weekend:scene"
 
 // TODO: define EditorObject interface here once we introduce polymorphic objects.
 
-// BaseObject: common fields that object implementations can embed.
-BaseObject :: struct {
-	id:   int,
-	name: cstring,
-}
-
 // Basic EditorObject kind + container for future polymorphism.
 EditorObjectKind :: enum {
 	Sphere,
@@ -20,17 +14,7 @@ EditorObjectKind :: enum {
 EditorObject :: struct {
 	kind: EditorObjectKind,
 	// current concrete data (sphere). Future types will add more fields.
-	sphere: SphereObject,
-}
-
-// SphereObject is declared here so all editor package files (in ui/editor/) can use it.
-SphereObject :: struct {
-	center: [3]f32,
-	radius: f32,
-	material_kind: scene.MaterialKind,
-	albedo: [3]f32,
-	fuzz: f32,
-	ref_idx: f32,
+	sphere: scene.SceneSphere,
 }
 
 // compute_viewport_ray casts a perspective ray through the given mouse position.

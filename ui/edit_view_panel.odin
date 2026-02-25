@@ -35,8 +35,9 @@ EditViewState :: struct {
 	last_mouse: rl.Vector2,
 
 	// Scene manager (holds scene spheres for now; adapter for future polymorphism)
-	scene_mgr:    ^ed.SceneManager,
-	selection_kind: EditViewSelectionKind, // what is selected
+	scene_mgr:      ^ed.SceneManager,
+	export_scratch: [dynamic]scene.SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
+	selection_kind: EditViewSelectionKind,      // what is selected
 	selected_idx:   int,                   // when Sphere: index into objects; else -1
 
 	// Drag-float property fields (sphere only)
@@ -64,11 +65,13 @@ init_edit_view :: proc(ev: ^EditViewState) {
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = ed.new_scene_manager()
+	ev.export_scratch = make([dynamic]scene.SceneSphere)
 	initial := make([dynamic]scene.SceneSphere)
 	append(&initial, scene.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
 	append(&initial, scene.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
 	append(&initial, scene.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
 	ed.LoadFromSceneSpheres(ev.scene_mgr, initial)
+	delete(initial)
 
 	update_orbit_camera(ev)
 	ev.initialized = true
@@ -142,9 +145,9 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	rl.BeginMode3D(ev.cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	objs := ed.ExportToSceneSpheres(ev.scene_mgr)
-	for i in 0..<len(objs) {
-		s      := objs[i]
+	ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+	for i in 0..<len(ev.export_scratch) {
+		s      := ev.export_scratch[i]
 		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 		col: rl.Color
 		if ev.selection_kind == .Sphere && i == ev.selected_idx {
@@ -189,8 +192,8 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 
 	// Draw a move indicator on the selected sphere during drag
 	if ev.drag_obj_active && ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
-		if ev.selected_idx >= 0 && ev.selected_idx < len(objs) {
-			s := objs[ev.selected_idx]
+		if ev.selected_idx >= 0 && ev.selected_idx < len(ev.export_scratch) {
+			s := ev.export_scratch[ev.selected_idx]
 			c := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 			rl.DrawCircle3D(c, s.radius + 0.08, rl.Vector3{1, 0, 0}, 90, rl.Color{255, 220, 0, 200})
 		}
@@ -271,9 +274,9 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
 	}
 
 	// Sphere selected
-	objs := ed.ExportToSceneSpheres(ev.scene_mgr)
-	if ev.selected_idx < 0 || ev.selected_idx >= len(objs) { return }
-	s      := objs[ev.selected_idx]
+	ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.export_scratch) { return }
+	s      := ev.export_scratch[ev.selected_idx]
 	fields := prop_field_rects(rect)
 
 	// Row 0 — position X Y Z
@@ -441,7 +444,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		}
 		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
 			// Apply current app.camera_params to raytracer and start render
-			app_restart_render_with_scene(app, ed.ExportToSceneSpheres(ev.scene_mgr)[:])
+			ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+			app_restart_render_with_scene(app, ev.export_scratch[:])
 			return
 		}
 	}
