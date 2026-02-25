@@ -484,6 +484,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			})
 			ev.selection_kind = .Sphere
 			ev.selected_idx   = len(ev.objects) - 1
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		// Delete only for sphere (camera is non-deletable)
@@ -496,6 +497,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
 			// Apply current app.camera_params to raytracer and start render
 			app_restart_render_with_scene(app, ev.objects[:])
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 	}

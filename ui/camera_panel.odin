@@ -142,6 +142,7 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				case 9: cp.drag_start_val = f32(p.max_depth)
 				}
 				rl.SetMouseCursor(.CROSSHAIR)
+				if g_app != nil { g_app.input_consumed = true }
 				return
 			}
 		}

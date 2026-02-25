@@ -359,6 +359,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[2]) {
 			s.material_kind = .Dielectric
 			if s.ref_idx < 1.0 { s.ref_idx = 1.5 }
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 	}
