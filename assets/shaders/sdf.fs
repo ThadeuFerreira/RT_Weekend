@@ -17,7 +17,10 @@ void main()
 {
     // Texel color fetching from texture sampler
     // NOTE: Calculate alpha using signed distance field (SDF)
-    float distanceFromOutline = texture(texture0, fragTexCoord).a - 0.5;
+    // Use .r (red channel) — raylib loads SDF atlases as GL_R8 (grayscale).
+    // Reading .a from a GL_R8 texture returns 1.0 on OpenGL (no swizzle),
+    // which makes dFdx/dFdy = 0 and collapses smoothstep → invisible text on Mesa/Intel.
+    float distanceFromOutline = texture(texture0, fragTexCoord).r - 0.5;
     float distanceChangePerFragment = length(vec2(dFdx(distanceFromOutline), dFdy(distanceFromOutline)));
     float alpha = smoothstep(-distanceChangePerFragment, distanceChangePerFragment, distanceFromOutline);
 

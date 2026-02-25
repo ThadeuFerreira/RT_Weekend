@@ -81,7 +81,8 @@ main :: proc() {
         camera = cam
         world = w
     } else {
-        camera, world = raytrace.setup_scene(image_width, image_height, samples_per_pixel, number_of_spheres)
+        camera = raytrace.make_camera(image_width, image_height, samples_per_pixel)
+        world  = make([dynamic]raytrace.Object) // empty; edit view provides the scene
     }
 
     if len(args.SaveScenePath) > 0 {

@@ -291,12 +291,15 @@ run_app :: proc(
     rl.SetTargetFPS(60)
 
     // Load UI font: try SDF first (base 16, absolute paths), then LoadFontEx fallback for readable Inter text
+    // Raise log level temporarily so Raylib's own font/shader error messages reach stdout.
+    rl.SetTraceLogLevel(.ALL)
     ui_font, ui_shader, sdf_ok := load_sdf_font("assets/fonts/Inter-Regular.ttf", "assets/shaders/sdf.fs", SDF_BASE_SIZE)
     if !sdf_ok {
         if font_ex, ex_ok := load_font_ex_fallback("assets/fonts/Inter-Regular.ttf", FONTEX_FALLBACK_SIZE); ex_ok {
             ui_font = font_ex
         }
     }
+    rl.SetTraceLogLevel(.WARNING)
 
     img := rl.GenImageColor(i32(camera.image_width), i32(camera.image_height), rl.BLACK)
     render_tex := rl.LoadTextureFromImage(img)
@@ -317,11 +320,20 @@ run_app :: proc(
         defer unload_ui_font(&app.ui_font, app.ui_font_shader, app.use_sdf_font)
     }
     app.camera      = camera
-    app.world       = world
     app.num_threads = num_threads
     app.menu_bar    = MenuBarState{open_menu_index = -1}
     rt.copy_camera_to_scene_params(&app.camera_params, camera)
     init_edit_view(&app.edit_view)
+    // If a world was passed in (from a scene file), populate the edit view with it.
+    // Otherwise the edit view keeps its 3 default spheres.
+    if len(world) > 0 {
+        converted := rt.convert_world_to_edit_spheres(world)
+        delete(app.edit_view.objects)
+        app.edit_view.objects = converted
+    }
+    delete(world) // edit view is now the source of truth; free the raw rt.Object array
+    // Build the startup world from the edit view (always).
+    app.world = rt.build_world_from_scene(app.edit_view.objects[:])
     app.object_props = ObjectPropsPanelState{prop_drag_idx = -1}
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
@@ -421,6 +433,14 @@ run_app :: proc(
 
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)
+
+    if app.use_sdf_font {
+        app_push_log(&app, strings.clone("Font: SDF (Inter) loaded"))
+    } else if has_custom_ui_font(&app) {
+        app_push_log(&app, strings.clone("Font: Inter (LoadFontEx fallback)"))
+    } else {
+        app_push_log(&app, strings.clone("Font: default (SDF/Inter load failed)"))
+    }
 
     app_push_log(&app, fmt.aprintf("Scene: %dx%d, %d spp", camera.image_width, camera.image_height, camera.samples_per_pixel))
     app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))
