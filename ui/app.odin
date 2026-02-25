@@ -290,16 +290,20 @@ run_app :: proc(
     rl.SetWindowMinSize(640, 360)
     rl.SetTargetFPS(60)
 
-    // Load UI font: try SDF first (base 16, absolute paths), then LoadFontEx fallback for readable Inter text
-    // Raise log level temporarily so Raylib's own font/shader error messages reach stdout.
-    rl.SetTraceLogLevel(.ALL)
-    ui_font, ui_shader, sdf_ok := load_sdf_font("assets/fonts/Inter-Regular.ttf", "assets/shaders/sdf.fs", SDF_BASE_SIZE)
-    if !sdf_ok {
-        if font_ex, ex_ok := load_font_ex_fallback("assets/fonts/Inter-Regular.ttf", FONTEX_FALLBACK_SIZE); ex_ok {
-            ui_font = font_ex
+    // Load UI font when SDF feature is enabled; otherwise use raylib default font
+    ui_font: rl.Font
+    ui_shader: rl.Shader
+    sdf_ok := false
+    when USE_SDF_FONT {
+        rl.SetTraceLogLevel(.ALL)
+        ui_font, ui_shader, sdf_ok = load_sdf_font("assets/fonts/Inter-Regular.ttf", "assets/shaders/sdf.fs", SDF_BASE_SIZE)
+        if !sdf_ok {
+            if font_ex, ex_ok := load_font_ex_fallback("assets/fonts/Inter-Regular.ttf", FONTEX_FALLBACK_SIZE); ex_ok {
+                ui_font = font_ex
+            }
         }
+        rl.SetTraceLogLevel(.WARNING)
     }
-    rl.SetTraceLogLevel(.WARNING)
 
     img := rl.GenImageColor(i32(camera.image_width), i32(camera.image_height), rl.BLACK)
     render_tex := rl.LoadTextureFromImage(img)
@@ -316,8 +320,10 @@ run_app :: proc(
         ui_font         = ui_font,
         ui_font_shader  = ui_shader,
     }
-    if has_custom_ui_font(&app) {
-        defer unload_ui_font(&app.ui_font, app.ui_font_shader, app.use_sdf_font)
+    when USE_SDF_FONT {
+        if has_custom_ui_font(&app) {
+            defer unload_ui_font(&app.ui_font, app.ui_font_shader, app.use_sdf_font)
+        }
     }
     app.camera      = camera
     app.num_threads = num_threads

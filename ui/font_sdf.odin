@@ -6,6 +6,9 @@ import "core:strings"
 import rl "vendor:raylib"
 
 DEFAULT_CHARSET_COUNT :: 95
+// Feature flag: set to true to enable SDF/custom font loading; false uses raylib default font only.
+// Override at build time: odin build ... -define:USE_SDF_FONT=true
+USE_SDF_FONT :: #config(USE_SDF_FONT, false)
 // Base size when loading the font; must be >= max glyph size to avoid "size is bigger than expected font size" (e.g. for '}' 0x7d).
 SDF_BASE_SIZE         :: 32
 FONTEX_FALLBACK_SIZE  :: 32

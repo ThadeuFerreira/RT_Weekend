@@ -88,6 +88,8 @@ RenderSession :: struct {
     start_time:                  time.Time,
 }
 
+// Default camera
+// If no scene is loaded, the camera is at {8, 2, 3} with this configuration
 make_camera :: proc(image_width : int, image_height : int, samples_per_pixel : int) -> ^Camera {
 
     cam := new(Camera)
@@ -99,7 +101,7 @@ make_camera :: proc(image_width : int, image_height : int, samples_per_pixel : i
     cam.max_depth = 20
 
     cam.vfov = 20.0
-    cam.lookfrom = [3]f32{13, 2, 3}
+    cam.lookfrom = [3]f32{8, 2, 3}
     cam.lookat = [3]f32{0, 0, 0}
     cam.vup = [3]f32{0, 1, 0}
 
