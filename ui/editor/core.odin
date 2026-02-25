@@ -4,18 +4,9 @@ import "core:math"
 import rl "vendor:raylib"
 import "RT_Weekend:scene"
 
-// TODO: define EditorObject interface here once we introduce polymorphic objects.
-
-// Basic EditorObject kind + container for future polymorphism.
-EditorObjectKind :: enum {
-	Sphere,
-}
-
-EditorObject :: struct {
-	kind: EditorObjectKind,
-	// current concrete data (sphere). Future types will add more fields.
-	sphere: scene.SceneSphere,
-}
+// EditorObject is a discriminated union; add variants here for new object types.
+// Enables switch obj in sm.Objects[i] with exhaustiveness checking.
+EditorObject :: union { scene.SceneSphere }
 
 // compute_viewport_ray casts a perspective ray through the given mouse position.
 // Operates on explicit camera/texture params to avoid circular imports with ui package.
