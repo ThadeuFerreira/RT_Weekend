@@ -112,9 +112,9 @@ scene_material_to_material :: proc(s: ^SceneMaterial) -> material {
 	case "lambertian":
 		return material(lambertian{albedo = s.albedo})
 	case "metal":
-		return material(metalic{albedo = s.albedo, fuzz = s.fuzz})
-	case "dielectric", "dieletric":
-		return material(dieletric{ref_idx = s.ref_idx})
+		return material(metallic{albedo = s.albedo, fuzz = s.fuzz})
+	case "dielectric":
+		return material(dielectric{ref_idx = s.ref_idx})
 	case:
 		return material(lambertian{albedo = [3]f32{0.5, 0.5, 0.5}})
 	}
@@ -180,9 +180,9 @@ material_to_scene_material :: proc(m: material) -> SceneMaterial {
 	switch mat in m {
 	case lambertian:
 		return SceneMaterial{material_type = "lambertian", albedo = mat.albedo}
-	case metalic:
+	case metallic:
 		return SceneMaterial{material_type = "metal", albedo = mat.albedo, fuzz = mat.fuzz}
-	case dieletric:
+	case dielectric:
 		return SceneMaterial{material_type = "dielectric", ref_idx = mat.ref_idx}
 	case:
 		return SceneMaterial{material_type = "lambertian", albedo = [3]f32{0.5, 0.5, 0.5}}

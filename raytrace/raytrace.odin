@@ -84,10 +84,10 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
                 } else if choose_mat < 0.95 {
                     albedo   := vector_random_range(&scene_rng, 0.5, 1)
                     fuzz     := util.random_float_range(&scene_rng, 0, 0.5)
-                    mat      := material(metalic{albedo, fuzz})
+                    mat      := material(metallic{albedo, fuzz})
                     append(&world, Sphere{center, 0.2, mat})
                 } else {
-                    mat := material(dieletric{1.5})
+                    mat := material(dielectric{1.5})
                     append(&world, Sphere{center, 0.2, mat})
                 }
                 num_spheres += 1
@@ -98,13 +98,13 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
         }
     }
 
-    material1 := material(dieletric{1.5})
+    material1 := material(dielectric{1.5})
     append(&world, Sphere{[3]f32{0, 1, 0}, 1.0, material1})
 
     material2 := material(lambertian{[3]f32{0.4, 0.2, 0.1}})
     append(&world, Sphere{[3]f32{-4, 1, 0}, 1.0, material2})
 
-    material3 := material(metalic{[3]f32{0.7, 0.6, 0.5}, 0.0})
+    material3 := material(metallic{[3]f32{0.7, 0.6, 0.5}, 0.0})
     append(&world, Sphere{[3]f32{4, 1, 0}, 1.0, material3})
 
     cam := make_camera(image_width, image_height, samples_per_pixel)

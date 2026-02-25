@@ -47,12 +47,12 @@ Main Components
 Here is an example of how materials are added to the scene in main.odin:
 
 ```odin
-material1 := material(dieletric{1.5})
+material1 := material(dielectric{1.5})
 append(&world, Sphere{[3]f32{0, 1, 0}, 1.0, material1})
 
 material2 := material(lambertian{[3]f32{0.4, 0.2, 0.1}})
 append(&world, Sphere{[3]f32{-4, 1, 0}, 1.0, material2})
 
-material3 := material(metalic{[3]f32{0.7, 0.6, 0.5}, 0.0})
+material3 := material(metallic{[3]f32{0.7, 0.6, 0.5}, 0.0})
 append(&world, Sphere{[3]f32{4, 1, 0}, 1.0, material3})
 ```
