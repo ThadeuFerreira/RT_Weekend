@@ -6,8 +6,12 @@ import "core:strings"
 import rl "vendor:raylib"
 
 DEFAULT_CHARSET_COUNT :: 95
-SDF_BASE_SIZE :: 16
-FONTEX_FALLBACK_SIZE :: 24
+// Feature flag: set to true to enable SDF/custom font loading; false uses raylib default font only.
+// Override at build time: odin build ... -define:USE_SDF_FONT=true
+USE_SDF_FONT :: #config(USE_SDF_FONT, false)
+// Base size when loading the font; must be >= max glyph size to avoid "size is bigger than expected font size" (e.g. for '}' 0x7d).
+SDF_BASE_SIZE         :: 32
+FONTEX_FALLBACK_SIZE  :: 32
 
 // make_asset_path returns an absolute path for a relative asset (e.g. "assets/fonts/x.ttf") using current working directory.
 make_asset_path :: proc(relative: cstring) -> string {
@@ -28,18 +32,21 @@ load_sdf_font :: proc(font_path: cstring, shader_path: cstring, base_size: i32) 
 	data_size: c.int
 	file_data := rl.LoadFileData(font_cstr, &data_size)
 	if file_data == nil || data_size <= 0 {
+		fmt.eprintln("[SDF] ERROR: failed to load font file:", font_cstr)
 		return
 	}
 	defer rl.UnloadFileData(file_data)
 
 	glyphs := rl.LoadFontData(rawptr(file_data), data_size, base_size, nil, DEFAULT_CHARSET_COUNT, rl.FontType.SDF)
 	if glyphs == nil {
+		fmt.eprintln("[SDF] ERROR: rl.LoadFontData returned nil glyphs")
 		return
 	}
 
 	recs: [^]rl.Rectangle
 	atlas := rl.GenImageFontAtlas(glyphs, &recs, DEFAULT_CHARSET_COUNT, base_size, 0, 1)
 	if atlas.data == nil {
+		fmt.eprintln("[SDF] ERROR: rl.GenImageFontAtlas returned empty image")
 		rl.UnloadFontData(glyphs, DEFAULT_CHARSET_COUNT)
 		return
 	}
@@ -52,7 +59,14 @@ load_sdf_font :: proc(font_path: cstring, shader_path: cstring, base_size: i32) 
 	font.recs         = recs
 	font.glyphs       = glyphs
 
+	if !rl.IsTextureValid(font.texture) {
+		fmt.eprintln("[SDF] ERROR: font texture upload to GPU failed")
+		rl.UnloadFontData(glyphs, DEFAULT_CHARSET_COUNT)
+		return
+	}
+
 	if !rl.IsFontValid(font) {
+		fmt.eprintln("[SDF] ERROR: rl.IsFontValid returned false")
 		rl.UnloadFont(font)
 		return
 	}
@@ -63,6 +77,7 @@ load_sdf_font :: proc(font_path: cstring, shader_path: cstring, base_size: i32) 
 	defer delete(shader_cstr)
 	shader = rl.LoadShader(nil, shader_cstr)
 	if !rl.IsShaderValid(shader) {
+		fmt.eprintln("[SDF] ERROR: SDF shader failed to load/compile:", shader_cstr)
 		rl.UnloadFont(font)
 		return
 	}
