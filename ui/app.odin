@@ -165,9 +165,48 @@ App :: struct {
     preview_port_tex: rl.RenderTexture2D,
     preview_port_w:   i32,
     preview_port_h:   i32,
+
+    // SDF UI font (optional; fallback to default font if load fails)
+    ui_font:       rl.Font,
+    ui_font_shader: rl.Shader,
+    use_sdf_font:   bool,
 }
 
 g_app: ^App = nil
+
+// has_custom_ui_font returns true when a custom font (SDF or LoadFontEx) is loaded for UI text.
+has_custom_ui_font :: proc(app: ^App) -> bool {
+    return app != nil && app.ui_font.glyphCount > 0
+}
+
+// draw_ui_text draws text using the SDF font when available, else custom font (LoadFontEx), else default font.
+draw_ui_text :: proc(app: ^App, text: cstring, x, y: i32, fontSize: i32, color: rl.Color) {
+    if app == nil {
+        rl.DrawText(text, x, y, fontSize, color)
+        return
+    }
+    if app.use_sdf_font {
+        draw_text_sdf(app.ui_font, app.ui_font_shader, text, rl.Vector2{f32(x), f32(y)}, f32(fontSize), 0, color)
+        return
+    }
+    if has_custom_ui_font(app) {
+        rl.DrawTextEx(app.ui_font, text, rl.Vector2{f32(x), f32(y)}, f32(fontSize), 0, color)
+        return
+    }
+    rl.DrawText(text, x, y, fontSize, color)
+}
+
+// UITextSize is the result of measure_ui_text (width and height in pixels).
+UITextSize :: struct { width, height: i32 }
+
+// measure_ui_text returns width and height of text using the custom or default font.
+measure_ui_text :: proc(app: ^App, text: cstring, fontSize: i32) -> UITextSize {
+    if app != nil && has_custom_ui_font(app) {
+        size := rl.MeasureTextEx(app.ui_font, text, f32(fontSize), 0)
+        return UITextSize{i32(size.x), i32(size.y)}
+    }
+    return UITextSize{rl.MeasureText(text, fontSize), fontSize}
+}
 
 // app_push_log appends a line to the log ring. Takes ownership of msg; callers must pass
 // a heap-allocated string (e.g. fmt.aprintf, strings.concatenate, or strings.clone for literals).
@@ -251,6 +290,14 @@ run_app :: proc(
     rl.SetWindowMinSize(640, 360)
     rl.SetTargetFPS(60)
 
+    // Load UI font: try SDF first (base 16, absolute paths), then LoadFontEx fallback for readable Inter text
+    ui_font, ui_shader, sdf_ok := load_sdf_font("assets/fonts/Inter-Regular.ttf", "assets/shaders/sdf.fs", SDF_BASE_SIZE)
+    if !sdf_ok {
+        if font_ex, ex_ok := load_font_ex_fallback("assets/fonts/Inter-Regular.ttf", FONTEX_FALLBACK_SIZE); ex_ok {
+            ui_font = font_ex
+        }
+    }
+
     img := rl.GenImageColor(i32(camera.image_width), i32(camera.image_height), rl.BLACK)
     render_tex := rl.LoadTextureFromImage(img)
     rl.UnloadImage(img)
@@ -260,8 +307,14 @@ run_app :: proc(
     defer delete(pixel_staging)
 
     app := App{
-        render_tex    = render_tex,
-        pixel_staging = pixel_staging,
+        render_tex      = render_tex,
+        pixel_staging   = pixel_staging,
+        use_sdf_font    = sdf_ok,
+        ui_font         = ui_font,
+        ui_font_shader  = ui_shader,
+    }
+    if has_custom_ui_font(&app) {
+        defer unload_ui_font(&app.ui_font, app.ui_font_shader, app.use_sdf_font)
     }
     app.camera      = camera
     app.world       = world

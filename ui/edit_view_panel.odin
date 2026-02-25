@@ -300,9 +300,9 @@ draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: b
 	border := (active || hovered) ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(box, bg)
 	rl.DrawRectangleLinesEx(box, 1, border)
-	rl.DrawText(fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
+	draw_ui_text(g_app, fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
 	// Label to the left
-	rl.DrawText(label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
+	draw_ui_text(g_app, label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
 }
 
 draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
@@ -311,17 +311,17 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
 	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
 
 	if ev.selection_kind == .None {
-		rl.DrawText("No object selected",
+		draw_ui_text(app, "No object selected",
 			i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
-		rl.DrawText("Click a sphere or the camera in the viewport to select it",
+		draw_ui_text(app, "Click a sphere or the camera in the viewport to select it",
 			i32(rect.x) + 8, i32(rect.y) + 30, 11, rl.Color{140, 150, 165, 200})
 		return
 	}
 
 	if ev.selection_kind == .Camera {
-		rl.DrawText("Camera selected (non-deletable)",
+		draw_ui_text(app, "Camera selected (non-deletable)",
 			i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
-		rl.DrawText("Edit position, target, and options in the Object Properties panel.",
+		draw_ui_text(app, "Edit position, target, and options in the Object Properties panel.",
 			i32(rect.x) + 8, i32(rect.y) + 30, 11, rl.Color{140, 150, 165, 200})
 		return
 	}
@@ -343,11 +343,11 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2) {
 	mat_name  := mat_names[clamp(int(s.material_kind), 0, 2)]
 	mat_x := i32(rect.x) + 8 + i32(PROP_COL)
 	mat_y := i32(rect.y) + 8 + 30 + 4
-	rl.DrawText("Mat:",    mat_x,      mat_y, 12, CONTENT_TEXT_COLOR)
-	rl.DrawText(mat_name,  mat_x + 36, mat_y, 12, ACCENT_COLOR)
+	draw_ui_text(app, "Mat:",    mat_x,      mat_y, 12, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, mat_name,  mat_x + 36, mat_y, 12, ACCENT_COLOR)
 
 	// Hint
-	rl.DrawText(
+	draw_ui_text(app,
 		"Drag field to adjust  •  Click+drag sphere in view to move",
 		i32(rect.x) + 8, i32(rect.y) + i32(EDIT_PROPS_H) - 18, 11,
 		rl.Color{120, 130, 148, 180},
@@ -368,20 +368,20 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	btn_add   := rl.Rectangle{content.x + 8, content.y + 5, 90, 22}
 	add_hover := rl.CheckCollisionPointRec(mouse, btn_add)
 	rl.DrawRectangleRec(btn_add, add_hover ? rl.Color{80, 130, 200, 255} : rl.Color{55, 85, 140, 255})
-	rl.DrawText("Add Sphere", i32(btn_add.x) + 6, i32(btn_add.y) + 4, 12, rl.RAYWHITE)
+	draw_ui_text(app, "Add Sphere", i32(btn_add.x) + 6, i32(btn_add.y) + 4, 12, rl.RAYWHITE)
 
 	// Delete only for sphere selection (camera is non-deletable)
 	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
 		btn_del   := rl.Rectangle{content.x + 106, content.y + 5, 60, 22}
 		del_hover := rl.CheckCollisionPointRec(mouse, btn_del)
 		rl.DrawRectangleRec(btn_del, del_hover ? rl.Color{200, 60, 60, 255} : rl.Color{140, 40, 40, 255})
-		rl.DrawText("Delete", i32(btn_del.x) + 8, i32(btn_del.y) + 4, 12, rl.RAYWHITE)
+		draw_ui_text(app, "Delete", i32(btn_del.x) + 8, i32(btn_del.y) + 4, 12, rl.RAYWHITE)
 	}
 
 	btn_from_view := rl.Rectangle{content.x + content.width - 180, content.y + 5, 82, 22}
 	fv_hover := rl.CheckCollisionPointRec(mouse, btn_from_view)
 	rl.DrawRectangleRec(btn_from_view, fv_hover ? rl.Color{70, 100, 140, 255} : rl.Color{50, 75, 110, 255})
-	rl.DrawText("From view", i32(btn_from_view.x) + 4, i32(btn_from_view.y) + 4, 11, rl.RAYWHITE)
+	draw_ui_text(app, "From view", i32(btn_from_view.x) + 4, i32(btn_from_view.y) + 4, 11, rl.RAYWHITE)
 
 	btn_render   := rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
 	render_busy  := !app.finished
@@ -390,7 +390,7 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		render_busy  ? rl.Color{45, 75,  45,  200} :
 		render_hover ? rl.Color{80, 190, 80,  255} :
 		               rl.Color{50, 140, 50,  255})
-	rl.DrawText(
+	draw_ui_text(app,
 		render_busy ? cstring("Rendering…") : cstring("Render"),
 		i32(btn_render.x) + 6, i32(btn_render.y) + 4, 12, rl.RAYWHITE)
 

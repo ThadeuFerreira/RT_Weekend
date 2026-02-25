@@ -114,11 +114,11 @@ op_camera_field_rects :: proc(content: rl.Rectangle) -> [10]rl.Rectangle {
 
 // ── visual helpers 
 
-op_section_label :: proc(text: cstring, x, y: f32) {
-	rl.DrawText(text, i32(x), i32(y), 10, rl.Color{160, 170, 195, 200})
+op_section_label :: proc(app: ^App, text: cstring, x, y: f32) {
+	draw_ui_text(app, text, i32(x), i32(y), 10, rl.Color{160, 170, 195, 200})
 }
 
-op_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: bool, mouse: rl.Vector2) {
+op_drag_field :: proc(app: ^App, label: cstring, value: f32, box: rl.Rectangle, active: bool, mouse: rl.Vector2) {
 	hovered := rl.CheckCollisionPointRec(mouse, box)
 	bg: rl.Color
 	switch {
@@ -129,11 +129,11 @@ op_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: boo
 	border := (active || hovered) ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(box, bg)
 	rl.DrawRectangleLinesEx(box, 1, border)
-	rl.DrawText(fmt.ctprintf("%.3f", value), i32(box.x) + 3, i32(box.y) + 4, 10, CONTENT_TEXT_COLOR)
-	rl.DrawText(label, i32(box.x) - i32(OP_LW + OP_GAP) + 1, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, fmt.ctprintf("%.3f", value), i32(box.x) + 3, i32(box.y) + 4, 10, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, label, i32(box.x) - i32(OP_LW + OP_GAP) + 1, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
 }
 
-op_mat_button :: proc(label: cstring, rect: rl.Rectangle, active: bool, mouse: rl.Vector2) {
+op_mat_button :: proc(app: ^App, label: cstring, rect: rl.Rectangle, active: bool, mouse: rl.Vector2) {
 	hovered := rl.CheckCollisionPointRec(mouse, rect)
 	bg: rl.Color
 	switch {
@@ -144,10 +144,10 @@ op_mat_button :: proc(label: cstring, rect: rl.Rectangle, active: bool, mouse: r
 	border := active ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(rect, bg)
 	rl.DrawRectangleLinesEx(rect, 1, border)
-	tw  := rl.MeasureText(label, 10)
+	tw  := measure_ui_text(app, label, 10).width
 	tx  := i32(rect.x) + (i32(rect.width) - tw) / 2
 	col := active ? rl.RAYWHITE : CONTENT_TEXT_COLOR
-	rl.DrawText(label, tx, i32(rect.y) + 5, 10, col)
+	draw_ui_text(app, label, tx, i32(rect.y) + 5, 10, col)
 }
 
 // op_try_start_drag checks hover; if lmb_pressed, arms a drag on the field.
@@ -174,32 +174,32 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	mouse := rl.GetMousePosition()
 
 	if ev.selection_kind == .None {
-		rl.DrawText("No object selected.",
+		draw_ui_text(app, "No object selected.",
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-		rl.DrawText("Click a sphere or the camera in the Edit View.",
+		draw_ui_text(app, "Click a sphere or the camera in the Edit View.",
 			i32(content.x) + 10, i32(content.y) + 40, 11, rl.Color{140, 150, 165, 200})
 		return
 	}
 
 	if ev.selection_kind == .Camera {
 		p := &app.camera_params
-		op_section_label("CAMERA (non-deletable)", content.x + 8, content.y + 6)
+		op_section_label(app, "CAMERA (non-deletable)", content.x + 8, content.y + 6)
 		fields := op_camera_field_rects(content)
 		y0 := content.y + 6 + 18
-		rl.DrawText("From", i32(content.x) + 8, i32(y0), 10, CONTENT_TEXT_COLOR)
-		rl.DrawText("At",   i32(content.x) + 8, i32(y0 + OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
-		rl.DrawText("FOV / Defocus / Focus", i32(content.x) + 8, i32(y0 + 2*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
-		rl.DrawText("Max depth", i32(content.x) + 8, i32(y0 + 3*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
-		op_drag_field("X", p.lookfrom[0], fields[0], st.prop_drag_idx == 0, mouse)
-		op_drag_field("Y", p.lookfrom[1], fields[1], st.prop_drag_idx == 1, mouse)
-		op_drag_field("Z", p.lookfrom[2], fields[2], st.prop_drag_idx == 2, mouse)
-		op_drag_field("X", p.lookat[0], fields[3], st.prop_drag_idx == 3, mouse)
-		op_drag_field("Y", p.lookat[1], fields[4], st.prop_drag_idx == 4, mouse)
-		op_drag_field("Z", p.lookat[2], fields[5], st.prop_drag_idx == 5, mouse)
-		op_drag_field("", p.vfov, fields[6], st.prop_drag_idx == 6, mouse)
-		op_drag_field("", p.defocus_angle, fields[7], st.prop_drag_idx == 7, mouse)
-		op_drag_field("", p.focus_dist, fields[8], st.prop_drag_idx == 8, mouse)
-		op_drag_field("D", f32(p.max_depth), fields[9], st.prop_drag_idx == 9, mouse)
+		draw_ui_text(app, "From", i32(content.x) + 8, i32(y0), 10, CONTENT_TEXT_COLOR)
+		draw_ui_text(app, "At",   i32(content.x) + 8, i32(y0 + OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		draw_ui_text(app, "FOV / Defocus / Focus", i32(content.x) + 8, i32(y0 + 2*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		draw_ui_text(app, "Max depth", i32(content.x) + 8, i32(y0 + 3*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		op_drag_field(app, "X", p.lookfrom[0], fields[0], st.prop_drag_idx == 0, mouse)
+		op_drag_field(app, "Y", p.lookfrom[1], fields[1], st.prop_drag_idx == 1, mouse)
+		op_drag_field(app, "Z", p.lookfrom[2], fields[2], st.prop_drag_idx == 2, mouse)
+		op_drag_field(app, "X", p.lookat[0], fields[3], st.prop_drag_idx == 3, mouse)
+		op_drag_field(app, "Y", p.lookat[1], fields[4], st.prop_drag_idx == 4, mouse)
+		op_drag_field(app, "Z", p.lookat[2], fields[5], st.prop_drag_idx == 5, mouse)
+		op_drag_field(app, "", p.vfov, fields[6], st.prop_drag_idx == 6, mouse)
+		op_drag_field(app, "", p.defocus_angle, fields[7], st.prop_drag_idx == 7, mouse)
+		op_drag_field(app, "", p.focus_dist, fields[8], st.prop_drag_idx == 8, mouse)
+		op_drag_field(app, "D", f32(p.max_depth), fields[9], st.prop_drag_idx == 9, mouse)
 		return
 	}
 
@@ -209,28 +209,28 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	lo := op_compute_layout(content, s.material_kind)
 
 	// TRANSFORM 
-	op_section_label("TRANSFORM", lo.lx, lo.y_transform)
-	op_drag_field("X", s.center[0], lo.boxes_xyz[0], st.prop_drag_idx == 0, mouse)
-	op_drag_field("Y", s.center[1], lo.boxes_xyz[1], st.prop_drag_idx == 1, mouse)
-	op_drag_field("Z", s.center[2], lo.boxes_xyz[2], st.prop_drag_idx == 2, mouse)
-	op_drag_field("R", s.radius,    lo.box_radius,   st.prop_drag_idx == 3, mouse)
+	op_section_label(app, "TRANSFORM", lo.lx, lo.y_transform)
+	op_drag_field(app, "X", s.center[0], lo.boxes_xyz[0], st.prop_drag_idx == 0, mouse)
+	op_drag_field(app, "Y", s.center[1], lo.boxes_xyz[1], st.prop_drag_idx == 1, mouse)
+	op_drag_field(app, "Z", s.center[2], lo.boxes_xyz[2], st.prop_drag_idx == 2, mouse)
+	op_drag_field(app, "R", s.radius,    lo.box_radius,   st.prop_drag_idx == 3, mouse)
 
 	// MATERIAL 
-	op_section_label("MATERIAL", lo.lx, lo.y_material)
-	op_mat_button("Lambertian", lo.mat_rects[0], s.material_kind == .Lambertian, mouse)
-	op_mat_button("Metallic",   lo.mat_rects[1], s.material_kind == .Metallic,   mouse)
-	op_mat_button("Diel.",      lo.mat_rects[2], s.material_kind == .Dielectric, mouse)
+	op_section_label(app, "MATERIAL", lo.lx, lo.y_material)
+	op_mat_button(app, "Lambertian", lo.mat_rects[0], s.material_kind == .Lambertian, mouse)
+	op_mat_button(app, "Metallic",   lo.mat_rects[1], s.material_kind == .Metallic,   mouse)
+	op_mat_button(app, "Diel.",      lo.mat_rects[2], s.material_kind == .Dielectric, mouse)
 	if s.material_kind == .Metallic {
-		op_drag_field("Fz", s.fuzz,    lo.box_mat_param, st.prop_drag_idx == 7, mouse)
+		op_drag_field(app, "Fz", s.fuzz,    lo.box_mat_param, st.prop_drag_idx == 7, mouse)
 	} else if s.material_kind == .Dielectric {
-		op_drag_field("Ir", s.ref_idx, lo.box_mat_param, st.prop_drag_idx == 7, mouse)
+		op_drag_field(app, "Ir", s.ref_idx, lo.box_mat_param, st.prop_drag_idx == 7, mouse)
 	}
 
 	// COLOR 
-	op_section_label("COLOR", lo.lx, lo.y_color)
-	op_drag_field("R", s.albedo[0], lo.boxes_rgb[0], st.prop_drag_idx == 4, mouse)
-	op_drag_field("G", s.albedo[1], lo.boxes_rgb[1], st.prop_drag_idx == 5, mouse)
-	op_drag_field("B", s.albedo[2], lo.boxes_rgb[2], st.prop_drag_idx == 6, mouse)
+	op_section_label(app, "COLOR", lo.lx, lo.y_color)
+	op_drag_field(app, "R", s.albedo[0], lo.boxes_rgb[0], st.prop_drag_idx == 4, mouse)
+	op_drag_field(app, "G", s.albedo[1], lo.boxes_rgb[1], st.prop_drag_idx == 5, mouse)
+	op_drag_field(app, "B", s.albedo[2], lo.boxes_rgb[2], st.prop_drag_idx == 6, mouse)
 
 	// Color swatch
 	swatch_col := rl.Color{

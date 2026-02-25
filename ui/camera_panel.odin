@@ -38,7 +38,7 @@ camera_panel_field_rects :: proc(r: rl.Rectangle) -> [10]rl.Rectangle {
 	}
 }
 
-draw_camera_panel_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: bool, mouse: rl.Vector2) {
+draw_camera_panel_drag_field :: proc(app: ^App, label: cstring, value: f32, box: rl.Rectangle, active: bool, mouse: rl.Vector2) {
 	hovered := rl.CheckCollisionPointRec(mouse, box)
 	bg: rl.Color
 	switch {
@@ -49,8 +49,8 @@ draw_camera_panel_drag_field :: proc(label: cstring, value: f32, box: rl.Rectang
 	border := (active || hovered) ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(box, bg)
 	rl.DrawRectangleLinesEx(box, 1, border)
-	rl.DrawText(fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
-	rl.DrawText(label, i32(box.x) - i32(CAMERA_PROP_LW + CAMERA_PROP_GAP) + 2, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, label, i32(box.x) - i32(CAMERA_PROP_LW + CAMERA_PROP_GAP) + 2, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
 }
 
 draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
@@ -66,24 +66,24 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	row := CAMERA_PANEL_LINE_H
 	fs := i32(11)
 
-	rl.DrawText("From", i32(x0), i32(y0 + 0*row), fs, CONTENT_TEXT_COLOR)
-	rl.DrawText("At",   i32(x0), i32(y0 + 1*row), fs, CONTENT_TEXT_COLOR)
-	rl.DrawText("FOV / Defocus / Focus", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
-	rl.DrawText("Max depth", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "From", i32(x0), i32(y0 + 0*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "At",   i32(x0), i32(y0 + 1*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "FOV / Defocus / Focus", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "Max depth", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
 
 	fields := camera_panel_field_rects(content)
-	draw_camera_panel_drag_field("X", p.lookfrom[0], fields[0], cp.drag_idx == 0, mouse)
-	draw_camera_panel_drag_field("Y", p.lookfrom[1], fields[1], cp.drag_idx == 1, mouse)
-	draw_camera_panel_drag_field("Z", p.lookfrom[2], fields[2], cp.drag_idx == 2, mouse)
-	draw_camera_panel_drag_field("X", p.lookat[0], fields[3], cp.drag_idx == 3, mouse)
-	draw_camera_panel_drag_field("Y", p.lookat[1], fields[4], cp.drag_idx == 4, mouse)
-	draw_camera_panel_drag_field("Z", p.lookat[2], fields[5], cp.drag_idx == 5, mouse)
-	draw_camera_panel_drag_field("", p.vfov, fields[6], cp.drag_idx == 6, mouse)
-	draw_camera_panel_drag_field("", p.defocus_angle, fields[7], cp.drag_idx == 7, mouse)
-	draw_camera_panel_drag_field("", p.focus_dist, fields[8], cp.drag_idx == 8, mouse)
-	draw_camera_panel_drag_field("D", f32(p.max_depth), fields[9], cp.drag_idx == 9, mouse)
+	draw_camera_panel_drag_field(app, "X", p.lookfrom[0], fields[0], cp.drag_idx == 0, mouse)
+	draw_camera_panel_drag_field(app, "Y", p.lookfrom[1], fields[1], cp.drag_idx == 1, mouse)
+	draw_camera_panel_drag_field(app, "Z", p.lookfrom[2], fields[2], cp.drag_idx == 2, mouse)
+	draw_camera_panel_drag_field(app, "X", p.lookat[0], fields[3], cp.drag_idx == 3, mouse)
+	draw_camera_panel_drag_field(app, "Y", p.lookat[1], fields[4], cp.drag_idx == 4, mouse)
+	draw_camera_panel_drag_field(app, "Z", p.lookat[2], fields[5], cp.drag_idx == 5, mouse)
+	draw_camera_panel_drag_field(app, "", p.vfov, fields[6], cp.drag_idx == 6, mouse)
+	draw_camera_panel_drag_field(app, "", p.defocus_angle, fields[7], cp.drag_idx == 7, mouse)
+	draw_camera_panel_drag_field(app, "", p.focus_dist, fields[8], cp.drag_idx == 8, mouse)
+	draw_camera_panel_drag_field(app, "D", f32(p.max_depth), fields[9], cp.drag_idx == 9, mouse)
 
-	rl.DrawText("Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 4*row + 4), 10, rl.Color{120, 130, 148, 180})
+	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 4*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {

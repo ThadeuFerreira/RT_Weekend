@@ -79,7 +79,7 @@ menu_bar_update :: proc(app: ^App, state: ^MenuBarState, mouse: rl.Vector2, lmb_
 			item_w := f32(120)
 			px: f32 = MENU_PADDING
 			for k in 0..<state.open_menu_index {
-				px += f32(rl.MeasureText(menus[k].title, 14)) + MENU_PADDING * 2
+				px += f32(measure_ui_text(app, menus[k].title, 14).width) + MENU_PADDING * 2
 			}
 			dropdown_rect := rl.Rectangle{
 				px,
@@ -106,7 +106,7 @@ menu_bar_update :: proc(app: ^App, state: ^MenuBarState, mouse: rl.Vector2, lmb_
 		x: f32 = MENU_PADDING
 		for i in 0..<len(menus) {
 			menu := &menus[i]
-			w := f32(rl.MeasureText(menu.title, 14)) + MENU_PADDING * 2
+			w := f32(measure_ui_text(app, menu.title, 14).width) + MENU_PADDING * 2
 			item_rect := rl.Rectangle{x, 0, w, MENU_BAR_HEIGHT}
 			if rl.CheckCollisionPointRec(mouse, item_rect) {
 				if state.open_menu_index == i {
@@ -141,8 +141,8 @@ menu_bar_draw :: proc(app: ^App, state: ^MenuBarState) {
 	x: f32 = MENU_PADDING
 	for i in 0..<len(menus) {
 		menu := &menus[i]
-		rl.DrawText(menu.title, i32(x) + MENU_PADDING, 5, 14, TITLE_TEXT_COLOR)
-		x += f32(rl.MeasureText(menu.title, 14)) + MENU_PADDING * 2
+		draw_ui_text(app, menu.title, i32(x) + MENU_PADDING, 5, 14, TITLE_TEXT_COLOR)
+		x += f32(measure_ui_text(app, menu.title, 14).width) + MENU_PADDING * 2
 	}
 
 	// Open dropdown
@@ -152,7 +152,7 @@ menu_bar_draw :: proc(app: ^App, state: ^MenuBarState) {
 		dropdown_h := f32(len(menu.entries)) * MENU_ITEM_HEIGHT
 		px: f32 = MENU_PADDING
 		for k in 0..<state.open_menu_index {
-			px += f32(rl.MeasureText(menus[k].title, 14)) + MENU_PADDING * 2
+			px += f32(measure_ui_text(app, menus[k].title, 14).width) + MENU_PADDING * 2
 		}
 		dropdown_rect := rl.Rectangle{px, MENU_BAR_HEIGHT + DROP_SHADOW, item_w, dropdown_h}
 		rl.DrawRectangleRec(dropdown_rect, PANEL_BG_COLOR)
@@ -160,7 +160,7 @@ menu_bar_draw :: proc(app: ^App, state: ^MenuBarState) {
 		for j in 0..<len(menu.entries) {
 			entry := &menu.entries[j]
 			ry := dropdown_rect.y + f32(j) * MENU_ITEM_HEIGHT
-			rl.DrawText(entry.label, i32(dropdown_rect.x) + 6, i32(ry) + 3, 13, CONTENT_TEXT_COLOR)
+			draw_ui_text(app, entry.label, i32(dropdown_rect.x) + 6, i32(ry) + 3, 13, CONTENT_TEXT_COLOR)
 		}
 	}
 }

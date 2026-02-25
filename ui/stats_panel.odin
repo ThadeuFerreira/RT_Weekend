@@ -28,13 +28,13 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
         progress_color = DONE_COLOR
     }
 
-    rl.DrawText(
+    draw_ui_text(app,
         fmt.ctprintf("Tiles:    %d / %d  (%.1f%%)", completed, total, progress),
         x, y, fs, progress_color,
     )
     y += line_h
 
-    rl.DrawText(
+    draw_ui_text(app,
         fmt.ctprintf("Threads:  %d", session.num_threads),
         x, y, fs, CONTENT_TEXT_COLOR,
     )
@@ -42,19 +42,19 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
 
     mins := int(elapsed) / 60
     secs := elapsed - f64(mins*60)
-    rl.DrawText(
+    draw_ui_text(app,
         fmt.ctprintf("Elapsed:  %dm %.2fs", mins, secs),
         x, y, fs, CONTENT_TEXT_COLOR,
     )
     y += line_h
 
-    rl.DrawText(
+    draw_ui_text(app,
         fmt.ctprintf("Size:     %dx%d", session.camera.image_width, session.camera.image_height),
         x, y, fs, CONTENT_TEXT_COLOR,
     )
     y += line_h
 
-    rl.DrawText(
+    draw_ui_text(app,
         fmt.ctprintf("Samples:  %d/px", session.camera.samples_per_pixel),
         x, y, fs, CONTENT_TEXT_COLOR,
     )
@@ -62,7 +62,7 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
 
     status := app.finished ? cstring("Complete") : cstring("Rendering...")
     status_color := app.finished ? DONE_COLOR : ACCENT_COLOR
-    rl.DrawText(status, x, y, fs, status_color)
+    draw_ui_text(app, status, x, y, fs, status_color)
     y += line_h
 
     if total > 0 {
