@@ -1,6 +1,7 @@
 package editor
 
 import "core:fmt"
+import "core:strings"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
 
@@ -20,6 +21,10 @@ ObjectPropsPanelState :: struct {
 	prop_drag_idx:       int,
 	prop_drag_start_x:   f32,
 	prop_drag_start_val: f32,
+
+	// Before-state captured at drag start (for undo history)
+	drag_before_sphere: core.SceneSphere,
+	drag_before_camera: core.CameraParams,
 }
 
 // OpLayout holds every interactive rectangle for a single frame, computed once
@@ -263,6 +268,12 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		p := &app.camera_params
 		if st.prop_drag_idx >= 0 {
 			if !lmb {
+				// Commit camera drag to history
+				edit_history_push(&app.edit_history, ModifyCameraAction{
+					before = st.drag_before_camera,
+					after  = app.camera_params,
+				})
+				app_push_log(app, strings.clone("Camera property"))
 				st.prop_drag_idx = -1
 				rl.SetMouseCursor(.DEFAULT)
 			} else {
@@ -301,7 +312,13 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		}
 		any_hovered := false
 		for i in 0..<10 {
-			if op_try_start_drag(fields[i], i, vals[i], st, mouse, lmb_pressed) { any_hovered = true }
+			if op_try_start_drag(fields[i], i, vals[i], st, mouse, lmb_pressed) {
+				any_hovered = true
+				if lmb_pressed {
+					// Capture camera state at drag start
+					st.drag_before_camera = app.camera_params
+				}
+			}
 		}
 		if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else if rl.CheckCollisionPointRec(mouse, rect) { rl.SetMouseCursor(.DEFAULT) }
 		return
@@ -320,9 +337,18 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if !ok2 { return }
 	s := s2
 
-	// ── Priority 1: active drag 
+	// ── Priority 1: active drag
 	if st.prop_drag_idx >= 0 {
 		if !lmb {
+			// Commit sphere property drag to history
+			if s_after, ok2 := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok2 {
+				edit_history_push(&app.edit_history, ModifySphereAction{
+					idx    = ev.selected_idx,
+					before = st.drag_before_sphere,
+					after  = s_after,
+				})
+				app_push_log(app, strings.clone("Sphere property"))
+			}
 			st.prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
 		} else {
@@ -351,31 +377,40 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 
 	lo := op_compute_layout(rect, s.material_kind)
 
-	// ── Material toggle clicks 
+	// ── Material toggle clicks
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[0]) {
+			before := s
 			s.material_kind = .Lambertian
 SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = s})
+			app_push_log(app, strings.clone("Material: Lambertian"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[1]) {
+			before := s
 			if s.material_kind != .Metallic && s.fuzz <= 0 { s.fuzz = 0.1 }
 			s.material_kind = .Metallic
 SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = s})
+			app_push_log(app, strings.clone("Material: Metallic"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[2]) {
+			before := s
 			s.material_kind = .Dielectric
 			if s.ref_idx < 1.0 { s.ref_idx = 1.5 }
 SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = s})
+			app_push_log(app, strings.clone("Material: Dielectric"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 	}
 
-	// ── Drag-field hover / start-drag 
+	// ── Drag-field hover / start-drag
 	any_hovered := false
 	if op_try_start_drag(lo.boxes_xyz[0], 0, s.center[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_xyz[1], 1, s.center[1], st, mouse, lmb_pressed) { any_hovered = true }
@@ -387,6 +422,10 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 	if lo.has_mat_param {
 		mat_val := s.material_kind == .Metallic ? s.fuzz : s.ref_idx
 		if op_try_start_drag(lo.box_mat_param, 7, mat_val, st, mouse, lmb_pressed) { any_hovered = true }
+	}
+	// Capture before-state when a drag starts
+	if lmb_pressed && any_hovered {
+		st.drag_before_sphere = s
 	}
 
 	if any_hovered {

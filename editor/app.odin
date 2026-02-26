@@ -184,6 +184,9 @@ App :: struct {
     // Command registry: registered once on startup
     commands: CommandRegistry,
 
+    // Undo/redo history for scene mutations
+    edit_history: EditHistory,
+
     // File modal (shared for Import, Save As, Preset Name)
     file_modal: FileModalState,
 
@@ -359,6 +362,7 @@ run_app :: proc(
         delete(app.layout_presets)
     }
     defer { if len(app.current_scene_path) > 0 { delete(app.current_scene_path) } }
+    defer edit_history_free(&app.edit_history)
     register_all_commands(&app)
     // Load persisted presets (cloned so app owns them)
     for p in initial_presets {
@@ -549,6 +553,16 @@ run_app :: proc(
             }
             if rl.IsKeyPressed(.O) {
                 if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil { op.visible = true }
+            }
+            if rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL) {
+                if rl.IsKeyPressed(.Z) {
+                    if rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT) {
+                        cmd_execute(&app, CMD_REDO)
+                    } else {
+                        cmd_execute(&app, CMD_UNDO)
+                    }
+                }
+                if rl.IsKeyPressed(.Y) { cmd_execute(&app, CMD_REDO) }
             }
         }
 

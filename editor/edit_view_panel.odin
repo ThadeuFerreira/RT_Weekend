@@ -2,6 +2,7 @@ package editor
 
 import "core:fmt"
 import "core:math"
+import "core:strings"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
 
@@ -49,6 +50,11 @@ EditViewState :: struct {
 	drag_obj_active: bool,
 	drag_plane_y:    f32,    // Y of the horizontal movement plane
 	drag_offset_xz:  [2]f32, // grab-point offset in world XZ so the object doesn't snap
+	drag_before:     core.SceneSphere, // sphere state captured at viewport-drag start
+
+	// Keyboard nudge history tracking
+	nudge_active: bool,             // true while any nudge key is held
+	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
 
 	initialized: bool,
 }
@@ -410,6 +416,17 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 	if ev.drag_obj_active {
 		if !lmb {
 			ev.drag_obj_active = false
+			// Commit drag to history
+			if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
+				if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+					edit_history_push(&app.edit_history, ModifySphereAction{
+						idx    = ev.selected_idx,
+						before = ev.drag_before,
+						after  = s,
+					})
+					app_push_log(app, strings.clone("Move sphere"))
+				}
+			}
 		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 			// require_inside=false: keep dragging even when mouse leaves viewport
 			if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
@@ -429,14 +446,25 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, btn_add) {
 AppendDefaultSphere(ev.scene_mgr)
+			new_idx := SceneManagerLen(ev.scene_mgr) - 1
 			ev.selection_kind = .Sphere
-			ev.selected_idx   = SceneManagerLen(ev.scene_mgr) - 1
+			ev.selected_idx   = new_idx
+			// Record add in history
+			if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
+				edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
+				app_push_log(app, strings.clone("Add sphere"))
+			}
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		// Delete only for sphere (camera is non-deletable)
 		if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, btn_del) {
-OrderedRemove(ev.scene_mgr, ev.selected_idx)
+			del_idx := ev.selected_idx
+			if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+				edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+				app_push_log(app, strings.clone("Delete sphere"))
+			}
+OrderedRemove(ev.scene_mgr, del_idx)
 			ev.selection_kind = .None
 			ev.selected_idx   = -1
 			return
@@ -517,6 +545,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 				ev.selected_idx    = picked_sphere
 				ev.drag_obj_active = true
 				if s, ok := GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
+					ev.drag_before     = s  // capture before state for history
 					ev.drag_plane_y    = s.center[1]
 					if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
 						ev.drag_offset_xz = {
@@ -541,6 +570,23 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 	MOVE_SPEED   :: f32(0.05)
 	RADIUS_SPEED :: f32(0.02)
 	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
+		any_nudge :=
+			rl.IsKeyDown(.W)     || rl.IsKeyDown(.UP)          ||
+			rl.IsKeyDown(.S)     || rl.IsKeyDown(.DOWN)        ||
+			rl.IsKeyDown(.A)     || rl.IsKeyDown(.LEFT)        ||
+			rl.IsKeyDown(.D)     || rl.IsKeyDown(.RIGHT)       ||
+			rl.IsKeyDown(.Q)     || rl.IsKeyDown(.E)           ||
+			rl.IsKeyDown(.EQUAL) || rl.IsKeyDown(.KP_ADD)      ||
+			rl.IsKeyDown(.MINUS) || rl.IsKeyDown(.KP_SUBTRACT)
+
+		// Capture before-state on first keydown of a nudge session
+		if any_nudge && !ev.nudge_active {
+			ev.nudge_active = true
+			if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+				ev.nudge_before = s
+			}
+		}
+
 		if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 			if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)    { s.center[2] -= MOVE_SPEED }
 			if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)  { s.center[2] += MOVE_SPEED }
@@ -557,5 +603,21 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			}
 SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 		}
+
+		// Commit nudge to history when all keys released
+		if !any_nudge && ev.nudge_active {
+			ev.nudge_active = false
+			if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+				edit_history_push(&app.edit_history, ModifySphereAction{
+					idx    = ev.selected_idx,
+					before = ev.nudge_before,
+					after  = s,
+				})
+				app_push_log(app, strings.clone("Nudge sphere"))
+			}
+		}
+	} else {
+		// Selection lost — clear nudge state without pushing (nothing to commit)
+		ev.nudge_active = false
 	}
 }

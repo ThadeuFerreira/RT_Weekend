@@ -21,6 +21,9 @@ CMD_VIEW_PRESET_RENDER  :: "view.preset.render_focus"
 CMD_VIEW_PRESET_EDIT    :: "view.preset.edit_focus"
 CMD_VIEW_SAVE_PRESET    :: "view.preset.save"
 
+CMD_UNDO             :: "edit.undo"
+CMD_REDO             :: "edit.redo"
+
 CMD_RENDER_RESTART   :: "render.restart"
 
 MAX_COMMANDS :: 64
