@@ -12,7 +12,9 @@ package raytrace
 //   gpu_backend_destroy   — delete GL objects, free backend struct
 //
 // The backend requires an OpenGL 4.3+ context (compute shaders).
-// All GL function pointers are loaded via glXGetProcAddressARB on Linux.
+// GPU path is Linux + X11 GLX only: GL function pointers are loaded via
+// glXGetProcAddressARB. On macOS (CGL) or Windows (WGL), gpu_backend_init
+// returns (nil, false) and the app uses the CPU path.
 // Call gpu_backend_init AFTER rl.InitWindow() (GL context must exist).
 //
 // Scene data layout on the GPU (std430 / std140 — see gpu_types.odin):
@@ -82,6 +84,10 @@ gpu_backend_init :: proc(
     lin_bvh: []LinearBVHNode,
     samples: int,
 ) -> (^GPUBackend, bool) {
+
+    when ODIN_OS != .Linux {
+        return nil, false  // GPU path only implemented for Linux/GLX
+    }
 
     // Load all OpenGL 4.6 function pointers.  Safe to call multiple times;
     // subsequent calls are fast no-ops because pointers are already set.
