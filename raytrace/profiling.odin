@@ -316,18 +316,19 @@ aggregate_into_summary :: proc(
     summary.total_seconds = total_seconds
 
     phases := []PhaseEntry{
-        {"Buffer", get_elapsed_seconds(parallel.buffer_creation), (get_elapsed_seconds(parallel.buffer_creation) / total_seconds) * 100.0},
+        {"Buf", get_elapsed_seconds(parallel.buffer_creation), (get_elapsed_seconds(parallel.buffer_creation) / total_seconds) * 100.0},
         {"Tiles", get_elapsed_seconds(parallel.tile_generation), (get_elapsed_seconds(parallel.tile_generation) / total_seconds) * 100.0},
         {"BVH", get_elapsed_seconds(parallel.bvh_construction), (get_elapsed_seconds(parallel.bvh_construction) / total_seconds) * 100.0},
-        {"Context", get_elapsed_seconds(parallel.context_setup), (get_elapsed_seconds(parallel.context_setup) / total_seconds) * 100.0},
-        {"Thread create", get_elapsed_seconds(parallel.thread_creation), (get_elapsed_seconds(parallel.thread_creation) / total_seconds) * 100.0},
+        {"Ctx", get_elapsed_seconds(parallel.context_setup), (get_elapsed_seconds(parallel.context_setup) / total_seconds) * 100.0},
+        {"Thr", get_elapsed_seconds(parallel.thread_creation), (get_elapsed_seconds(parallel.thread_creation) / total_seconds) * 100.0},
         {"Render", get_elapsed_seconds(parallel.rendering), (get_elapsed_seconds(parallel.rendering) / total_seconds) * 100.0},
-        {"Thread join", get_elapsed_seconds(parallel.thread_join), (get_elapsed_seconds(parallel.thread_join) / total_seconds) * 100.0},
+        {"Join", get_elapsed_seconds(parallel.thread_join), (get_elapsed_seconds(parallel.thread_join) / total_seconds) * 100.0},
     }
-    for i in 0..<min(len(phases), len(summary.phases)) {
+    n_phases := min(len(phases), len(summary.phases))
+    for i in 0..<n_phases {
         summary.phases[i] = phases[i]
     }
-    summary.phase_count = len(phases)
+    summary.phase_count = n_phases
 
     if rendering != nil {
         calculated_ray_color_ns := rendering.intersection_time + rendering.scatter_time + rendering.background_time

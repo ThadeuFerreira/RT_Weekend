@@ -401,6 +401,7 @@ finish_render :: proc(session: ^RenderSession) {
     if session.use_gpu {
         stop_timer(&session.timing.total)
         aggregate_into_summary(&session.timing, nil, 0, &session.last_profile)
+        // GPU path: only buffer_creation and bvh_construction were timed in start_render_auto; other phases stay zero.
         if session.gpu_backend != nil {
             gpu_backend_destroy(session.gpu_backend)
             session.gpu_backend = nil
