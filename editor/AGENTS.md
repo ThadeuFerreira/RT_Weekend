@@ -1,6 +1,6 @@
 # editor — Editor application
 
-This package is the **editor**: Raylib window, panels, menus, layout, widgets, fonts. It depends on **core**, **util**, **raytrace**, and **interfaces**. The editor is **separate from the renderer** (raytrace); it uses the renderer and does not mix rendering logic with UI.
+This package is the **editor**: Raylib window, panels, menus, layout, widgets, fonts. It depends on **core**, **util**, **raytrace**, and **persistence**. The editor is **separate from the renderer** (raytrace); it uses the renderer and does not mix rendering logic with UI.
 
 ## Purpose
 
@@ -11,11 +11,11 @@ This package is the **editor**: Raylib window, panels, menus, layout, widgets, f
 - **Widgets** — **ui.odin**: `PanelStyle`, `update_panel`, `draw_panel_chrome`, `upload_render_texture`.
 - **Fonts** — **font_sdf.odin**: SDF font loading; `draw_ui_text` / `measure_ui_text` in app.odin.
 - **Commands** — **commands.odin**: `Command`, `CommandRegistry`, `cmd_register`, `cmd_execute`, CMD_* constants. **command_actions.odin**: file new/import/save/save as/exit, view toggles, layout presets, render restart.
-- **File modal** — **file_modal.odin**: Import / Save As / Preset Name dialog; uses **interfaces** for load_scene/save_scene.
-- **Editor core** — **core.odin**: `EditorObject`, `compute_viewport_ray`, `ray_hit_plane_y`, `pick_camera`. **scene_manager.odin**: `SceneManager`, `LoadFromSceneSpheres`, `ExportToSceneSpheres`, `GetSceneSphere`, `SetSceneSphere`, etc. **materials.odin**: `material_name(k: core.MaterialKind)`.
+- **File modal** — **file_modal.odin**: Import / Save As / Preset Name dialog; uses **persistence** for load_scene/save_scene.
+- **Viewport / picking** — **viewport.odin**: `EditorObject`, `compute_viewport_ray`, `ray_hit_plane_y`, `pick_camera`. **scene_manager.odin**: `SceneManager`, `LoadFromSceneSpheres`, `ExportToSceneSpheres`, `GetSceneSphere`, `SetSceneSphere`, etc. **materials.odin**: `material_name(k: core.MaterialKind)`.
 
 Panel content procs live in: **rt_render_panel.odin**, **stats_panel.odin**, **log_panel.odin**, **system_info.odin**, **edit_view_panel.odin**, **camera_panel.odin**, **camera_preview_panel.odin**, **object_props_panel.odin**.
 
 ## Dependency rule
 
-**editor** imports **core**, **util**, **raytrace**, **interfaces**. Layout/types for persistence (e.g. `EditorLayout`, `PanelState`) are defined in **interfaces**; editor uses them and calls `interfaces.load_config` / `save_config` for I/O.
+**editor** imports **core**, **util**, **raytrace**, **persistence**. Layout/types for persistence (e.g. `EditorLayout`, `PanelState`) are defined in **persistence**; editor uses them and calls `persistence.load_config` / `save_config` for I/O.

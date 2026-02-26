@@ -1,6 +1,6 @@
 package editor
 
-import "RT_Weekend:interfaces"
+import "RT_Weekend:persistence"
 
 // Built-in preset name constants.
 PRESET_NAME_DEFAULT :: "Default"
@@ -79,7 +79,7 @@ layout_save_named_preset :: proc(app: ^App, name: string) {
     snapshot := build_editor_layout_from_app(app)
     if snapshot == nil { return }
     // Deref so we own the struct (not the pointer)
-    preset := interfaces.LayoutPreset{
+    preset := persistence.LayoutPreset{
         name   = name,
         layout = snapshot^,
     }

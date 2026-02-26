@@ -3,7 +3,7 @@ package editor
 import "core:fmt"
 import "core:strings"
 import "RT_Weekend:core"
-import "RT_Weekend:interfaces"
+import "RT_Weekend:persistence"
 import rt "RT_Weekend:raytrace"
 
 // ── File actions ────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := rt.build_world_from_scene(ev.export_scratch[:])
     defer delete(world)
     rt.apply_scene_camera(app.camera, &app.camera_params)
-    if interfaces.save_scene(app.current_scene_path, app.camera, world) {
+    if persistence.save_scene(app.current_scene_path, app.camera, world) {
         app_push_log(app, fmt.aprintf("Saved: %s", app.current_scene_path))
     } else {
         app_push_log(app, fmt.aprintf("Save failed: %s", app.current_scene_path))

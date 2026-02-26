@@ -3,7 +3,7 @@ package editor
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
-import "RT_Weekend:interfaces"
+import "RT_Weekend:persistence"
 import rt "RT_Weekend:raytrace"
 
 FILE_MODAL_MAX_INPUT :: 512
@@ -112,7 +112,7 @@ file_modal_confirm :: proc(app: ^App) {
     switch modal.mode {
     case .Import:
         if len(text) == 0 { delete(text); return }
-        cam, world, ok := interfaces.load_scene(text, app.camera.image_width, app.camera.image_height, app.camera.samples_per_pixel)
+        cam, world, ok := persistence.load_scene(text, app.camera.image_width, app.camera.image_height, app.camera.samples_per_pixel)
         if !ok {
             app_push_log(app, fmt.aprintf("Import failed: %s", text))
             delete(text)
@@ -158,7 +158,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
         world := rt.build_world_from_scene(ev.export_scratch[:])
         defer delete(world)
         rt.apply_scene_camera(app.camera, &app.camera_params)
-        if interfaces.save_scene(text, app.camera, world) {
+        if persistence.save_scene(text, app.camera, world) {
             delete(app.current_scene_path)
             app.current_scene_path = text
             app_push_log(app, fmt.aprintf("Saved as: %s", text))

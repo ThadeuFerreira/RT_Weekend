@@ -8,7 +8,7 @@ import "core:time"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
-import "RT_Weekend:interfaces"
+import "RT_Weekend:persistence"
 import "RT_Weekend:util"
 
 LOG_RING_SIZE :: 64
@@ -188,7 +188,7 @@ App :: struct {
     current_scene_path: string,
 
     // Named layout presets (built-ins + user-saved)
-    layout_presets: [dynamic]interfaces.LayoutPreset,
+    layout_presets: [dynamic]persistence.LayoutPreset,
 }
 
 g_app: ^App = nil
@@ -244,9 +244,9 @@ app_push_log :: proc(app: ^App, msg: string) {
 }
 
 // apply_editor_layout sets each panel's rect, visible, maximized, and saved_rect from the loaded layout.
-apply_editor_layout :: proc(app: ^App, layout: ^interfaces.EditorLayout) {
+apply_editor_layout :: proc(app: ^App, layout: ^persistence.EditorLayout) {
     if app == nil || layout == nil { return }
-    panel_rect :: proc(r: interfaces.RectF) -> rl.Rectangle {
+    panel_rect :: proc(r: persistence.RectF) -> rl.Rectangle {
         return rl.Rectangle{x = r.x, y = r.y, width = r.width, height = r.height}
     }
     for p in app.panels {
@@ -260,15 +260,15 @@ apply_editor_layout :: proc(app: ^App, layout: ^interfaces.EditorLayout) {
 }
 
 // build_editor_layout_from_app allocates an EditorLayout and fills it from the current panel state. Caller must free the result.
-build_editor_layout_from_app :: proc(app: ^App) -> ^interfaces.EditorLayout {
+build_editor_layout_from_app :: proc(app: ^App) -> ^persistence.EditorLayout {
     if app == nil { return nil }
-    layout := new(interfaces.EditorLayout)
-    layout.panels = make(map[string]interfaces.PanelState)
-    rect_from :: proc(r: rl.Rectangle) -> interfaces.RectF {
-        return interfaces.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
+    layout := new(persistence.EditorLayout)
+    layout.panels = make(map[string]persistence.PanelState)
+    rect_from :: proc(r: rl.Rectangle) -> persistence.RectF {
+        return persistence.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
     }
     for p in app.panels {
-        layout.panels[p.id] = interfaces.PanelState{
+        layout.panels[p.id] = persistence.PanelState{
             rect       = rect_from(p.rect),
             visible    = p.visible,
             maximized  = p.maximized,
@@ -296,9 +296,9 @@ run_app :: proc(
     camera: ^rt.Camera,
     world: [dynamic]rt.Object,
     num_threads: int,
-    initial_editor_layout: ^interfaces.EditorLayout = nil,
+    initial_editor_layout: ^persistence.EditorLayout = nil,
     config_save_path: string = "",
-    initial_presets: []interfaces.LayoutPreset = nil,
+    initial_presets: []persistence.LayoutPreset = nil,
 ) {
     WIN_W :: i32(1280)
     WIN_H :: i32(1280)
@@ -348,7 +348,7 @@ run_app :: proc(
     app.camera      = camera
     app.num_threads = num_threads
     app.menu_bar    = MenuBarState{open_menu_index = -1}
-    app.layout_presets = make([dynamic]interfaces.LayoutPreset)
+    app.layout_presets = make([dynamic]persistence.LayoutPreset)
     defer {
         for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
         delete(app.layout_presets)
@@ -357,9 +357,9 @@ run_app :: proc(
     register_all_commands(&app)
     // Load persisted presets (cloned so app owns them)
     for p in initial_presets {
-        import_preset := interfaces.LayoutPreset{
+        import_preset := persistence.LayoutPreset{
             name   = strings.clone(p.name),
-            layout = interfaces.EditorLayout{panels = make(map[string]interfaces.PanelState)},
+            layout = persistence.EditorLayout{panels = make(map[string]persistence.PanelState)},
         }
         for k, v in p.layout.panels {
             import_preset.layout.panels[strings.clone(k)] = v
@@ -570,7 +570,7 @@ run_app :: proc(
     }
 
     if len(config_save_path) > 0 {
-        config := interfaces.RenderConfig{
+        config := persistence.RenderConfig{
             width             = camera.image_width,
             height            = camera.image_height,
             samples_per_pixel = camera.samples_per_pixel,
@@ -580,7 +580,7 @@ run_app :: proc(
         if len(app.layout_presets) > 0 {
             config.presets = app.layout_presets[:]
         }
-        if !interfaces.save_config(config_save_path, config) {
+        if !persistence.save_config(config_save_path, config) {
             fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
         }
         if config.editor != nil {

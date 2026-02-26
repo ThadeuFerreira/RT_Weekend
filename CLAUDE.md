@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This project is written in the [Odin programming language](https://odin-lang.org/).
 
 ```bash
-# Build debug binary (use collection so main can import core, util, raytrace, interfaces, editor)
+# Build debug binary (use collection so main can import core, util, raytrace, persistence, editor)
 odin build . -collection:RT_Weekend=. -debug -out:build/debug
 
 # Run with defaults (800px wide, 10 samples, 10 spheres)
@@ -55,23 +55,23 @@ Paths are resolved **relative to the current working directory** at launch. Run 
 
 ## Project layout (packages)
 
-Layout is Godot-inspired: **core** (shared types), **raytrace** (renderer only), **interfaces** (system I/O), **editor** (application UI). See each major folder’s **AGENTS.md** for scoped context.
+Layout is Godot-inspired: **core** (shared types), **raytrace** (renderer only), **persistence** (scene/config load and save), **editor** (application UI). See each major folder’s **AGENTS.md** for scoped context.
 
-- **`main.odin`** (package `main`) — entry point; imports `RT_Weekend:core`, `RT_Weekend:util`, `RT_Weekend:raytrace`, `RT_Weekend:interfaces`, `RT_Weekend:editor`.
+- **`main.odin`** (package `main`) — entry point; imports `RT_Weekend:core`, `RT_Weekend:util`, `RT_Weekend:raytrace`, `RT_Weekend:persistence`, `RT_Weekend:editor`.
 - **`core/`** (package `core`) — shared types used by editor and renderer: `MaterialKind`, `CameraParams`, `SceneSphere`. No I/O, no editor/raytrace dependency. See [core/AGENTS.md](core/AGENTS.md).
 - **`util/`** (package `util`) — CLI args (`Args`, `parse_args_with_short_flags`), system info (`get_number_of_physical_cores`, `print_system_info`), per-thread RNG. No file I/O. See [util/AGENTS.md](util/AGENTS.md).
 - **`raytrace/`** (package `raytrace`) — path tracer only: camera, BVH, materials, vector/ray math, pixel buffer, profiling, `scene_build`. No scene file I/O. See [raytrace/AGENTS.md](raytrace/AGENTS.md).
-- **`interfaces/`** (package `interfaces`) — system I/O: `load_scene`/`save_scene`, `load_config`/`save_config`; types `RenderConfig`, `EditorLayout`, etc. Depends on core and raytrace. See [interfaces/AGENTS.md](interfaces/AGENTS.md).
-- **`editor/`** (package `editor`) — Raylib window, panels, menus, layout, widgets, fonts. Exports `run_app`. Depends on core, util, raytrace, interfaces. See [editor/AGENTS.md](editor/AGENTS.md).
+- **`persistence/`** (package `persistence`) — scene/config persistence: `load_scene`/`save_scene`, `load_config`/`save_config`; types `RenderConfig`, `EditorLayout`, etc. Depends on core and raytrace. See [persistence/AGENTS.md](persistence/AGENTS.md).
+- **`editor/`** (package `editor`) — Raylib window, panels, menus, layout, widgets, fonts. Exports `run_app`. Depends on core, util, raytrace, persistence. See [editor/AGENTS.md](editor/AGENTS.md).
 
 ## Architecture Overview
 
 The renderer is a standard path tracer built around these layers:
 
-### Entry & Scene Setup (`main.odin` + `raytrace/` + `interfaces/`)
-`main.odin` parses CLI arguments (util), loads config/scene via `interfaces` when paths are given, builds camera and world (or uses raytrace for empty scene), then calls `editor.run_app()`.
+### Entry & Scene Setup (`main.odin` + `raytrace/` + `persistence/`)
+`main.odin` parses CLI arguments (util), loads config/scene via `persistence` when paths are given, builds camera and world (or uses raytrace for empty scene), then calls `editor.run_app()`.
 
-Scene file I/O is in **interfaces** (`load_scene`, `save_scene`); config I/O is `interfaces.load_config` / `save_config`.
+Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is `persistence.load_config` / `save_config`.
 
 ### Editor (`editor/`)
 `run_app()` (in `editor/app.odin`) owns the main thread and the Raylib event loop:
@@ -80,7 +80,7 @@ Scene file I/O is in **interfaces** (`load_scene`, `save_scene`); config I/O is 
 3. Each frame: uploads partial pixel buffer to GPU, polls progress, calls `finish_render()` when all tiles are done
 4. Draws panels, menu bar, and layout via `editor/ui.odin` and panel-specific modules
 
-`editor/ui.odin`: `update_panel`, `draw_panel_chrome`, `upload_render_texture`. Panels (render, stats, log, edit view, camera, object props, preview port, system info) and menus/layout live in the same package. SDF font in `editor/font_sdf.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
+**`editor/ui.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_LOG`, `PANEL_ID_EDIT_VIEW`, `PANEL_ID_CAMERA`, `PANEL_ID_OBJECT_PROPS`, `PANEL_ID_PREVIEW_PORT`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/font_sdf.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
 
 ### Non-blocking Render API (`raytrace/camera.odin`)
 Three procedures replace the old blocking `render_parallel`:
@@ -117,7 +117,7 @@ Zero-cost profiling gated by `PROFILING_ENABLED` compile flag. Records nanosecon
 
 ### Utilities (`util/`)
 - `util/cli.odin`: CLI argument parsing (`Args`, `parse_args_with_short_flags`), system info (`get_number_of_physical_cores`, `print_system_info` via `core:sys/info`).
-- `util/rng.odin`: Xoshiro256++ PRNG (`ThreadRNG`, `create_thread_rng`, `random_float`, `random_float_range`). Config/file I/O lives in **interfaces**, not util.
+- `util/rng.odin`: Xoshiro256++ PRNG (`ThreadRNG`, `create_thread_rng`, `random_float`, `random_float_range`). Config/file I/O lives in **persistence**, not util.
 
 ### Interval Math (`raytrace/interval.odin`)
 Simple `Interval` struct used for ray `t`-range clamping and AABB overlap tests.
@@ -125,7 +125,7 @@ Simple `Interval` struct used for ray `t`-range clamping and AABB overlap tests.
 ## Odin-Specific Notes
 
 - Odin uses `import` and has built-in `sync`, `thread`, and `fmt` packages.
-- The project uses multiple packages: `main` (root), `core`, `util`, `raytrace`, `interfaces`, `editor`. Build with `-collection:RT_Weekend=.` so that `import "RT_Weekend:editor"` etc. resolve.
+- The project uses multiple packages: `main` (root), `core`, `util`, `raytrace`, `persistence`, `editor`. Build with `-collection:RT_Weekend=.` so that `import "RT_Weekend:editor"` etc. resolve.
 - `sync.atomic_add`, `sync.atomic_load` are used for lock-free tile dispatch and progress tracking.
 - No heap allocator is configured explicitly; Odin's default context allocator is used.
 - Worker threads receive their context via `thread.Thread.data` (a `rawptr` cast to `^ParallelRenderContext`).

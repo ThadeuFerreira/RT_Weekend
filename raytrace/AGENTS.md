@@ -1,6 +1,6 @@
 # raytrace — Renderer (path tracer)
 
-This package is the **path tracer only**: camera, BVH, materials, ray math, tile-based parallel rendering. It does **not** perform scene file I/O; that lives in **interfaces**.
+This package is the **path tracer only**: camera, BVH, materials, ray math, tile-based parallel rendering. It does **not** perform scene file I/O; that lives in **persistence**.
 
 ## Purpose
 
@@ -20,4 +20,4 @@ This package is the **path tracer only**: camera, BVH, materials, ray math, tile
 
 ## Dependency rule
 
-**raytrace** depends only on **core** and **util**. Scene file load/save are in **interfaces** (which imports raytrace for Camera and Object).
+**raytrace** depends only on **core** and **util**. Scene file load/save are in **persistence** (which imports raytrace for Camera and Object).

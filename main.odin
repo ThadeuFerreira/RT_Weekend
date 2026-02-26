@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
-import "RT_Weekend:interfaces"
+import "RT_Weekend:persistence"
 import "RT_Weekend:editor"
 import "RT_Weekend:raytrace"
 import "RT_Weekend:util"
@@ -43,10 +43,10 @@ main :: proc() {
     }
 
     // Load config file if -config path given; override width/height/samples only when present and positive
-    initial_editor: ^interfaces.EditorLayout = nil
-    initial_presets: []interfaces.LayoutPreset = nil
+    initial_editor: ^persistence.EditorLayout = nil
+    initial_presets: []persistence.LayoutPreset = nil
     if len(args.ConfigPath) > 0 {
-        if loaded, ok := interfaces.load_config(args.ConfigPath); ok {
+        if loaded, ok := persistence.load_config(args.ConfigPath); ok {
             if loaded.width > 0 {
                 image_width = loaded.width
             }
@@ -78,7 +78,7 @@ main :: proc() {
     world: [dynamic]raytrace.Object
 
     if len(args.ScenePath) > 0 {
-        cam, w, ok := interfaces.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
+        cam, w, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
         if !ok {
             fmt.fprintf(os.stderr, "Failed to load scene: %s\n", args.ScenePath)
             return
@@ -91,7 +91,7 @@ main :: proc() {
     }
 
     if len(args.SaveScenePath) > 0 {
-        if !interfaces.save_scene(args.SaveScenePath, camera, world) {
+        if !persistence.save_scene(args.SaveScenePath, camera, world) {
             fmt.fprintf(os.stderr, "Failed to save scene: %s\n", args.SaveScenePath)
         }
     }

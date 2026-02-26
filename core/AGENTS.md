@@ -1,6 +1,6 @@
 # core — Shared types
 
-This package holds **shared data types** used by the editor, the path tracer, and the interfaces layer. It has **no dependency** on editor, raytrace, or I/O.
+This package holds **shared data types** used by the editor, the path tracer, and the persistence layer. It has **no dependency** on editor, raytrace, or I/O.
 
 ## Purpose
 
@@ -14,4 +14,4 @@ This package holds **shared data types** used by the editor, the path tracer, an
 
 ## Dependency rule
 
-**core** must not import: editor, raytrace, interfaces, or any file I/O. Other packages (util, raytrace, interfaces, editor) may import core.
+**core** must not import: editor, raytrace, persistence, or any file I/O. Other packages (util, raytrace, persistence, editor) may import core.

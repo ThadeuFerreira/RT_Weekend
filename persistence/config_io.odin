@@ -1,4 +1,4 @@
-package interfaces
+package persistence
 
 import "core:encoding/json"
 import "core:fmt"

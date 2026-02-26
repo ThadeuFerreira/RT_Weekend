@@ -1,6 +1,6 @@
 # util — CLI, RNG, system info
 
-This package provides **command-line parsing**, **per-thread RNG**, and **system information**. It does **not** perform file or config I/O (that lives in **interfaces**).
+This package provides **command-line parsing**, **per-thread RNG**, and **system information**. It does **not** perform file or config I/O (that lives in **persistence**).
 
 ## Purpose
 
@@ -16,4 +16,4 @@ This package provides **command-line parsing**, **per-thread RNG**, and **system
 
 ## Dependency rule
 
-**util** does not depend on editor, raytrace, or interfaces. Config and scene file load/save are in **interfaces**, not here.
+**util** does not depend on editor, raytrace, or persistence. Config and scene file load/save are in **persistence**, not here.

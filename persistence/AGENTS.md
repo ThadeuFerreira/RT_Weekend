@@ -1,6 +1,6 @@
-# interfaces — System I/O
+# persistence — Scene and config load/save
 
-This package implements **system I/O**: scene file and config file load/save. Future extensions (e.g. network/ports) can live here. It depends on **core** and **raytrace** (to build Camera and Object for scene I/O).
+This package implements **persistence**: scene file and config file load/save. It depends on **core** and **raytrace** (to build Camera and Object for scene I/O).
 
 ## Purpose
 
@@ -14,4 +14,4 @@ This package implements **system I/O**: scene file and config file load/save. Fu
 
 ## Dependency rule
 
-**interfaces** may import **core** and **raytrace**. Callers (main, editor) use these procs for all file-based scene and config operations so the renderer stays I/O-free.
+**persistence** may import **core** and **raytrace**. Callers (main, editor) use these procs for all file-based scene and config operations so the renderer stays I/O-free.
