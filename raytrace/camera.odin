@@ -391,6 +391,8 @@ get_render_progress :: proc(session: ^RenderSession) -> f32 {
 // GPU path: no threads to join. Destroys the GPU backend and frees BVH memory.
 finish_render :: proc(session: ^RenderSession) {
     if session.use_gpu {
+        stop_timer(&session.timing.total)
+        aggregate_into_summary(&session.timing, nil, 0, get_last_render_profile())
         if session.gpu_backend != nil {
             gpu_backend_destroy(session.gpu_backend)
             session.gpu_backend = nil
@@ -488,6 +490,8 @@ finish_render :: proc(session: ^RenderSession) {
     )
 
     rendering_time := get_elapsed_seconds(session.timing.rendering)
+    aggregate_into_summary(&session.timing, &rendering_breakdown, rendering_time, get_last_render_profile())
+
     print_rendering_breakdown(&rendering_breakdown, rendering_time)
 }
 

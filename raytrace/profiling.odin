@@ -116,11 +116,32 @@ ParallelTimingBreakdown :: struct {
     context_setup: Timer,
     thread_creation: Timer,
     rendering: Timer,
-    progress_monitoring: Timer,
     thread_join: Timer,
-    file_writing: Timer,
     total: Timer,
 }
+
+PhaseEntry :: struct {
+    name:    string,
+    seconds: f64,
+    percent: f64,
+}
+
+RenderProfileSummary :: struct {
+    total_seconds:       f64,
+    phase_count:         int,
+    phases:              [8]PhaseEntry,
+    has_sample_breakdown: bool,
+    sample_get_ray_pct:  f64,
+    sample_intersection_pct: f64,
+    sample_scatter_pct:  f64,
+    sample_background_pct: f64,
+    sample_pixel_setup_pct: f64,
+    total_samples:       i64,
+    total_rays:           i64,
+    total_intersections:   i64,
+}
+
+last_render_profile: RenderProfileSummary
 
 start_parallel_timing :: proc() -> ParallelTimingBreakdown {
     total_timer := start_timer()
@@ -163,15 +184,9 @@ print_parallel_timing_breakdown :: proc(breakdown: ^ParallelTimingBreakdown, ima
     fmt.printf("    Rendering (work):    %s (%.2f%%)\n",
         format_duration(breakdown.rendering),
         (get_elapsed_seconds(breakdown.rendering) / total_seconds) * 100.0)
-    fmt.printf("    Progress monitoring:  %s (%.2f%%)\n",
-        format_duration(breakdown.progress_monitoring),
-        (get_elapsed_seconds(breakdown.progress_monitoring) / total_seconds) * 100.0)
-    fmt.printf("    Thread join/cleanup:  %s (%.2f%%)\n",
+    fmt.printf("    Thread join/cleanup: %s (%.2f%%)\n",
         format_duration(breakdown.thread_join),
         (get_elapsed_seconds(breakdown.thread_join) / total_seconds) * 100.0)
-    fmt.printf("    File writing:        %s (%.2f%%)\n",
-        format_duration(breakdown.file_writing),
-        (get_elapsed_seconds(breakdown.file_writing) / total_seconds) * 100.0)
     fmt.println("")
     fmt.printf("  TOTAL TIME:            %s\n", format_duration(breakdown.total))
     fmt.println("")
@@ -289,4 +304,50 @@ print_rendering_breakdown :: proc(breakdown: ^RenderingBreakdown, total_renderin
         }
     }
     fmt.println(separator)
+}
+
+get_last_render_profile :: proc() -> ^RenderProfileSummary {
+    return &last_render_profile
+}
+
+aggregate_into_summary :: proc(
+    parallel: ^ParallelTimingBreakdown,
+    rendering: ^RenderingBreakdown,
+    rendering_wall_s: f64,
+    summary: ^RenderProfileSummary,
+) {
+    summary^ = {}
+    total_seconds := get_elapsed_seconds(parallel.total)
+    if total_seconds <= 0 { return }
+    summary.total_seconds = total_seconds
+
+    phases := []PhaseEntry{
+        {"Buffer", get_elapsed_seconds(parallel.buffer_creation), (get_elapsed_seconds(parallel.buffer_creation) / total_seconds) * 100.0},
+        {"Tiles", get_elapsed_seconds(parallel.tile_generation), (get_elapsed_seconds(parallel.tile_generation) / total_seconds) * 100.0},
+        {"BVH", get_elapsed_seconds(parallel.bvh_construction), (get_elapsed_seconds(parallel.bvh_construction) / total_seconds) * 100.0},
+        {"Context", get_elapsed_seconds(parallel.context_setup), (get_elapsed_seconds(parallel.context_setup) / total_seconds) * 100.0},
+        {"Thread create", get_elapsed_seconds(parallel.thread_creation), (get_elapsed_seconds(parallel.thread_creation) / total_seconds) * 100.0},
+        {"Render", get_elapsed_seconds(parallel.rendering), (get_elapsed_seconds(parallel.rendering) / total_seconds) * 100.0},
+        {"Thread join", get_elapsed_seconds(parallel.thread_join), (get_elapsed_seconds(parallel.thread_join) / total_seconds) * 100.0},
+    }
+    for i in 0..<min(len(phases), len(summary.phases)) {
+        summary.phases[i] = phases[i]
+    }
+    summary.phase_count = len(phases)
+
+    if rendering != nil {
+        calculated_ray_color_ns := rendering.intersection_time + rendering.scatter_time + rendering.background_time
+        total_ns := rendering.get_ray_time + calculated_ray_color_ns + rendering.pixel_setup_time
+        if total_ns > 0 {
+            summary.has_sample_breakdown = true
+            summary.sample_get_ray_pct = (f64(rendering.get_ray_time) / f64(total_ns)) * 100.0
+            summary.sample_intersection_pct = (f64(rendering.intersection_time) / f64(total_ns)) * 100.0
+            summary.sample_scatter_pct = (f64(rendering.scatter_time) / f64(total_ns)) * 100.0
+            summary.sample_background_pct = (f64(rendering.background_time) / f64(total_ns)) * 100.0
+            summary.sample_pixel_setup_pct = (f64(rendering.pixel_setup_time) / f64(total_ns)) * 100.0
+            summary.total_samples = rendering.total_samples
+            summary.total_rays = rendering.total_rays
+            summary.total_intersections = rendering.total_intersections
+        }
+    }
 }

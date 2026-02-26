@@ -117,6 +117,31 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     fill_color := app.finished ? DONE_COLOR : ACCENT_COLOR
     rl.DrawRectangleRec(fill_rect, fill_color)
     rl.DrawRectangleLinesEx(bar_rect, 1, BORDER_COLOR)
+    y = bar_y + i32(bar_h) + line_h
+
+    // Performance: per-step times when render is complete (CLI and UI share same summary).
+    if app.finished {
+        profile := rt.get_last_render_profile()
+        if profile != nil && profile.total_seconds > 0 {
+            draw_ui_text(app, "Performance:", x, y, fs, CONTENT_TEXT_COLOR)
+            y += line_h
+            draw_ui_text(app, fmt.ctprintf("  Total: %.2fs", profile.total_seconds), x, y, fs, CONTENT_TEXT_COLOR)
+            y += line_h
+            for i in 0..<profile.phase_count {
+                p := profile.phases[i]
+                draw_ui_text(app, fmt.ctprintf("  %s: %.2fs (%.1f%%)", p.name, p.seconds, p.percent), x, y, fs, CONTENT_TEXT_COLOR)
+                y += line_h
+            }
+            if profile.has_sample_breakdown {
+                draw_ui_text(app, "  Sample: Ray/Int/Scat/BG/Pix %", x, y, fs, CONTENT_TEXT_COLOR)
+                y += line_h
+                draw_ui_text(app, fmt.ctprintf("  %.1f / %.1f / %.1f / %.1f / %.1f",
+                    profile.sample_get_ray_pct, profile.sample_intersection_pct, profile.sample_scatter_pct,
+                    profile.sample_background_pct, profile.sample_pixel_setup_pct), x, y, fs, CONTENT_TEXT_COLOR)
+                y += line_h
+            }
+        }
+    }
 }
 
 update_stats_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
