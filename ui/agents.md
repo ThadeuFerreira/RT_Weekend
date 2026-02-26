@@ -28,7 +28,7 @@ Everything in the UI is composed from the same building blocks at every nesting 
 ```
 Level 0 — Window (App)
     Owns the event loop. Holds a [dynamic]^FloatingPanel registry
-    and an overlay stack. Calls update/draw on all of them in order.
+    and a DockLayout. Calls update/draw on all of them in order.
 
 Level 1 — Panel (FloatingPanel)
     Has chrome (title bar, border, buttons) + a content area.
@@ -50,7 +50,7 @@ Level 2 — Widget
 - **`draw_content: proc(app: ^App, content: rl.Rectangle)`** — called during the draw phase to render the panel body.
 - **`update_content: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool)`** — called during the update phase for panels with custom input handling. Nil = no custom input.
 
-Any proc matching the respective signature can be assigned at construction time via `PanelDesc`. This replaces type switches and avoids inheritance. Panels that only display (Stats, Log, Render, System_Info) set only `draw_content`. Interactive panels (terminal, tool options) set both.
+Any proc matching the respective signature can be assigned at construction time via `PanelDesc`. This replaces type switches and avoids inheritance. Panels that only display (Stats, Log, Render, System_Info) set only `draw_content`. Interactive panels (Edit View, Camera, Object Props) set both.
 
 ### Proc-variable seam (`draw_content`)
 
@@ -96,23 +96,17 @@ Elements are drawn in strict Z-order. Items drawn later appear on top. The event
 ```
 Draw order (bottom → top):
   1. Background (ClearBackground)
-  2. Base panels (FloatingPanel list, in index order)
-  3. Overlays (overlay stack, in push order — last pushed = topmost)
+  2. Dock layout panels (layout_update_and_draw)
+  3. Menu bar (always on top of panels)
+  4. File modal (topmost — always drawn last)
 
 Input order (highest priority → lowest):
-  1. Overlays (reverse stack order)
-  2. Base panels (reverse index order)
-  3. Background / global shortcuts
+  1. Menu bar (priority 1)
+  2. File modal (priority 2)
+  3. Dock layout panels (effective_lmb_pressed = lmb && !input_consumed)
 ```
 
-`App` holds an overlay stack:
-
-```odin
-// Conceptual — add to App when implementing overlays:
-overlay_stack: [dynamic]Overlay
-```
-
-An `Overlay` is any transient surface drawn on top of everything (dropdown list, context menu, tooltip, modal dialog). It is pushed by a widget during the draw phase and consumed (drawn + updated) at the end of the same frame.
+`app.input_consumed` is the mechanism that prevents click bleed through overlapping UI layers. See the **Input Consumption System** section below.
 
 ### Widget pattern
 
@@ -168,29 +162,43 @@ Same pattern as dropdowns, but triggered by right-click anywhere inside a rect. 
 
 A `FloatingPanel` with `closeable = false`, `dragging = false`, paired with a `draw_dim_overlay()` call immediately before it. Modals are pushed to the overlay stack as the topmost item and consume all input below them (click-through blocking). Only one modal may be active at a time — enforce with a bool on `App`.
 
+`FileModalState` (`ui/file_modal.odin`) is the current concrete modal implementation — see that section below.
+
 ---
 
 ## File Layout
 
+### `ui/` package
+
 | File | Responsibility |
 |---|---|
-| `ui/app.odin` | `App` and `FloatingPanel` structs; `PanelDesc` builder; `make_panel` factory; `app_add_panel` / `app_find_panel` / `app_restart_render` registry; `run_app` (main event loop); log ring; layout save/load |
+| `ui/app.odin` | `App` and `FloatingPanel` structs; `PanelDesc` builder; `make_panel` factory; `app_add_panel` / `app_find_panel` / `app_restart_render` / `app_restart_render_with_scene` registry; `run_app` (main event loop); log ring; layout save/load; `draw_ui_text` / `measure_ui_text` (font-agnostic text helpers) |
 | `ui/ui.odin` | Shared draw/interaction primitives: `update_panel`, `draw_panel_chrome`, `draw_panel`, `draw_dim_overlay`, `upload_render_texture`, `render_dest_rect`, `screen_to_render_ray`; `PanelStyle` + `DEFAULT_PANEL_STYLE`; color/size constants |
 | `ui/rt_render_panel.odin` | `draw_render_content` — renders the live ray-trace preview into a panel content area |
 | `ui/stats_panel.odin` | `draw_stats_content` — tile progress, thread count, elapsed time, progress bar |
 | `ui/log_panel.odin` | `draw_log_content` — scrolling ring-buffer log display |
 | `ui/system_info.odin` | `draw_system_info_content` — OS, CPU, RAM, GPU info display |
-| `ui/edit_view_panel.odin` | `EditViewState`, `EditSphere`; `draw_edit_view_content` / `update_edit_view_content` — 3D orbit viewport with sphere editing; `build_world_from_edit_view` — converts edit spheres to raytrace objects for re-rendering |
+| `ui/edit_view_panel.odin` | `EditViewState`, `EditViewSelectionKind`; `draw_edit_view_content` / `update_edit_view_content` — 3D orbit viewport; toolbar (Add Sphere, Delete, From View, Render); drag-float properties strip; camera gizmo; `init_edit_view`, `update_orbit_camera`, `draw_viewport_3d`, `draw_edit_properties`. Calls `ExportToSceneSpheres` + `app_restart_render_with_scene` for re-render |
+| `ui/camera_panel.odin` | `CameraPanelState`; `draw_camera_panel_content` / `update_camera_panel_content` — editable render camera params (lookfrom, lookat, vfov, aperture, focus_dist, etc.) with drag-float fields |
+| `ui/camera_preview_panel.odin` | `draw_preview_port_content` — rasterized preview rendered from the render camera position using a Raylib `RenderTexture2D` |
+| `ui/object_props_panel.odin` | `ObjectPropsPanelState`; `draw_object_props_content` / `update_object_props_content` — per-sphere property editor (material type toggle buttons, drag-float center/radius/albedo fields) |
+| `ui/commands.odin` | `Command`, `CommandRegistry` (fixed 64-slot array); CMD_* string constants; `cmd_register`, `cmd_find`, `cmd_execute`, `cmd_is_enabled`, `cmd_is_checked` |
+| `ui/command_actions.odin` | All `cmd_action_*` procs, `cmd_checked_*` procs, and `cmd_enabled_*` procs; `toggle_panel`, `panel_visible`; `register_all_commands` (called once at startup in `run_app`) |
+| `ui/file_modal.odin` | `FileModalState`, `FileModalMode` enum (.Import / .SaveAs / .PresetName); `file_modal_open`, `file_modal_update` (keyboard + mouse input, sets `input_consumed`), `file_modal_draw` (visual only), `file_modal_confirm` (executes the action on OK/Enter) |
+| `ui/menu_bar.odin` | `MenuBarState`, `MenuEntryDyn`, `MenuDyn`; `get_menus_dynamic` (builds menu from command registry + live state each frame using `context.temp_allocator`); `menu_bar_update` (sets `input_consumed`), `menu_bar_draw`; `make_cstring_temp` helper |
+| `ui/layout.odin` | `DockLayout`, `DockNode`, `DockPanel` types; `DockNodeType`, `DockSplitAxis`; `layout_init`, `layout_add_panel`, `layout_add_leaf`, `layout_add_split`, `layout_update_and_draw`, `layout_find_panel_index`; `layout_build_default`; center-pane split view logic |
+| `ui/layout_presets.odin` | `layout_build_render_focus`, `layout_build_edit_focus` (built-in presets); `layout_save_named_preset`, `layout_apply_named_preset`; built-in preset name constants (`PRESET_NAME_DEFAULT`, `PRESET_NAME_RENDER`, `PRESET_NAME_EDIT`) |
+| `ui/font_sdf.odin` | SDF font loading (`load_sdf_font`, `load_font_ex_fallback`), `draw_text_sdf`, `unload_ui_font`; loaded by `run_app` when `USE_SDF_FONT` build flag is set |
 
-New files to add as the UI grows:
+### `ui/editor/` sub-package
 
-| File | Future responsibility |
+Viewport ray casting and `SceneManager` were extracted here to avoid a circular import (`ui/edit_view_panel` → `editor` → `scene`, not back to `ui`). This sub-package has no dependency on the `ui` package.
+
+| File | Responsibility |
 |---|---|
-| `ui/widgets.odin` | `draw_button`, `draw_slider`, `draw_text_field`, `draw_dropdown`, `draw_progress_bar`, etc. |
-| `ui/overlays.odin` | `Overlay` type, overlay stack management, `push_overlay`, `draw_overlay_stack` |
-| `ui/options_panel.odin` | `draw_options_content` — editable render settings (samples, resolution, max depth) |
-| `ui/tools.odin` | Tool enum, active tool state, per-tool update/draw procs |
-| `ui/terminal_panel.odin` | `draw_terminal_content` / `update_terminal_content` — command input + output; follows the same Strategy pattern as Edit View |
+| `ui/editor/core.odin` | `EditorObject :: union {scene.SceneSphere}` — discriminated union for future polymorphism; `compute_viewport_ray` (perspective ray from mouse + camera params + viewport rect); `ray_hit_plane_y` (ray × horizontal plane intersection); `pick_camera` (ray × camera gizmo sphere) |
+| `ui/editor/scene_manager.odin` | `SceneManager` struct (owns `[dynamic]EditorObject`); `new_scene_manager`, `free_scene_manager`; `LoadFromSceneSpheres`, `ExportToSceneSpheres`, `AppendDefaultSphere`, `OrderedRemove`, `SceneManagerLen`, `PickSphereInManager`, `GetSceneSphere`, `SetSceneSphere` |
+| `ui/editor/materials.odin` | `material_name(k: scene.MaterialKind) -> cstring` — display name for material enum values |
 
 ### Adding a new panel
 
@@ -258,16 +266,20 @@ PanelDesc :: struct {
 | `make_panel(desc: PanelDesc) -> ^FloatingPanel` | Allocates and initialises a panel from a builder struct. |
 | `app_add_panel(app, panel)` | Appends a heap-allocated panel to `app.panels`; app takes ownership. |
 | `app_find_panel(app, id) -> ^FloatingPanel` | Returns the first panel whose `id` matches, or nil. |
-| `app_restart_render(app, new_world)` | Replaces the current world and starts a fresh render session. No-op if `!app.finished`. Frees the old session and world, resets `app.session`, `app.finished`, `app.elapsed_secs`, and `app.render_start`. |
+| `app_restart_render(app, new_world)` | Replaces the current world and starts a fresh render session. No-op if `!app.finished`. Frees the old session and world, applies `app.camera_params`, resets `app.session`, `app.finished`, `app.elapsed_secs`, and `app.render_start`. |
+| `app_restart_render_with_scene(app, scene_objects: []scene.SceneSphere)` | Builds a raytrace world from a `scene.SceneSphere` slice via `rt.build_world_from_scene`, then calls the restart logic. Used by Edit View and command actions so they do not need to import `raytrace` directly. |
 
 ### Panel ID constants
 
 ```odin
-PANEL_ID_RENDER      :: "render_preview"
-PANEL_ID_STATS       :: "stats"
-PANEL_ID_LOG         :: "log"
-PANEL_ID_SYSTEM_INFO :: "system_info"
-PANEL_ID_EDIT_VIEW   :: "edit_view"
+PANEL_ID_RENDER        :: "render_preview"
+PANEL_ID_STATS         :: "stats"
+PANEL_ID_LOG           :: "log"
+PANEL_ID_SYSTEM_INFO   :: "system_info"
+PANEL_ID_EDIT_VIEW     :: "edit_view"
+PANEL_ID_CAMERA        :: "camera"
+PANEL_ID_OBJECT_PROPS  :: "object_props"
+PANEL_ID_PREVIEW_PORT  :: "preview_port"
 ```
 
 IDs are also the map keys used for config persistence (`util.EditorLayout.panels`).
@@ -276,11 +288,63 @@ IDs are also the map keys used for config persistence (`util.EditorLayout.panels
 
 Central mutable state for a running editor session. `panels: [dynamic]^FloatingPanel` is the registry — all panels live here. Iterate with `for p in app.panels`. Lookup by ID with `app_find_panel`.
 
-Three fields support re-rendering from the Edit View:
+```odin
+App :: struct {
+    panels:        [dynamic]^FloatingPanel,
+    dock_layout:   DockLayout,
 
-- `num_threads: int` — stored once at startup; reused by `app_restart_render`.
-- `camera: ^rt.Camera` — pointer to the single camera; reused across renders (same dimensions).
-- `world: [dynamic]rt.Object` — currently active world; owned by `App`. Replaced (and freed) by `app_restart_render`. Freed by a defer in `run_app` on exit.
+    render_tex:    rl.Texture2D,
+    pixel_staging: []rl.Color,
+
+    session:       ^rt.RenderSession,
+
+    num_threads:   int,
+    camera:        ^rt.Camera,
+    world:         [dynamic]rt.Object,
+    camera_params: scene.CameraParams, // shared camera definition; applied before each render
+
+    log_lines:     [LOG_RING_SIZE]string,
+    log_count:     int,
+
+    finished:      bool,
+    elapsed_secs:  f64,
+    render_start:  time.Time,
+
+    // Sub-state for interactive panels
+    edit_view:      EditViewState,
+    camera_panel:   CameraPanelState,
+    menu_bar:       MenuBarState,
+    object_props:   ObjectPropsPanelState,
+
+    // Preview Port: rasterized view from render camera (app.camera_params)
+    preview_port_tex: rl.RenderTexture2D,
+    preview_port_w:   i32,
+    preview_port_h:   i32,
+
+    // SDF UI font (optional; fallback to default font if load fails)
+    ui_font:        rl.Font,
+    ui_font_shader: rl.Shader,
+    use_sdf_font:   bool,
+
+    // Input priority: reset to false each frame; set by menu/modal to block panels below
+    input_consumed: bool,
+
+    // Exit signal (Raylib vendor has no SetWindowShouldClose binding)
+    should_exit: bool,
+
+    // Command registry (registered once at startup via register_all_commands)
+    commands: CommandRegistry,
+
+    // File modal (shared across Import, SaveAs, PresetName modes)
+    file_modal: FileModalState,
+
+    // Current scene file path (empty = no path; gates File → Save enabled state)
+    current_scene_path: string,
+
+    // Named layout presets (loaded from config, persisted on save-config)
+    layout_presets: [dynamic]util.LayoutPreset,
+}
+```
 
 `g_app` is a package-level pointer used only by the Raylib trace log callback (which requires a C calling convention and cannot close over Odin state). Treat it as internal plumbing — do not read or write it from panel content procs.
 
@@ -351,28 +415,157 @@ When adding new UI elements, reuse these constants rather than introducing new m
 
 ## Event Loop (`run_app`)
 
-The Raylib event loop in `app.odin` follows this order every frame:
+The Raylib event loop in `app.odin` follows this order every frame. The loop condition is `!rl.WindowShouldClose() && !app.should_exit` — Raylib's vendor binding has no `SetWindowShouldClose`, so `app.should_exit` is the exit signal.
 
 ```
-UPDATE PHASE (input → state):
+UPDATE PHASE:
   1. Update elapsed time
-  2. Sample mouse/keyboard state
-  3. Consume overlay input (reverse stack order — topmost first)
-  4. For each panel in app.panels:
-       update_panel + clamp_panel_to_screen
-       if panel.update_content != nil && panel.visible: call update_content
-  5. Per-frame logic: tool input, keyboard shortcuts (L = reopen log, S = reopen system info, E = reopen edit view), render progress check
+  2. Sample mouse/keyboard state (mouse, lmb, lmb_pressed)
+  3. app.input_consumed = false          (reset each frame)
+  4. menu_bar_update (priority 1)        — sets input_consumed on click
+  5. file_modal_update (priority 2)      — sets input_consumed when active
+  6. Keyboard shortcuts (F5, L, S, E, C, O) — only if !input_consumed
 
-DRAW PHASE (state → screen):
-  6. upload_render_texture (every 4 frames and on completion)
-  7. BeginDrawing / ClearBackground
-  8. For each panel: if dim_when_maximized && maximized: draw_dim_overlay(); draw_panel
-  9. Draw overlay stack in push order (topmost last = on top)
-  10. EndDrawing
-  11. free_all(context.temp_allocator)
+RENDER PROGRESS PHASE:
+  7. upload_render_texture (every 4 frames)
+  8. Render completion check: if progress >= 1.0, finish_render + upload
+
+DRAW PHASE:
+  9. BeginDrawing / ClearBackground
+ 10. layout_update_and_draw (panels; passes effective_lmb_pressed = lmb && !input_consumed)
+ 11. menu_bar_draw (drawn after panels — always on top)
+ 12. file_modal_draw (drawn last — highest Z)
+ 13. EndDrawing
+ 14. free_all(context.temp_allocator)
 ```
 
-New per-frame logic goes in step 5 (after panel geometry is settled, before drawing). New overlays are pushed during the draw phase (step 8) by widget procs; the stack is flushed in step 9 and cleared after.
+New per-frame logic goes in step 6 (after input_consumed is determined by menu/modal). New draw elements go in step 10 (inside layout) or after it. Overlays that must draw on top of everything (except the modal) should draw between steps 10 and 11.
+
+**Note:** The overlay stack concept described in earlier docs is not yet implemented as a data structure. `file_modal` and `menu_bar` serve the "modal/overlay" role for now through their explicit draw-order position.
+
+---
+
+## Input Consumption System
+
+`app.input_consumed: bool` is a per-frame flag that prevents click bleed through overlapping UI layers.
+
+**Frame lifecycle:**
+1. Reset to `false` at the start of each frame (step 3 above).
+2. `menu_bar_update` (priority 1): sets `input_consumed = true` on any click that lands on the menu bar or an open dropdown.
+3. `file_modal_update` (priority 2): unconditionally sets `input_consumed = true` while the modal is active.
+4. Keyboard shortcuts (step 6): skip if `input_consumed` is true.
+5. `layout_update_and_draw` (step 10): receives `effective_lmb_pressed = lmb_pressed && !input_consumed` — panels never fire a click through the menu or modal.
+
+Panel content procs may also set `g_app.input_consumed = true` (via the global pointer) when they consume a toolbar button click, to prevent the same click from reaching other panels in the same frame.
+
+---
+
+## Command Registry
+
+`CommandRegistry` (`ui/commands.odin`) is a fixed-size array of up to `MAX_COMMANDS` (64) `Command` entries.
+
+```odin
+Command :: struct {
+    id:           string,
+    label:        string,       // display text
+    shortcut:     string,       // display only (no auto-binding)
+    action:       proc(app: ^App),
+    enabled_proc: proc(app: ^App) -> bool, // nil = always enabled
+    checked_proc: proc(app: ^App) -> bool, // nil = no checkmark
+}
+```
+
+**CMD_* constants** are string constants (not an enum) so future plugins can add commands without recompiling:
+
+```odin
+CMD_FILE_NEW, CMD_FILE_IMPORT, CMD_FILE_SAVE, CMD_FILE_SAVE_AS, CMD_FILE_EXIT
+CMD_VIEW_RENDER, CMD_VIEW_STATS, CMD_VIEW_LOG, CMD_VIEW_SYSINFO, CMD_VIEW_EDIT,
+CMD_VIEW_CAMERA, CMD_VIEW_PROPS, CMD_VIEW_PREVIEW
+CMD_VIEW_PRESET_DEFAULT, CMD_VIEW_PRESET_RENDER, CMD_VIEW_PRESET_EDIT, CMD_VIEW_SAVE_PRESET
+CMD_RENDER_RESTART
+```
+
+**Key procs:**
+- `cmd_register(reg, cmd)` — appends; no-op if full or id empty.
+- `cmd_find(reg, id) -> ^Command` — linear scan; returns nil if not found.
+- `cmd_execute(app, id)` — finds + checks enabled_proc + calls action.
+- `cmd_is_enabled(app, id) -> bool` — for menu item greying.
+- `cmd_is_checked(app, id) -> bool` — for menu item checkmarks.
+
+`register_all_commands(app)` in `ui/command_actions.odin` populates the registry once during `run_app` init.
+
+---
+
+## Dock Layout System
+
+`DockLayout` (`ui/layout.odin`) tiles all panels in the window without floating panels. Each node is either a **leaf** (tabbed group of panels) or a **split** (horizontal or vertical divider with two child nodes).
+
+```odin
+DockLayout :: struct {
+    nodes:      [MAX_DOCK_NODES]DockNode,   // 64 max
+    nodeCount:  int,
+    root:       int,
+    center_leaf: int,                        // special: can show two panels stacked
+    center_split_view:     bool,
+    center_split_ratio:    f32,
+    center_split_dragging: bool,
+    panels:     [MAX_DOCK_PANELS]DockPanel,  // 64 max
+    panelCount: int,
+}
+
+DockNode :: struct {
+    type: DockNodeType,     // .DOCK_NODE_LEAF or .DOCK_NODE_SPLIT
+    rect: rl.Rectangle,
+    parent: int,
+    // Split fields:
+    axis:   DockSplitAxis,  // .DOCK_SPLIT_HORIZONTAL (top/bottom) or .DOCK_SPLIT_VERTICAL (left/right)
+    childA, childB: int,
+    split:  f32,            // 0..1 — fraction of space for childA
+    // Leaf fields:
+    panelCount:  int,
+    panels:      [MAX_PANELS_PER_LEAF]int,  // indices into DockLayout.panels
+    activePanel: int,                        // tab index
+}
+```
+
+**Key procs:**
+- `layout_init(layout)` — resets all node/panel counts.
+- `layout_add_panel(layout, panel_idx) -> int` — registers an `app.panels` index; returns DockPanel index.
+- `layout_add_leaf(layout, panel_indices, active_panel) -> int` — creates a tabbed leaf node.
+- `layout_add_split(layout, axis, child_a, child_b, split) -> int` — creates a split node.
+- `layout_update_and_draw(app, layout, mouse, lmb, lmb_pressed)` — computes rects from window size, iterates leaf nodes, calls `update_content` then `draw_panel`.
+- `layout_find_panel_index(app, id) -> int` — maps panel ID string to `app.panels` index.
+- `layout_build_default(app, layout)` — builds the default layout (center: Render+Edit split; right: Stats/SysInfo, Log/Camera/Props, PreviewPort).
+
+**Center-pane split view:** When `layout.center_split_view = true` (the default layout), the center leaf draws both Render and Edit View stacked vertically with a draggable splitter. Toggle with `center_split_view = false` to show only the active tab.
+
+**Three built-in presets** (in `ui/layout_presets.odin`):
+- `layout_build_default` — balanced split center with all panels.
+- `layout_build_render_focus` — center shows only render; Edit View hidden.
+- `layout_build_edit_focus` — center shows only edit view; Render hidden.
+
+---
+
+## `ui/editor/` Sub-package
+
+Imported as `ed "RT_Weekend:ui/editor"` in `ui/edit_view_panel.odin` and `ui/command_actions.odin`.
+
+**Why a sub-package:** Viewport ray casting and `SceneManager` were extracted here to break a potential circular import. The dependency graph is: `ui` → `editor` → `scene`/`raytrace`/`raylib`. Nothing in `editor` imports `ui`.
+
+**`EditorObject`** is the extension point for new scene object types:
+
+```odin
+EditorObject :: union { scene.SceneSphere }
+```
+
+Adding a new object type only requires extending this union and adding cases to `switch obj in SceneManager.objects` — no new parallel arrays or type tags.
+
+**`SceneManager`** owns the `[dynamic]EditorObject` slice. It is heap-allocated (`new_scene_manager`), freed by `free_scene_manager` (called in `run_app` via defer). The single `SceneManager` instance lives in `App.edit_view.scene_mgr`.
+
+**Viewport utilities in `editor/core.odin`:**
+- `compute_viewport_ray(cam3d, tex_w, tex_h, mouse, vp_rect, require_inside) -> (rl.Ray, bool)` — perspective ray cast from mouse coords; `require_inside=false` for active drag continuation outside viewport.
+- `ray_hit_plane_y(ray, plane_y) -> (rl.Vector2, bool)` — XZ intersection with a horizontal plane; used for sphere drag movement.
+- `pick_camera(ray, lookfrom) -> bool` — hit test against the camera gizmo sphere.
 
 ---
 
@@ -384,10 +577,15 @@ Each panel has an `id: string` field (e.g. `"render_preview"`, `"stats"`, `"log"
 - `build_editor_layout_from_app` iterates `app.panels` and writes each panel's current state into the map by ID.
 - Adding a new panel with a new ID automatically participates in persistence without touching any other code.
 
-JSON config format:
+JSON config format (with layout presets):
 ```json
-{"editor": {"panels": {"render_preview": {...}, "stats": {...}, "log": {...}}}}
+{
+  "editor": {"panels": {"render_preview": {...}, "stats": {...}, "log": {...}}},
+  "presets": [{"name": "My Layout", "layout": {"panels": {...}}}]
+}
 ```
+
+User-saved presets are stored in `app.layout_presets: [dynamic]util.LayoutPreset`. They are loaded from config via `initial_presets` parameter of `run_app`, and saved back to config on exit when `-save-config` is set.
 
 ---
 
@@ -408,25 +606,28 @@ JSON config format:
 | Overlay push | `push_<overlay_type>` | `push_dropdown_overlay`, `push_context_menu` |
 | Layout helpers | `apply_<source>_layout`, `build_<dest>_layout_from_<source>` | `apply_editor_layout` |
 | Constants | `SCREAMING_SNAKE_CASE` | `TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, `PANEL_ID_RENDER` |
+| Command action | `cmd_action_<verb>_<noun>` | `cmd_action_file_new`, `cmd_action_view_render` |
+| Command predicate | `cmd_<adjective>_<noun>` | `cmd_enabled_render_restart`, `cmd_checked_view_render` |
 
 ---
 
 ## Edit View Panel (`ui/edit_view_panel.odin`)
 
-The Edit View is the first fully interactive panel — it has both `draw_content` and `update_content` set. It provides a live 3D Raylib viewport for constructing the ray-traced scene before committing a render.
+The Edit View is a fully interactive panel — it has both `draw_content` and `update_content` set. It provides a live 3D Raylib viewport for constructing the ray-traced scene before committing a render.
 
 ### Data types
 
 ```odin
-EditSphere :: struct {
-    center:   [3]f32,   // world position
-    radius:   f32,
-    mat_type: int,      // 0=lambertian  1=metallic  2=dielectric
-    color:    [3]f32,   // albedo / base color
+// EditSphere is GONE — replaced by scene.SceneSphere + SceneManager (ed.SceneManager)
+
+EditViewSelectionKind :: enum {
+    None,
+    Sphere,
+    Camera,  // render camera gizmo; non-deletable
 }
 
 EditViewState :: struct {
-    viewport_tex:   rl.RenderTexture2D, // off-screen 3D render target
+    viewport_tex:   rl.RenderTexture2D,
     tex_w, tex_h:   i32,
 
     cam3d:          rl.Camera3D,        // recomputed each frame from orbit params
@@ -438,53 +639,71 @@ EditViewState :: struct {
     rmb_held:       bool,               // right-drag orbit tracking
     last_mouse:     rl.Vector2,
 
-    objects:        [dynamic]EditSphere,
-    selected_idx:   int,                // -1 = none selected
-    initialized:    bool,
+    scene_mgr:      ^ed.SceneManager,           // owns scene objects
+    export_scratch: [dynamic]scene.SceneSphere,  // reused buffer; no per-frame alloc
+
+    selection_kind: EditViewSelectionKind,
+    selected_idx:   int,                // -1 = nothing selected
+
+    // Drag-float property fields (sphere only)
+    prop_drag_idx:       int,           // -1=none  0=cx  1=cy  2=cz  3=radius
+    prop_drag_start_x:   f32,
+    prop_drag_start_val: f32,
+
+    // Viewport left-drag to move selected object (sphere only)
+    drag_obj_active: bool,
+    drag_plane_y:    f32,
+    drag_offset_xz:  [2]f32,
+
+    initialized: bool,
 }
 ```
 
-`App.edit_view` holds the single `EditViewState`. The dynamic `objects` slice is cleaned up by `defer delete(app.edit_view.objects)` in `run_app`. The off-screen texture is cleaned up by `defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)`.
+`App.edit_view` holds the single `EditViewState`. `scene_mgr` is freed by `defer ed.free_scene_manager(app.edit_view.scene_mgr)` in `run_app`. The off-screen texture is freed by `defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)`. `export_scratch` is freed by `defer delete(app.edit_view.export_scratch)`.
 
 ### Layout
 
 ```
-┌──────────────────────────────────────────┐
-│  Title bar (panel chrome)                │
-├──────────────────────────────────────────┤
-│  Toolbar (32px)  [Add Sphere] [Delete] [Render] │
-├──────────────────────────────────────────┤
-│                                          │
-│  3D viewport (off-screen RenderTexture)  │
-│  • orbit camera (right-drag)             │
-│  • scroll zoom                           │
-│  • left-click picks spheres              │
-│                                          │
-├──────────────────────────────────────────┤
-│  Properties strip (70px)                 │
-│  selected sphere: pos / radius / mat     │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Title bar (panel chrome)                            │
+├──────────────────────────────────────────────────────┤
+│  Toolbar (32px)  [Add Sphere] [Delete]  [From view] [Render] │
+├──────────────────────────────────────────────────────┤
+│                                                      │
+│  3D viewport (off-screen RenderTexture)              │
+│  • orbit camera (right-drag)                         │
+│  • scroll zoom                                       │
+│  • left-click picks spheres or camera gizmo          │
+│  • left-drag moves selected sphere on XZ plane       │
+│                                                      │
+├──────────────────────────────────────────────────────┤
+│  Properties strip (90px)                             │
+│  selected sphere: X/Y/Z drag-float + R + material    │
+└──────────────────────────────────────────────────────┘
 ```
 
 ### Key procs
 
 | Proc | Role |
 |---|---|
-| `init_edit_view(ev)` | Seeds orbit params, adds 3 default spheres (red, blue, green), calls `update_orbit_camera`. |
+| `init_edit_view(ev)` | Seeds orbit params, creates `SceneManager`, adds 3 default spheres (red, metallic-blue, green), calls `update_orbit_camera`. |
 | `update_orbit_camera(ev)` | Clamps pitch/distance; computes spherical-to-Cartesian position; writes `ev.cam3d`. |
-| `draw_viewport_3d(ev, vp_rect)` | Reallocates `viewport_tex` on resize; renders scene + grid to off-screen texture; draws to panel with Y-flip (`src.height = -tex_h`). |
-| `compute_viewport_ray(ev, mouse, vp_rect) -> (rl.Ray, bool)` | Perspective ray from mouse position using camera basis vectors + `fovy`. Returns `false` outside viewport. |
-| `pick_sphere(ev, ray) -> int` | `rl.GetRayCollisionSphere` loop; returns closest hit index or `-1`. |
-| `draw_edit_properties(ev, rect)` | Shows pos/radius/material of selected sphere, or "No object selected". |
-| `build_world_from_edit_view(ev) -> [dynamic]rt.Object` | Converts `EditSphere` list to raytrace `Object` slice. Prepends a grey ground sphere at `{0, -1000, 0}`. Caller owns the result. |
+| `draw_viewport_3d(app, vp_rect, objs)` | Reallocates `viewport_tex` on resize; renders scene + grid + camera gizmo to off-screen texture; draws to panel with Y-flip (`src.height = -tex_h`). |
+| `draw_edit_properties(app, rect, mouse, objs)` | Shows X/Y/Z/R drag-float fields + material name for selected sphere, or hint text if nothing selected. |
+| `get_orbit_camera_pose(ev) -> (lookfrom, lookat)` | Returns current orbit position as path-tracer camera coordinates (used by "From View" button). |
+
+**Picking** is done in `ui/editor/core.odin`: `ed.compute_viewport_ray` + `ed.PickSphereInManager` for spheres, `ed.pick_camera` for the camera gizmo.
 
 ### Scene integration
 
 Clicking **Render** in the toolbar (when `app.finished`) calls:
 ```odin
-app_restart_render(app, build_world_from_edit_view(ev))
+ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+app_restart_render_with_scene(app, ev.export_scratch[:])
 ```
-This replaces `app.world`, calls `rt.free_session` on the old session, and starts a new `rt.start_render`. The Render Preview panel then shows the new render as tiles complete.
+This builds a raytrace world from the scene spheres, applies `app.camera_params`, and starts a new render. The Render Preview panel shows the new render as tiles complete.
+
+Clicking **From View** copies the orbit camera pose into `app.camera_params` so the next Render uses the current viewport angle.
 
 ### Keyboard controls (when Edit View panel is focused with a sphere selected)
 
@@ -510,7 +729,7 @@ rl.BeginTextureMode(ev.viewport_tex)
     rl.ClearBackground(...)
     rl.BeginMode3D(ev.cam3d)
         rl.DrawGrid(...)
-        // draw spheres ...
+        // draw spheres, camera gizmo...
     rl.EndMode3D()
 rl.EndTextureMode()
 
@@ -534,10 +753,7 @@ Stateless draw+update pairs for: `button`, `toggle`, `slider`, `text_field`, `dr
 `FloatingPanel` with `draw_options_content`. Uses widget library for inputs. Persists via `util.save_config`. Triggered by a menu bar button or keyboard shortcut.
 
 ### Tool System (`ui/tools.odin`)
-`ActiveTool :: enum { None, Select, Pan, Inspect, ... }` stored on `App`. Each tool has `update_<tool>_tool(app, mouse, ...)` and optionally `draw_<tool>_overlay(app)`. The active tool's update runs in event loop step 5; its overlay is pushed in step 8. `screen_to_render_ray` is the picking primitive for all geometry-aware tools.
+`ActiveTool :: enum { None, Select, Pan, Inspect, ... }` stored on `App`. Each tool has `update_<tool>_tool(app, mouse, ...)` and optionally `draw_<tool>_overlay(app)`. The active tool's update runs in event loop step 6; its overlay is pushed during draw. `screen_to_render_ray` is the picking primitive for all geometry-aware tools.
 
 ### Command Terminal (`ui/terminal_panel.odin`)
 `FloatingPanel` toggled by a keyboard shortcut. `draw_terminal_content` renders a command input line + scrollable output using the widget text field. Input dispatches to a command registry (`map[string]proc(app: ^App, args: []string)`). Output via `app_push_log` or a dedicated terminal ring. Set both `draw_content` and `update_content` (Strategy pattern).
-
-### Menu Bar
-A fixed strip at the top of the window (not a `FloatingPanel`). Renders menu titles (File, Edit, View, Render, …); clicking a title pushes a `DropdownOverlay` with that menu's items. Implemented as a single `draw_menu_bar(app, rect)` + `update_menu_bar(app, rect, mouse, ...)` pair, not as a panel.

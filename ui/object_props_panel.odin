@@ -2,6 +2,7 @@ package ui
 
 import "core:fmt"
 import rl "vendor:raylib"
+import ed "RT_Weekend:ui/editor"
 import "RT_Weekend:scene"
 
 // Layout constants for the Object Properties panel.
@@ -204,8 +205,9 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	}
 
 	// Sphere selected
-	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.objects) { return }
-	s  := ev.objects[ev.selected_idx]   // value copy — read only
+	if ev.selected_idx < 0 || ev.selected_idx >= ed.SceneManagerLen(ev.scene_mgr) { return }
+	s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	if !ok { return }
 	lo := op_compute_layout(content, s.material_kind)
 
 	// TRANSFORM 
@@ -307,14 +309,17 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	}
 
 	// ── Sphere selected
-	if ev.selected_idx < 0 || ev.selected_idx >= len(ev.objects) {
+	if ev.selected_idx < 0 || ev.selected_idx >= ed.SceneManagerLen(ev.scene_mgr) {
 		if st.prop_drag_idx >= 0 {
 			st.prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
 		}
 		return
 	}
-	s := &ev.objects[ev.selected_idx]
+	// read-modify-write via scene manager so different object types can be supported
+	s2, ok2 := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	if !ok2 { return }
+	s := s2
 
 	// ── Priority 1: active drag 
 	if st.prop_drag_idx >= 0 {
@@ -339,6 +344,8 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				}
 			}
 			rl.SetMouseCursor(.RESIZE_EW)
+			// persist changes back to the scene manager
+			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 		}
 		return
 	}
@@ -349,16 +356,22 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[0]) {
 			s.material_kind = .Lambertian
+			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[1]) {
 			if s.material_kind != .Metallic && s.fuzz <= 0 { s.fuzz = 0.1 }
 			s.material_kind = .Metallic
+			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[2]) {
 			s.material_kind = .Dielectric
 			if s.ref_idx < 1.0 { s.ref_idx = 1.5 }
+			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 	}

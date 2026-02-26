@@ -43,6 +43,7 @@ main :: proc() {
 
     // Load config file if -config path given; override width/height/samples only when present and positive
     initial_editor: ^util.EditorLayout = nil
+    initial_presets: []util.LayoutPreset = nil
     if len(args.ConfigPath) > 0 {
         if loaded, ok := util.load_config(args.ConfigPath); ok {
             if loaded.width > 0 {
@@ -56,6 +57,9 @@ main :: proc() {
             }
             if loaded.editor != nil {
                 initial_editor = loaded.editor
+            }
+            if loaded.presets != nil {
+                initial_presets = loaded.presets
             }
         } else {
             fmt.fprintf(os.stderr, "Failed to load config: %s\n", args.ConfigPath)
@@ -92,9 +96,12 @@ main :: proc() {
         }
     }
 
-    ui.run_app(camera, world, thread_count, args.UseGPU, initial_editor, args.SaveConfigPath)
+    ui.run_app(camera, world, thread_count, args.UseGPU, initial_editor, args.SaveConfigPath, initial_presets)
     if initial_editor != nil {
         delete(initial_editor.panels)
         free(initial_editor)
+    }
+    if initial_presets != nil {
+        delete(initial_presets)
     }
 }

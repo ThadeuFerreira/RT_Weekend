@@ -6,6 +6,7 @@ import "core:os"
 import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
+import ed "RT_Weekend:ui/editor"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:scene"
 import "RT_Weekend:util"
@@ -170,6 +171,24 @@ App :: struct {
     ui_font:       rl.Font,
     ui_font_shader: rl.Shader,
     use_sdf_font:   bool,
+
+    // Input consumption: reset each frame, set by menu bar/modal first, prevents click bleed
+    input_consumed: bool,
+
+    // Set true by File → Exit to signal the main loop to terminate.
+    should_exit: bool,
+
+    // Command registry: registered once on startup
+    commands: CommandRegistry,
+
+    // File modal (shared for Import, Save As, Preset Name)
+    file_modal: FileModalState,
+
+    // Current scene file path (empty until a file has been imported or saved-as)
+    current_scene_path: string,
+
+    // Named layout presets (built-ins + user-saved)
+    layout_presets: [dynamic]util.LayoutPreset,
 }
 
 g_app: ^App = nil
@@ -280,6 +299,7 @@ run_app :: proc(
     use_gpu: bool = false,
     initial_editor_layout: ^util.EditorLayout = nil,
     config_save_path: string = "",
+    initial_presets: []util.LayoutPreset = nil,
 ) {
     WIN_W :: i32(1280)
     WIN_H :: i32(1280)
@@ -329,22 +349,42 @@ run_app :: proc(
     app.camera      = camera
     app.num_threads = num_threads
     app.menu_bar    = MenuBarState{open_menu_index = -1}
+    app.layout_presets = make([dynamic]util.LayoutPreset)
+    defer {
+        for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
+        delete(app.layout_presets)
+    }
+    defer { if len(app.current_scene_path) > 0 { delete(app.current_scene_path) } }
+    register_all_commands(&app)
+    // Load persisted presets (cloned so app owns them)
+    for p in initial_presets {
+        import_preset := util.LayoutPreset{
+            name   = strings.clone(p.name),
+            layout = util.EditorLayout{panels = make(map[string]util.PanelState)},
+        }
+        for k, v in p.layout.panels {
+            import_preset.layout.panels[strings.clone(k)] = v
+        }
+        append(&app.layout_presets, import_preset)
+    }
     rt.copy_camera_to_scene_params(&app.camera_params, camera)
     init_edit_view(&app.edit_view)
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
     if len(world) > 0 {
         converted := rt.convert_world_to_edit_spheres(world)
-        delete(app.edit_view.objects)
-        app.edit_view.objects = converted
+        ed.LoadFromSceneSpheres(app.edit_view.scene_mgr, converted[:])
+        delete(converted)
     }
     delete(world) // edit view is now the source of truth; free the raw rt.Object array
     // Build the startup world from the edit view (always).
-    app.world = rt.build_world_from_scene(app.edit_view.objects[:])
+    ed.ExportToSceneSpheres(app.edit_view.scene_mgr, &app.edit_view.export_scratch)
+    app.world = rt.build_world_from_scene(app.edit_view.export_scratch[:])
     app.object_props = ObjectPropsPanelState{prop_drag_idx = -1}
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
-    defer delete(app.edit_view.objects)
+    defer delete(app.edit_view.export_scratch)
+    defer ed.free_scene_manager(app.edit_view.scene_mgr)
     defer { rt.free_session(app.session) }
     defer delete(app.world)
     defer {
@@ -469,7 +509,7 @@ run_app :: proc(
 
     frame := 0
 
-    for !rl.WindowShouldClose() {
+    for !rl.WindowShouldClose() && !app.should_exit {
         frame += 1
 
         app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
@@ -478,31 +518,32 @@ run_app :: proc(
         lmb         := rl.IsMouseButtonDown(.LEFT)
         lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
 
+        // ── Input phase (priority order) ──────────────────────────────────
+        app.input_consumed = false
+
+        // Priority 1: menu bar
         menu_bar_update(&app, &app.menu_bar, mouse, lmb_pressed)
 
-        if rl.IsKeyPressed(.L) {
-            if log := app_find_panel(&app, PANEL_ID_LOG); log != nil {
-                log.visible = true
+        // Priority 2: file modal (blocks all other input when active)
+        file_modal_update(&app)
+
+        // Priority 3: keyboard shortcuts (only when not consumed by menu/modal)
+        if !app.input_consumed {
+            if rl.IsKeyPressed(.F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
+            if rl.IsKeyPressed(.L) {
+                if log := app_find_panel(&app, PANEL_ID_LOG); log != nil { log.visible = true }
             }
-        }
-        if rl.IsKeyPressed(.S) {
-            if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil {
-                si.visible = true
+            if rl.IsKeyPressed(.S) {
+                if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil { si.visible = true }
             }
-        }
-        if rl.IsKeyPressed(.E) {
-            if ev := app_find_panel(&app, PANEL_ID_EDIT_VIEW); ev != nil {
-                ev.visible = true
+            if rl.IsKeyPressed(.E) {
+                if ev := app_find_panel(&app, PANEL_ID_EDIT_VIEW); ev != nil { ev.visible = true }
             }
-        }
-        if rl.IsKeyPressed(.C) {
-            if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil {
-                cam.visible = true
+            if rl.IsKeyPressed(.C) {
+                if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil { cam.visible = true }
             }
-        }
-        if rl.IsKeyPressed(.O) {
-            if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil {
-                op.visible = true
+            if rl.IsKeyPressed(.O) {
+                if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil { op.visible = true }
             }
         }
 
@@ -514,6 +555,7 @@ run_app :: proc(
             }
         }
 
+        // ── Render texture upload ─────────────────────────────────────────
         if frame % 4 == 0 {
             if app.session.use_gpu {
                 // Only readback while the backend is alive (nil after finish_render).
@@ -542,11 +584,15 @@ run_app :: proc(
             app_push_log(&app, fmt.aprintf("Done! (%.2fs)", app.elapsed_secs))
         }
 
+        // ── Draw phase ────────────────────────────────────────────────────
         rl.BeginDrawing()
         rl.ClearBackground(rl.Color{20, 20, 30, 255})
 
-        layout_update_and_draw(&app, &app.dock_layout, mouse, lmb, lmb_pressed)
+        // Pass effective lmb_pressed (blocked when modal or menu consumed input)
+        effective_lmb_pressed := lmb_pressed && !app.input_consumed
+        layout_update_and_draw(&app, &app.dock_layout, mouse, lmb, effective_lmb_pressed)
         menu_bar_draw(&app, &app.menu_bar)
+        file_modal_draw(&app)
 
         rl.EndDrawing()
 
@@ -565,6 +611,10 @@ run_app :: proc(
             samples_per_pixel = camera.samples_per_pixel,
         }
         config.editor = build_editor_layout_from_app(&app)
+        // Snapshot user presets for saving
+        if len(app.layout_presets) > 0 {
+            config.presets = app.layout_presets[:]
+        }
         if !util.save_config(config_save_path, config) {
             fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
         }

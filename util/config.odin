@@ -25,12 +25,19 @@ EditorLayout :: struct {
 	panels: map[string]PanelState,
 }
 
+// LayoutPreset is a named snapshot of an editor layout (panel visibility/rects).
+LayoutPreset :: struct {
+	name:   string,
+	layout: EditorLayout,
+}
+
 // RenderConfig is the full config file: render settings and optional editor layout.
 RenderConfig :: struct {
-	width:             int           `json:"width,omitempty"`,
-	height:            int           `json:"height,omitempty"`,
-	samples_per_pixel: int           `json:"samples_per_pixel,omitempty"`,
-	editor:            ^EditorLayout `json:"editor,omitempty"`,
+	width:             int             `json:"width,omitempty"`,
+	height:            int             `json:"height,omitempty"`,
+	samples_per_pixel: int             `json:"samples_per_pixel,omitempty"`,
+	editor:            ^EditorLayout   `json:"editor,omitempty"`,
+	presets:           []LayoutPreset  `json:"presets,omitempty"`,
 }
 
 // load_config reads a config file and returns the parsed config. Returns false on error or missing file.
