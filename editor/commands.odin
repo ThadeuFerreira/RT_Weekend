@@ -1,4 +1,4 @@
-package ui
+package editor
 
 // CommandID constants — string keys so future plugins can add commands without recompiling.
 CMD_FILE_NEW         :: "file.new"

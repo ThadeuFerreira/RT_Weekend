@@ -1,4 +1,4 @@
-package ui
+package editor
 
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
