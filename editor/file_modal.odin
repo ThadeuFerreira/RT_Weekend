@@ -1,9 +1,9 @@
-package ui
+package editor
 
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
-import ed "RT_Weekend:ui/editor"
+import "RT_Weekend:interfaces"
 import rt "RT_Weekend:raytrace"
 
 FILE_MODAL_MAX_INPUT :: 512
@@ -112,7 +112,7 @@ file_modal_confirm :: proc(app: ^App) {
     switch modal.mode {
     case .Import:
         if len(text) == 0 { delete(text); return }
-        cam, world, ok := rt.load_scene(text, app.camera.image_width, app.camera.image_height, app.camera.samples_per_pixel)
+        cam, world, ok := interfaces.load_scene(text, app.camera.image_width, app.camera.image_height, app.camera.samples_per_pixel)
         if !ok {
             app_push_log(app, fmt.aprintf("Import failed: %s", text))
             delete(text)
@@ -122,7 +122,7 @@ file_modal_confirm :: proc(app: ^App) {
         rt.copy_camera_to_scene_params(&app.camera_params, cam)
         // Load converted spheres into scene manager
         converted := rt.convert_world_to_edit_spheres(world)
-        ed.LoadFromSceneSpheres(ev.scene_mgr, converted[:])
+LoadFromSceneSpheres(ev.scene_mgr, converted[:])
         delete(converted)
         ev.selection_kind = .None
         ev.selected_idx   = -1
@@ -138,7 +138,7 @@ file_modal_confirm :: proc(app: ^App) {
         }
         rt.free_session(app.session)
         app.session = nil
-        ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
         delete(app.world)
         app.world = rt.build_world_from_scene(ev.export_scratch[:])
         app.finished     = false
@@ -146,7 +146,7 @@ file_modal_confirm :: proc(app: ^App) {
         rt.apply_scene_camera(app.camera, &app.camera_params)
         rt.init_camera(app.camera)
         app.session = rt.start_render(app.camera, app.world, app.num_threads)
-        app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", text, ed.SceneManagerLen(ev.scene_mgr)))
+        app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", text, SceneManagerLen(ev.scene_mgr)))
 
         // Free the camera returned by load_scene (values already copied into app.camera + params)
         free(cam)
@@ -154,11 +154,11 @@ file_modal_confirm :: proc(app: ^App) {
 
     case .SaveAs:
         if len(text) == 0 { delete(text); return }
-        ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
         world := rt.build_world_from_scene(ev.export_scratch[:])
         defer delete(world)
         rt.apply_scene_camera(app.camera, &app.camera_params)
-        if rt.save_scene(text, app.camera, world) {
+        if interfaces.save_scene(text, app.camera, world) {
             delete(app.current_scene_path)
             app.current_scene_path = text
             app_push_log(app, fmt.aprintf("Saved as: %s", text))

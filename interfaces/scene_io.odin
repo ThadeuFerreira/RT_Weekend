@@ -1,8 +1,9 @@
-package raytrace
+package interfaces
 
 import "core:encoding/json"
 import "core:fmt"
 import "core:os"
+import rt "RT_Weekend:raytrace"
 
 // Intermediate types for JSON (avoid union unmarshaling).
 
@@ -31,7 +32,7 @@ SceneObject :: struct {
 }
 
 SceneFile :: struct {
-	camera:  SceneCamera        `json:"camera"`,
+	camera:  SceneCamera         `json:"camera"`,
 	objects: [dynamic]SceneObject `json:"objects"`,
 }
 
@@ -42,7 +43,7 @@ load_scene :: proc(
 	image_width: int,
 	image_height: int,
 	samples_per_pixel: int,
-) -> (^Camera, [dynamic]Object, bool) {
+) -> (^rt.Camera, [dynamic]rt.Object, bool) {
 	data, read_ok := os.read_entire_file(path)
 	if !read_ok {
 		fmt.fprintf(os.stderr, "Scene file not found or unreadable: %s\n", path)
@@ -57,7 +58,7 @@ load_scene :: proc(
 		return nil, nil, false
 	}
 
-	cam := make_camera(image_width, image_height, samples_per_pixel)
+	cam := rt.make_camera(image_width, image_height, samples_per_pixel)
 	// Default camera pose if scene file has zero or missing camera (edge case)
 	zero_vec := [3]f32{0, 0, 0}
 	use_default_camera := scene.camera.lookfrom == zero_vec && scene.camera.lookat == zero_vec
@@ -82,21 +83,21 @@ load_scene :: proc(
 	if scene.camera.max_depth > 0 {
 		cam.max_depth = scene.camera.max_depth
 	}
-	init_camera(cam)
+	rt.init_camera(cam)
 
 	cap_val := 0
 	if scene.objects != nil {
 		cap_val = len(scene.objects)
 	}
-	world := make([dynamic]Object, 0, cap_val)
+	world := make([dynamic]rt.Object, 0, cap_val)
 	if scene.objects != nil {
 		for &obj in scene.objects {
 			mat := scene_material_to_material(&obj.material)
 			switch obj.object_type {
 			case "sphere":
-				append(&world, Sphere{center = obj.center, radius = obj.radius, material = mat})
+				append(&world, rt.Sphere{center = obj.center, radius = obj.radius, material = mat})
 			case "cube":
-				append(&world, Cube{center = obj.center, radius = obj.radius, material = mat})
+				append(&world, rt.Cube{center = obj.center, radius = obj.radius, material = mat})
 			case:
 				fmt.fprintf(os.stderr, "Unknown object type: %s\n", obj.object_type)
 			}
@@ -107,21 +108,21 @@ load_scene :: proc(
 	return cam, world, true
 }
 
-scene_material_to_material :: proc(s: ^SceneMaterial) -> material {
+scene_material_to_material :: proc(s: ^SceneMaterial) -> rt.material {
 	switch s.material_type {
 	case "lambertian":
-		return material(lambertian{albedo = s.albedo})
+		return rt.material(rt.lambertian{albedo = s.albedo})
 	case "metal":
-		return material(metallic{albedo = s.albedo, fuzz = s.fuzz})
+		return rt.material(rt.metallic{albedo = s.albedo, fuzz = s.fuzz})
 	case "dielectric":
-		return material(dielectric{ref_idx = s.ref_idx})
+		return rt.material(rt.dielectric{ref_idx = s.ref_idx})
 	case:
-		return material(lambertian{albedo = [3]f32{0.5, 0.5, 0.5}})
+		return rt.material(rt.lambertian{albedo = [3]f32{0.5, 0.5, 0.5}})
 	}
 }
 
 // save_scene writes the current camera (pose/view) and world to a JSON scene file.
-save_scene :: proc(path: string, camera: ^Camera, world: [dynamic]Object) -> bool {
+save_scene :: proc(path: string, camera: ^rt.Camera, world: [dynamic]rt.Object) -> bool {
 	if camera == nil {
 		return false
 	}
@@ -142,14 +143,14 @@ save_scene :: proc(path: string, camera: ^Camera, world: [dynamic]Object) -> boo
 
 	for obj in world {
 		switch o in obj {
-		case Sphere:
+		case rt.Sphere:
 			append(&scene.objects, SceneObject{
 				object_type = "sphere",
 				center      = o.center,
 				radius      = o.radius,
 				material    = material_to_scene_material(o.material),
 			})
-		case Cube:
+		case rt.Cube:
 			append(&scene.objects, SceneObject{
 				object_type = "cube",
 				center      = o.center,
@@ -176,13 +177,13 @@ save_scene :: proc(path: string, camera: ^Camera, world: [dynamic]Object) -> boo
 	return true
 }
 
-material_to_scene_material :: proc(m: material) -> SceneMaterial {
+material_to_scene_material :: proc(m: rt.material) -> SceneMaterial {
 	switch mat in m {
-	case lambertian:
+	case rt.lambertian:
 		return SceneMaterial{material_type = "lambertian", albedo = mat.albedo}
-	case metallic:
+	case rt.metallic:
 		return SceneMaterial{material_type = "metal", albedo = mat.albedo, fuzz = mat.fuzz}
-	case dielectric:
+	case rt.dielectric:
 		return SceneMaterial{material_type = "dielectric", ref_idx = mat.ref_idx}
 	case:
 		return SceneMaterial{material_type = "lambertian", albedo = [3]f32{0.5, 0.5, 0.5}}

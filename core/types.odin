@@ -1,4 +1,4 @@
-package scene
+package core
 
 // MaterialKind is the shared material type used by the edit view (Raylib) and the path tracer.
 // Both sides use this enum so no package needs to depend on the other's material representation.
