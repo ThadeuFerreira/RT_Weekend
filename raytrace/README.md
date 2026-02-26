@@ -250,25 +250,44 @@ the final colour.
 ui.run_app (use_gpu=true)
   └─ rt.start_render_auto
        ├─ build_bvh + flatten_bvh      — BVH built once on CPU
-       └─ gpu_backend_init              — compile shader, upload buffers
-            ├─ UBO  binding=0 : GPUCameraUniforms  (camera parameters)
-            ├─ SSBO binding=1 : [count][GPUSphere…] (sphere data)
-            ├─ SSBO binding=2 : [count][LinearBVHNode…] (flat BVH)
-            └─ SSBO binding=3 : [vec4…] (output accumulation, zeroed)
+       └─ create_gpu_renderer           — platform-aware factory (gpu_renderer.odin)
+            └─ OPENGL_RENDERER_API.init → gpu_backend_init (gpu_backend.odin)
+                 ├─ load GL procs (Linux: GLX, Windows: WGL, macOS: dlsym)
+                 ├─ check gl.DispatchCompute != nil (macOS 4.1 → nil → CPU fallback)
+                 ├─ compile raytrace.comp
+                 ├─ UBO  binding=0 : GPUCameraUniforms  (camera parameters)
+                 ├─ SSBO binding=1 : [count][GPUSphere…] (sphere data)
+                 ├─ SSBO binding=2 : [count][LinearBVHNode…] (flat BVH)
+                 └─ SSBO binding=3 : [vec4…] (output accumulation, zeroed)
 
-each frame:
-  gpu_backend_dispatch → DispatchCompute(W/8, H/8, 1)
+each frame (via GpuRenderer vtable):
+  gpu_renderer_dispatch → gpu_backend_dispatch → DispatchCompute(W/8, H/8, 1)
     └─ raytrace.comp (one invocation per pixel)
          └─ path_trace(primary_ray, seed)
               └─ accumulate colour into pixels[idx]
 
 every 4 frames:
-  gpu_backend_readback
+  gpu_renderer_readback → gpu_backend_readback
     ├─ GetBufferSubData → read vec4 per pixel
     ├─ divide by current_sample
     ├─ sqrt gamma correction
     └─ write [][4]u8 → UpdateTexture
 ```
+
+### 4.1.1 Platform Behavior
+
+| OS | GL proc loader | OpenGL version | GPU path |
+|----|---------------|----------------|----------|
+| Linux | `glXGetProcAddressARB` (libGL) | 4.3+ available | ✓ |
+| Windows | `wglGetProcAddress` + `opengl32.dll` fallback | 4.3+ available | ✓ |
+| macOS | `dlsym` (OpenGL.framework) | Capped at 4.1 — `gl.DispatchCompute == nil` | CPU fallback |
+
+The `OPENGL_RENDERER_API` constant in `gpu_backend.odin` wraps the four backend procs
+(`init`, `dispatch`, `readback`, `destroy`, `get_samples`) as `_ogl_*` private procs and
+registers them into a `GpuRendererApi` vtable.  `create_gpu_renderer` in `gpu_renderer.odin`
+is the platform-aware factory that selects among available backends and allocates a
+`GpuRenderer`.  Future backends (Metal, DirectX 12, Vulkan) only need to implement the
+same five vtable procs.
 
 ### 4.2 Progressive Accumulation
 
@@ -371,7 +390,7 @@ GPU struct sizes (must match GLSL definitions exactly):
 | **High sample count** (>50 spp) | Slower | Much faster |
 | **Complex geometry** | Any `Object` union type | Spheres only (Cube not yet uploaded) |
 | **Debuggability** | Printf, breakpoints | Driver-side only |
-| **Portability** | Any platform | Requires OpenGL 4.3+ |
+| **Portability** | Any platform | Linux/Windows: OpenGL 4.3+; macOS: CPU fallback (4.1 cap) |
 
 **Rule of thumb:** use the GPU path for iterative preview renders (many samples,
 interactive feedback) and the CPU path for quick test renders or when debugging material
@@ -396,7 +415,13 @@ raytrace/
 ├── gpu_types.odin      LinearBVHNode, GPUSphere, GPUCameraUniforms, GPUBackend,
 │                       MAT_* constants, scene_to_gpu_spheres
 ├── gpu_backend.odin    gpu_backend_init/dispatch/readback/destroy;
-│                       glXGetProcAddressARB GL loader (Linux)
+│                       cross-platform GL loaders (Linux GLX, Windows WGL, macOS dlsym);
+│                       GL 4.3 DispatchCompute capability check;
+│                       OPENGL_RENDERER_API vtable constant + _ogl_* wrapper procs
+├── gpu_renderer.odin   GpuRendererApi vtable struct, GpuRenderer, helper procs
+│                       (gpu_renderer_dispatch/readback/destroy/get_samples/done);
+│                       create_gpu_renderer platform factory (OpenGL today;
+│                       Metal/DX12/Vulkan stubs for future backends)
 ├── raytrace.odin       setup_scene (default scene), write_buffer_to_ppm
 ├── scene_build.odin    build_world_from_scene (converts scene spheres to Objects)
 ├── scene_io.odin       load_scene / save_scene (JSON)

@@ -46,6 +46,51 @@ when ODIN_OS == .Linux {
     }
 }
 
+when ODIN_OS == .Windows {
+    foreign import opengl32 "system:opengl32.lib"
+    foreign import kernel32 "system:kernel32.lib"
+    @(default_calling_convention = "c")
+    foreign opengl32 { wglGetProcAddress :: proc(name: cstring) -> rawptr --- }
+    @(default_calling_convention = "c")
+    foreign kernel32 {
+        LoadLibraryA   :: proc(name: cstring) -> rawptr ---
+        GetProcAddress :: proc(module: rawptr, name: cstring) -> rawptr ---
+    }
+    @(private) _gl32_module: rawptr
+    _set_gl_proc_address :: proc(p: rawptr, name: cstring) {
+        fn := wglGetProcAddress(name)
+        if fn == nil {
+            if _gl32_module == nil { _gl32_module = LoadLibraryA("opengl32.dll") }
+            fn = GetProcAddress(_gl32_module, name)
+        }
+        (^rawptr)(p)^ = fn
+    }
+}
+
+when ODIN_OS == .Darwin {
+    // macOS ships OpenGL.framework but caps at version 4.1 (no compute shaders).
+    // The loader below compiles and runs; gpu_backend_init will detect the 4.1 cap
+    // via the gl.DispatchCompute == nil check and return false → CPU fallback.
+    foreign import libdl "system:dl"
+    @(default_calling_convention = "c")
+    foreign libdl {
+        dlopen :: proc(filename: cstring, flags: i32) -> rawptr ---
+        dlsym  :: proc(handle: rawptr, symbol: cstring) -> rawptr ---
+    }
+    RTLD_LAZY   :: i32(0x1)
+    RTLD_GLOBAL :: i32(0x8)
+    @(private) _ogl_handle: rawptr
+    _set_gl_proc_address :: proc(p: rawptr, name: cstring) {
+        if _ogl_handle == nil {
+            _ogl_handle = dlopen(
+                "/System/Library/Frameworks/OpenGL.framework/OpenGL",
+                RTLD_LAZY | RTLD_GLOBAL,
+            )
+        }
+        (^rawptr)(p)^ = dlsym(_ogl_handle, name)
+    }
+}
+
 // ── Internal helper ──────────────────────────────────────────────────────────
 
 // _camera_to_gpu_uniforms converts Camera fields to the flat GPUCameraUniforms
@@ -85,8 +130,18 @@ gpu_backend_init :: proc(
 
     // Load all OpenGL 4.6 function pointers.  Safe to call multiple times;
     // subsequent calls are fast no-ops because pointers are already set.
-    when ODIN_OS == .Linux {
+    when ODIN_OS == .Linux || ODIN_OS == .Windows || ODIN_OS == .Darwin {
         gl.load_up_to(4, 6, _set_gl_proc_address)
+    } else {
+        fmt.println("[GPU] OpenGL not supported on this platform")
+        return nil, false
+    }
+
+    // Verify compute shader support (OpenGL 4.3+).
+    // On macOS the cap is 4.1 so DispatchCompute will be nil → graceful fallback.
+    if gl.DispatchCompute == nil {
+        fmt.println("[GPU] OpenGL 4.3 compute shaders not available on this platform/driver")
+        return nil, false
     }
 
     // Compile and link the compute shader from disk.
@@ -261,4 +316,27 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
     gl.DeleteBuffers(1, &b.ssbo_bvh)
     gl.DeleteBuffers(1, &b.ssbo_output)
     free(b)
+}
+
+// ── OpenGL backend vtable registration ───────────────────────────────────────
+
+@(private)
+_ogl_init :: proc(cam: ^Camera, world: []Object, bvh: []LinearBVHNode, total: int) -> (rawptr, bool) {
+    b, ok := gpu_backend_init(cam, world, bvh, total)
+    return b, ok
+}
+@(private) _ogl_dispatch    :: proc(s: rawptr) { gpu_backend_dispatch((^GPUBackend)(s)) }
+@(private) _ogl_readback    :: proc(s: rawptr, out: [][4]u8) { gpu_backend_readback((^GPUBackend)(s), out) }
+@(private) _ogl_destroy     :: proc(s: rawptr) { gpu_backend_destroy((^GPUBackend)(s)) }
+@(private) _ogl_get_samples :: proc(s: rawptr) -> (int, int) {
+    b := (^GPUBackend)(s)
+    return b.current_sample, b.total_samples
+}
+
+OPENGL_RENDERER_API :: GpuRendererApi{
+    init        = _ogl_init,
+    dispatch    = _ogl_dispatch,
+    readback    = _ogl_readback,
+    destroy     = _ogl_destroy,
+    get_samples = _ogl_get_samples,
 }
