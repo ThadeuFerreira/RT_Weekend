@@ -145,7 +145,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
         app.elapsed_secs = 0
         rt.apply_scene_camera(app.camera, &app.camera_params)
         rt.init_camera(app.camera)
-        app.session = rt.start_render(app.camera, app.world, app.num_threads)
+        app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
         app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", text, SceneManagerLen(ev.scene_mgr)))
 
         // Free the camera returned by load_scene (values already copied into app.camera + params)

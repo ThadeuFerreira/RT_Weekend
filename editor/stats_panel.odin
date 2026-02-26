@@ -5,11 +5,30 @@ import "core:sync"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 
+// Checkbox rect for "Use GPU (next render)" — draw the small box.
+_stats_gpu_checkbox_rect :: proc(content: rl.Rectangle) -> rl.Rectangle {
+    return rl.Rectangle{ content.x + 10, content.y + 6, 14, 14 }
+}
+// Full clickable row (checkbox + label) so the whole line toggles.
+_stats_gpu_row_rect :: proc(content: rl.Rectangle) -> rl.Rectangle {
+    return rl.Rectangle{ content.x + 10, content.y + 4, 120, 20 }
+}
+
 draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     x := i32(content.x) + 10
     y := i32(content.y) + 8
     line_h := i32(20)
     fs := i32(14)
+
+    // "Use GPU (next render)" toggle — always visible so user can change preference.
+    draw_ui_text(app, "Next render:", x, y, fs, CONTENT_TEXT_COLOR)
+    box := _stats_gpu_checkbox_rect(content)
+    rl.DrawRectangleLinesEx(box, 1, BORDER_COLOR)
+    if app.prefer_gpu {
+        rl.DrawRectangle(i32(box.x) + 2, i32(box.y) + 2, i32(box.width) - 4, i32(box.height) - 4, ACCENT_COLOR)
+    }
+    draw_ui_text(app, app.prefer_gpu ? cstring(" GPU") : cstring(" CPU"), i32(box.x + box.width + 4), y, fs, CONTENT_TEXT_COLOR)
+    y += line_h
 
     session := app.session
     if session == nil { return }
@@ -21,7 +40,7 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
         progress_color = DONE_COLOR
     }
 
-    // Render mode — GPU or CPU.
+    // Current session mode — GPU or CPU.
     mode := session.use_gpu ? cstring("GPU") : cstring("CPU")
     draw_ui_text(app, fmt.ctprintf("Mode:     %s", mode), x, y, fs, CONTENT_TEXT_COLOR)
     y += line_h
@@ -98,4 +117,13 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     fill_color := app.finished ? DONE_COLOR : ACCENT_COLOR
     rl.DrawRectangleRec(fill_rect, fill_color)
     rl.DrawRectangleLinesEx(bar_rect, 1, BORDER_COLOR)
+}
+
+update_stats_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
+    if !lmb_pressed { return }
+    row := _stats_gpu_row_rect(rect)
+    if rl.CheckCollisionPointRec(mouse, row) {
+        app.prefer_gpu = !app.prefer_gpu
+        if g_app != nil { g_app.input_consumed = true }
+    }
 }

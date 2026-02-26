@@ -110,7 +110,7 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, false)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
 
@@ -131,7 +131,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, false)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
 
@@ -149,6 +149,9 @@ App :: struct {
     camera:        ^rt.Camera,
     world:         [dynamic]rt.Object,
     camera_params: core.CameraParams, // shared camera definition; applied to camera before each render
+
+    // User's chosen render path (GPU vs CPU). Persists across scene changes and re-renders until toggled.
+    prefer_gpu:    bool,
 
     log_lines:     [LOG_RING_SIZE]string,
     log_count:     int,
@@ -348,6 +351,7 @@ run_app :: proc(
     }
     app.camera      = camera
     app.num_threads = num_threads
+    app.prefer_gpu  = use_gpu
     app.menu_bar    = MenuBarState{open_menu_index = -1}
     app.layout_presets = make([dynamic]persistence.LayoutPreset)
     defer {
@@ -401,12 +405,13 @@ run_app :: proc(
         draw_content = draw_render_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
-        id           = PANEL_ID_STATS,
-        title        = "Stats",
-        rect         = rl.Rectangle{840, 30, 430, 220},
-        min_size     = rl.Vector2{180, 140},
-        visible      = true,
-        draw_content = draw_stats_content,
+        id             = PANEL_ID_STATS,
+        title          = "Stats",
+        rect           = rl.Rectangle{840, 30, 430, 220},
+        min_size       = rl.Vector2{180, 140},
+        visible        = true,
+        draw_content   = draw_stats_content,
+        update_content = update_stats_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
         id                 = PANEL_ID_LOG,
@@ -499,7 +504,7 @@ run_app :: proc(
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session      = rt.start_render_auto(app.camera, app.world, app.num_threads, use_gpu)
+    app.session      = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
     app.render_start = time.now()
 
     // Log the actual render mode after start_render_auto decides CPU vs GPU.
