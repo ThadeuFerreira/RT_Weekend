@@ -110,7 +110,7 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, false)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.use_gpu)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
 
@@ -131,7 +131,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []scene.SceneSph
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, false)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.use_gpu)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
 
@@ -177,6 +177,9 @@ App :: struct {
 
     // Set true by File → Exit to signal the main loop to terminate.
     should_exit: bool,
+
+    // Mirrors the use_gpu flag passed to run_app; preserved across re-renders.
+    use_gpu: bool,
 
     // Command registry: registered once on startup
     commands: CommandRegistry,
@@ -348,6 +351,7 @@ run_app :: proc(
     }
     app.camera      = camera
     app.num_threads = num_threads
+    app.use_gpu     = use_gpu
     app.menu_bar    = MenuBarState{open_menu_index = -1}
     app.layout_presets = make([dynamic]util.LayoutPreset)
     defer {
