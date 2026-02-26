@@ -432,6 +432,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			ed.AppendDefaultSphere(ev.scene_mgr)
 			ev.selection_kind = .Sphere
 			ev.selected_idx   = ed.SceneManagerLen(ev.scene_mgr) - 1
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		// Delete only for sphere (camera is non-deletable)
@@ -445,6 +446,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			// Apply current app.camera_params to raytracer and start render
 			ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			app_restart_render_with_scene(app, ev.export_scratch[:])
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 	}

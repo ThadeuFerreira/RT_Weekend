@@ -357,18 +357,21 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[0]) {
 			s.material_kind = .Lambertian
 			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[1]) {
 			if s.material_kind != .Metallic && s.fuzz <= 0 { s.fuzz = 0.1 }
 			s.material_kind = .Metallic
 			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[2]) {
 			s.material_kind = .Dielectric
 			if s.ref_idx < 1.0 { s.ref_idx = 1.5 }
 			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 	}
