@@ -7,7 +7,7 @@
             "request": "launch",
             "preLaunchTask": "build-windows",
             "program": "${workspaceFolder}/build/debug.exe",
-            "args": [],
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -16,7 +16,57 @@
             "request": "launch",
             "preLaunchTask": "build-linux",
             "program": "${workspaceFolder}/build/debug",
-            "args": [],
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Linux) Large",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "1600", "-h", "900", "-s", "100", "-c", "8"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Linux, small)",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "160", "-h", "90", "-s", "2", "-n", "2", "-c", "2"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Linux) GPU",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-gpu"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Linux) Large GPU",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "1600", "-h", "900", "-s", "100", "-c", "8", "-gpu"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Linux, small) GPU",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "160", "-h", "90", "-s", "2", "-n", "2", "-c", "2", "-gpu"],
             "cwd": "${workspaceFolder}",
             "miDebuggerPath": "/usr/bin/gdb"
         }

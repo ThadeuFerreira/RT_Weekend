@@ -25,19 +25,39 @@
             "label": "build-windows",
             "type": "shell",
             "command": "odin",
-            "args": ["build", ".", "-debug", "-out:build/debug.exe"],
+            "args": ["build", ".", "-collection:RT_Weekend=.", "-debug", "-out:build/debug.exe"],
             "dependsOn": "mkdir-windows",
             "problemMatcher": [],
-            "group": "build"
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" }
         },
         {
             "label": "build-linux",
             "type": "shell",
             "command": "odin",
-            "args": ["build", ".", "-debug", "-out:build/debug"],
+            "args": ["build", ".", "-collection:RT_Weekend=.", "-debug", "-out:build/debug"],
             "dependsOn": "mkdir-linux",
             "problemMatcher": [],
-            "group": "build"
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" }
+        },
+        {
+            "label": "run-linux",
+            "type": "shell",
+            "command": "./build/debug",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
+            "dependsOn": "build-linux",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "run-windows",
+            "type": "shell",
+            "command": ".\\build\\debug.exe",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
+            "dependsOn": "build-windows",
+            "problemMatcher": [],
+            "group": "test"
         }
     ]
 }
