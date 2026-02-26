@@ -117,6 +117,7 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     fill_color := app.finished ? DONE_COLOR : ACCENT_COLOR
     rl.DrawRectangleRec(fill_rect, fill_color)
     rl.DrawRectangleLinesEx(bar_rect, 1, BORDER_COLOR)
+<<<<<<< improve-render-profiling-and-log-metrics-for-performance-analisys-and-breakdown
     y = bar_y + i32(bar_h) + line_h
 
     // Performance: per-step times when render is complete (CLI and UI share same summary).
@@ -142,6 +143,8 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
             }
         }
     }
+=======
+>>>>>>> main
 }
 
 update_stats_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
