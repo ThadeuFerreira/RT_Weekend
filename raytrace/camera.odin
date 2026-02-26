@@ -94,6 +94,7 @@ RenderSession :: struct {
     // GPU backend — nil when using the CPU path.
     gpu_backend:                 ^GPUBackend,
     use_gpu:                     bool,
+    last_profile:                RenderProfileSummary,
 }
 
 // Default camera
@@ -369,6 +370,13 @@ free_session :: proc(session: ^RenderSession) {
     free(session)
 }
 
+// get_render_profile returns the profile for the last completed render for this session.
+// Call after finish_render; returns nil if session is nil.
+get_render_profile :: proc(session: ^RenderSession) -> ^RenderProfileSummary {
+    if session == nil { return nil }
+    return &session.last_profile
+}
+
 get_render_progress :: proc(session: ^RenderSession) -> f32 {
     if session.use_gpu {
         b := session.gpu_backend
@@ -391,11 +399,8 @@ get_render_progress :: proc(session: ^RenderSession) -> f32 {
 // GPU path: no threads to join. Destroys the GPU backend and frees BVH memory.
 finish_render :: proc(session: ^RenderSession) {
     if session.use_gpu {
-<<<<<<< improve-render-profiling-and-log-metrics-for-performance-analisys-and-breakdown
         stop_timer(&session.timing.total)
-        aggregate_into_summary(&session.timing, nil, 0, get_last_render_profile())
-=======
->>>>>>> main
+        aggregate_into_summary(&session.timing, nil, 0, &session.last_profile)
         if session.gpu_backend != nil {
             gpu_backend_destroy(session.gpu_backend)
             session.gpu_backend = nil
@@ -493,7 +498,7 @@ finish_render :: proc(session: ^RenderSession) {
     )
 
     rendering_time := get_elapsed_seconds(session.timing.rendering)
-    aggregate_into_summary(&session.timing, &rendering_breakdown, rendering_time, get_last_render_profile())
+    aggregate_into_summary(&session.timing, &rendering_breakdown, rendering_time, &session.last_profile)
 
     print_rendering_breakdown(&rendering_breakdown, rendering_time)
 }

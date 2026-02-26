@@ -117,12 +117,11 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     fill_color := app.finished ? DONE_COLOR : ACCENT_COLOR
     rl.DrawRectangleRec(fill_rect, fill_color)
     rl.DrawRectangleLinesEx(bar_rect, 1, BORDER_COLOR)
-<<<<<<< improve-render-profiling-and-log-metrics-for-performance-analisys-and-breakdown
     y = bar_y + i32(bar_h) + line_h
 
     // Performance: per-step times when render is complete (CLI and UI share same summary).
     if app.finished {
-        profile := rt.get_last_render_profile()
+        profile := rt.get_render_profile(app.session)
         if profile != nil && profile.total_seconds > 0 {
             draw_ui_text(app, "Performance:", x, y, fs, CONTENT_TEXT_COLOR)
             y += line_h
@@ -143,8 +142,6 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
             }
         }
     }
-=======
->>>>>>> main
 }
 
 update_stats_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {

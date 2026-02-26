@@ -141,8 +141,6 @@ RenderProfileSummary :: struct {
     total_intersections:   i64,
 }
 
-last_render_profile: RenderProfileSummary
-
 start_parallel_timing :: proc() -> ParallelTimingBreakdown {
     total_timer := start_timer()
     return ParallelTimingBreakdown{total = total_timer}
@@ -304,10 +302,6 @@ print_rendering_breakdown :: proc(breakdown: ^RenderingBreakdown, total_renderin
         }
     }
     fmt.println(separator)
-}
-
-get_last_render_profile :: proc() -> ^RenderProfileSummary {
-    return &last_render_profile
 }
 
 aggregate_into_summary :: proc(
