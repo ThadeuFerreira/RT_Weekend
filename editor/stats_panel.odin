@@ -14,13 +14,6 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     session := app.session
     if session == nil { return }
 
-    completed  := int(sync.atomic_load(&session.work_queue.completed))
-    total      := session.work_queue.total_tiles
-    progress   := f32(0)
-    if total > 0 {
-        progress = f32(completed) / f32(total) * 100.0
-    }
-
     elapsed := app.elapsed_secs
 
     progress_color := CONTENT_TEXT_COLOR
@@ -28,10 +21,39 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
         progress_color = DONE_COLOR
     }
 
-    draw_ui_text(app,
-        fmt.ctprintf("Tiles:    %d / %d  (%.1f%%)", completed, total, progress),
-        x, y, fs, progress_color,
-    )
+    // Render mode — GPU or CPU.
+    mode := session.use_gpu ? cstring("GPU") : cstring("CPU")
+    draw_ui_text(app, fmt.ctprintf("Mode:     %s", mode), x, y, fs, CONTENT_TEXT_COLOR)
+    y += line_h
+
+    // Progress line: GPU shows sample count; CPU shows tile count.
+    progress_frac := f32(0)
+    if session.use_gpu {
+        b := session.gpu_backend
+        if b != nil && b.total_samples > 0 {
+            progress_frac = f32(b.current_sample) / f32(b.total_samples)
+        } else if app.finished {
+            progress_frac = 1.0
+        }
+        pct := progress_frac * 100.0
+        done := b != nil ? b.current_sample : 0
+        total := b != nil ? b.total_samples : 0
+        draw_ui_text(app,
+            fmt.ctprintf("Samples:  %d / %d  (%.1f%%)", done, total, pct),
+            x, y, fs, progress_color,
+        )
+    } else {
+        completed := int(sync.atomic_load(&session.work_queue.completed))
+        total     := session.work_queue.total_tiles
+        if total > 0 {
+            progress_frac = f32(completed) / f32(total)
+        }
+        pct := progress_frac * 100.0
+        draw_ui_text(app,
+            fmt.ctprintf("Tiles:    %d / %d  (%.1f%%)", completed, total, pct),
+            x, y, fs, progress_color,
+        )
+    }
     y += line_h
 
     draw_ui_text(app,
@@ -65,16 +87,15 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     draw_ui_text(app, status, x, y, fs, status_color)
     y += line_h
 
-    if total > 0 {
-        bar_y := y + 4
-        bar_w := content.width - 20
-        bar_h := f32(12)
-        bar_rect := rl.Rectangle{content.x + 10, f32(bar_y), bar_w, bar_h}
-        rl.DrawRectangleRec(bar_rect, rl.Color{60, 60, 80, 255})
-        fill_w := bar_w * (f32(completed) / f32(total))
-        fill_rect := rl.Rectangle{bar_rect.x, bar_rect.y, fill_w, bar_h}
-        fill_color := app.finished ? DONE_COLOR : ACCENT_COLOR
-        rl.DrawRectangleRec(fill_rect, fill_color)
-        rl.DrawRectangleLinesEx(bar_rect, 1, BORDER_COLOR)
-    }
+    // Progress bar (works for both GPU and CPU paths via progress_frac).
+    bar_y := y + 4
+    bar_w := content.width - 20
+    bar_h := f32(12)
+    bar_rect := rl.Rectangle{content.x + 10, f32(bar_y), bar_w, bar_h}
+    rl.DrawRectangleRec(bar_rect, rl.Color{60, 60, 80, 255})
+    fill_w := bar_w * progress_frac
+    fill_rect := rl.Rectangle{bar_rect.x, bar_rect.y, fill_w, bar_h}
+    fill_color := app.finished ? DONE_COLOR : ACCENT_COLOR
+    rl.DrawRectangleRec(fill_rect, fill_color)
+    rl.DrawRectangleLinesEx(bar_rect, 1, BORDER_COLOR)
 }

@@ -178,6 +178,82 @@ ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^util.Thr
     }
 }
 
+// ray_color_linear is the same as ray_color but prefers bvh_hit_linear
+// (iterative, cache-friendly) over the recursive bvh_hit when a flat
+// linear BVH is available.  Passing nil for linear_nodes falls back to
+// the recursive path so the two implementations remain comparable.
+ray_color_linear :: proc(
+    r:              ray,
+    depth:          int,
+    world:          [dynamic]Object,
+    rng:            ^util.ThreadRNG,
+    thread_breakdown: ^ThreadRenderingBreakdown = nil,
+    bvh_root:       ^BVHNode = nil,
+    linear_nodes:   []LinearBVHNode = nil,
+) -> [3]f32 {
+    if depth <= 0 { return [3]f32{0, 0, 0} }
+
+    ray_t := Interval{0.001, math.inf_f32(1.0)}
+    hr          := hit_record{}
+    hit_anything := false
+    closest      := ray_t.max
+
+    {
+        field_ptr := thread_breakdown != nil ? &thread_breakdown.intersection_time : nil
+        scope := PROFILE_SCOPE(field_ptr)
+        defer PROFILE_SCOPE_END(scope)
+
+        if linear_nodes != nil && len(linear_nodes) > 0 {
+            // Use the flat iterative BVH (Step 1 optimisation).
+            world_slice := world[:]
+            hr, hit_anything = bvh_hit_linear(linear_nodes, world_slice, r, ray_t)
+            if hit_anything { closest = hr.t }
+        } else if bvh_root != nil {
+            hit_anything = bvh_hit(bvh_root, r, ray_t, &hr, &closest)
+        } else {
+            for o in world {
+                if hit(r, ray_t, &hr, o, &closest) {
+                    hit_anything = true
+                }
+            }
+        }
+
+        if hit_anything && thread_breakdown != nil {
+            thread_breakdown.total_intersections += 1
+        }
+    }
+
+    if hit_anything {
+        scattered   := ray{}
+        attenuation := [3]f32{}
+        scatter_result: bool
+
+        {
+            field_ptr := thread_breakdown != nil ? &thread_breakdown.scatter_time : nil
+            scope := PROFILE_SCOPE(field_ptr)
+            defer PROFILE_SCOPE_END(scope)
+            scatter_result = scatter(hr.material, r, hr, &attenuation, &scattered, rng)
+        }
+
+        if scatter_result {
+            return attenuation * ray_color_linear(scattered, depth - 1, world, rng, thread_breakdown, bvh_root, linear_nodes)
+        }
+        return [3]f32{0, 0, 0}
+    }
+
+    {
+        field_ptr := thread_breakdown != nil ? &thread_breakdown.background_time : nil
+        scope := PROFILE_SCOPE(field_ptr)
+        defer PROFILE_SCOPE_END(scope)
+
+        unit_direction := unit_vector(r.dir)
+        a := 0.5 * (unit_direction[1] + 1.0)
+        ones  := [3]f32{1.0, 1.0, 1.0}
+        color := [3]f32{0.5, 0.7, 1.0}
+        return (1.0 - a) * ones + a * color
+    }
+}
+
 unit_vector :: proc(v : [3]f32) -> [3]f32 {
     return v / vector_length(v)
 }
