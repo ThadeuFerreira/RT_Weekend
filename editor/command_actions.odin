@@ -36,7 +36,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render(app.camera, app.world, app.num_threads)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
     app_push_log(app, strings.clone("New scene (3 default spheres)"))
 }
 
