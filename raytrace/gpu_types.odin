@@ -28,7 +28,7 @@ GPUBackend :: struct {
     program:         u32,  // linked compute shader program
     ssbo_spheres:    u32,  // SSBO: [4]i32 header then []GPUSphere
     ssbo_bvh:        u32,  // SSBO: [4]i32 header then []LinearBVHNode
-    ssbo_output:     u32,  // SSBO: vec4 per pixel (RGB accumulation)
+    ssbo_output:     u32,  // SSBO: vec4 per pixel (.rgb accumulation, .a unused; vec4 for alignment)
     ubo_camera:      u32,  // UBO: GPUCameraUniforms (std140)
     width:           int,
     height:          int,

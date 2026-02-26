@@ -21,7 +21,7 @@ package raytrace
 //   UBO  binding=0 : GPUCameraUniforms (128 bytes, std140)
 //   SSBO binding=1 : [4]i32 header + []GPUSphere  (static, uploaded once)
 //   SSBO binding=2 : [4]i32 header + []LinearBVHNode (static, uploaded once)
-//   SSBO binding=3 : []vec4 output accumulation (zeroed, grows each dispatch)
+//   SSBO binding=3 : []vec4 output accumulation (vec4 for alignment; .a unused)
 
 import "core:fmt"
 import "core:math"
@@ -155,9 +155,10 @@ gpu_backend_init :: proc(
     }
 
     // ── SSBO: output accumulation buffer ─────────────────────────────────
-    // vec4 (16 bytes) per pixel, initialised to zero.
-    // Each dispatch accumulates one sample: pixels[i] += vec4(colour, 0).
-    // Readback divides by current_sample to get the running average.
+    // vec4 (16 bytes) per pixel, initialised to zero. We use vec4 not vec3
+    // so the SSBO layout is straightforward (vec3 in std430 needs padding);
+    // .rgb = accumulated linear colour, .a unused. Each dispatch adds one
+    // sample; readback divides by current_sample for the running average.
     pixel_count  := cam.image_width * cam.image_height
     output_total := pixel_count * size_of([4]f32)
     zeroes       := make([][4]f32, pixel_count)
