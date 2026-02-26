@@ -1,4 +1,4 @@
-package util
+package persistence
 
 import "core:encoding/json"
 import "core:fmt"
@@ -33,11 +33,11 @@ LayoutPreset :: struct {
 
 // RenderConfig is the full config file: render settings and optional editor layout.
 RenderConfig :: struct {
-	width:             int             `json:"width,omitempty"`,
-	height:            int             `json:"height,omitempty"`,
-	samples_per_pixel: int             `json:"samples_per_pixel,omitempty"`,
-	editor:            ^EditorLayout   `json:"editor,omitempty"`,
-	presets:           []LayoutPreset  `json:"presets,omitempty"`,
+	width:             int            `json:"width,omitempty"`,
+	height:            int            `json:"height,omitempty"`,
+	samples_per_pixel: int            `json:"samples_per_pixel,omitempty"`,
+	editor:            ^EditorLayout  `json:"editor,omitempty"`,
+	presets:           []LayoutPreset `json:"presets,omitempty"`,
 }
 
 // load_config reads a config file and returns the parsed config. Returns false on error or missing file.

@@ -259,6 +259,151 @@ bvh_hit :: proc(node: ^BVHNode, r: ray, ray_t: Interval, rec: ^hit_record, close
     return false
 }
 
+// ============================================================
+// Linear BVH — flat, iterative traversal (Step 1)
+// ============================================================
+//
+// flatten_bvh converts the recursive BVHNode tree into a flat
+// []LinearBVHNode via depth-first traversal.  The resulting
+// array is uploadable to a GPU SSBO (Step 4) and is traversed
+// by bvh_hit_linear without any pointer chasing.
+//
+// Encoding:
+//   Internal node: left_idx = left child index,
+//                  right_or_obj_idx = right child index
+//   Leaf node:     left_idx = -1,
+//                  right_or_obj_idx = -(sphere_index + 1)
+//
+// object_index_map maps each Object pointer back to its index
+// in the original objects slice so leaf nodes can store the
+// correct sphere index for bvh_hit_linear.
+
+_flatten_bvh_recurse :: proc(
+    node: ^BVHNode,
+    nodes: ^[dynamic]LinearBVHNode,
+    objects: []Object,
+) -> int {
+    if node == nil { return -1 }
+
+    my_index := len(nodes)
+    append(nodes, LinearBVHNode{})   // placeholder; filled in below
+
+    if node.is_leaf {
+        // Find which index in objects matches this leaf's object.
+        obj_idx := i32(-1)
+        for i in 0..<len(objects) {
+            // Compare by value equality — works because objects are plain structs.
+            switch a in node.object {
+            case Sphere:
+                if b, ok := objects[i].(Sphere); ok && a == b { obj_idx = i32(i) }
+            case Cube:
+                if b, ok := objects[i].(Cube); ok && a == b { obj_idx = i32(i) }
+            }
+        }
+        nodes[my_index] = LinearBVHNode{
+            aabb_min        = [3]f32{node.bbox.x.min, node.bbox.y.min, node.bbox.z.min},
+            aabb_max        = [3]f32{node.bbox.x.max, node.bbox.y.max, node.bbox.z.max},
+            left_idx        = -1,
+            right_or_obj_idx = -(obj_idx + 1),   // negative encodes the sphere index
+        }
+        return my_index
+    }
+
+    // Internal node: recurse left then right.
+    left_idx  := _flatten_bvh_recurse(node.left,  nodes, objects)
+    right_idx := _flatten_bvh_recurse(node.right, nodes, objects)
+
+    nodes[my_index] = LinearBVHNode{
+        aabb_min        = [3]f32{node.bbox.x.min, node.bbox.y.min, node.bbox.z.min},
+        aabb_max        = [3]f32{node.bbox.x.max, node.bbox.y.max, node.bbox.z.max},
+        left_idx        = i32(left_idx),
+        right_or_obj_idx = i32(right_idx),
+    }
+    return my_index
+}
+
+// flatten_bvh returns a heap-allocated []LinearBVHNode.
+// Index 0 is always the root. Caller must delete(result).
+flatten_bvh :: proc(root: ^BVHNode, objects: []Object) -> []LinearBVHNode {
+    if root == nil { return nil }
+    nodes := make([dynamic]LinearBVHNode, 0, 2 * len(objects))
+    _flatten_bvh_recurse(root, &nodes, objects)
+    return nodes[:]
+}
+
+// bvh_hit_linear traverses the flat LinearBVH iteratively using
+// an explicit integer stack — no recursion, no pointer chasing.
+//
+// This is the same algorithm as bvh_hit but:
+//   • sequential memory access → better cache behaviour
+//   • no function-call overhead per node
+//   • the same node array can be uploaded to the GPU unchanged
+//
+// Extensibility note:
+//   To support triangle leaves, add a second sentinel (e.g. left_idx = -2)
+//   and add a hit_triangle branch alongside the existing hit_sphere call.
+bvh_hit_linear :: proc(
+    nodes:   []LinearBVHNode,
+    objects: []Object,
+    r:       ray,
+    ray_t:   Interval,
+) -> (HitRecord: hit_record, Hit: bool) {
+    if len(nodes) == 0 { return }
+
+    // Stack holds indices of nodes yet to be tested.
+    // Max BVH depth for N objects is ceil(log2(N)) + 1 ≤ 64.
+    stack: [64]int
+    stack_ptr := 0
+    stack[stack_ptr] = 0   // start at root (index 0)
+    stack_ptr += 1
+
+    rec          := hit_record{}
+    hit_anything := false
+    closest      := ray_t.max
+
+    for stack_ptr > 0 {
+        stack_ptr -= 1
+        idx := stack[stack_ptr]
+        if idx < 0 || idx >= len(nodes) { continue }
+
+        node := nodes[idx]
+
+        // Test AABB — skip node if ray misses the bounding box.
+        bbox := AABB{
+            x = Interval{node.aabb_min[0], node.aabb_max[0]},
+            y = Interval{node.aabb_min[1], node.aabb_max[1]},
+            z = Interval{node.aabb_min[2], node.aabb_max[2]},
+        }
+        if !aabb_hit(bbox, r, Interval{ray_t.min, closest}) { continue }
+
+        if node.left_idx == -1 {
+            // Leaf node: test the actual object.
+            obj_idx := int(-(node.right_or_obj_idx + 1))
+            if obj_idx >= 0 && obj_idx < len(objects) {
+                temp_rec := hit_record{}
+                if hit(r, Interval{ray_t.min, closest}, &temp_rec, objects[obj_idx], &closest) {
+                    rec          = temp_rec
+                    hit_anything = true
+                }
+            }
+        } else {
+            // Internal node: push both children; test closer one last (LIFO).
+            if int(node.right_or_obj_idx) >= 0 {
+                stack[stack_ptr] = int(node.right_or_obj_idx)
+                stack_ptr += 1
+            }
+            if int(node.left_idx) >= 0 {
+                stack[stack_ptr] = int(node.left_idx)
+                stack_ptr += 1
+            }
+        }
+    }
+
+    return rec, hit_anything
+}
+
+// ============================================================
+
 free_bvh :: proc(node: ^BVHNode, allocator := context.allocator) {
     if node == nil {
         return

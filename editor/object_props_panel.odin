@@ -1,9 +1,8 @@
-package ui
+package editor
 
 import "core:fmt"
 import rl "vendor:raylib"
-import ed "RT_Weekend:ui/editor"
-import "RT_Weekend:scene"
+import "RT_Weekend:core"
 
 // Layout constants for the Object Properties panel.
 // Separate from PROP_* in edit_view_panel.odin to fit a narrower panel.
@@ -39,7 +38,7 @@ OpLayout :: struct {
 	swatch:       rl.Rectangle,
 }
 
-op_compute_layout :: proc(content: rl.Rectangle, mat_kind: scene.MaterialKind) -> OpLayout {
+op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) -> OpLayout {
 	lo: OpLayout
 	lo.lx = content.x + 8
 	lo.x0 = lo.lx + OP_LW + OP_GAP
@@ -175,7 +174,7 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	mouse := rl.GetMousePosition()
 
 	if ev.selection_kind == .None {
-		draw_ui_text(app, "No object selected.",
+		draw_ui_text(app, "No object select",
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
 		draw_ui_text(app, "Click a sphere or the camera in the Edit View.",
 			i32(content.x) + 10, i32(content.y) + 40, 11, rl.Color{140, 150, 165, 200})
@@ -205,8 +204,8 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	}
 
 	// Sphere selected
-	if ev.selected_idx < 0 || ev.selected_idx >= ed.SceneManagerLen(ev.scene_mgr) { return }
-	s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	if ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) { return }
+	s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
 	if !ok { return }
 	lo := op_compute_layout(content, s.material_kind)
 
@@ -309,7 +308,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	}
 
 	// ── Sphere selected
-	if ev.selected_idx < 0 || ev.selected_idx >= ed.SceneManagerLen(ev.scene_mgr) {
+	if ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) {
 		if st.prop_drag_idx >= 0 {
 			st.prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
@@ -317,7 +316,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		return
 	}
 	// read-modify-write via scene manager so different object types can be supported
-	s2, ok2 := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	s2, ok2 := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
 	if !ok2 { return }
 	s := s2
 
@@ -345,7 +344,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			}
 			rl.SetMouseCursor(.RESIZE_EW)
 			// persist changes back to the scene manager
-			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 		}
 		return
 	}
@@ -356,21 +355,21 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[0]) {
 			s.material_kind = .Lambertian
-			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[1]) {
 			if s.material_kind != .Metallic && s.fuzz <= 0 { s.fuzz = 0.1 }
 			s.material_kind = .Metallic
-			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[2]) {
 			s.material_kind = .Dielectric
 			if s.ref_idx < 1.0 { s.ref_idx = 1.5 }
-			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}

@@ -2,9 +2,10 @@ package main
 
 import "core:fmt"
 import "core:os"
-import "RT_Weekend:util"
+import "RT_Weekend:persistence"
+import "RT_Weekend:editor"
 import "RT_Weekend:raytrace"
-import "RT_Weekend:ui"
+import "RT_Weekend:util"
 
 main :: proc() {
     args := util.Args{}
@@ -42,10 +43,10 @@ main :: proc() {
     }
 
     // Load config file if -config path given; override width/height/samples only when present and positive
-    initial_editor: ^util.EditorLayout = nil
-    initial_presets: []util.LayoutPreset = nil
+    initial_editor: ^persistence.EditorLayout = nil
+    initial_presets: []persistence.LayoutPreset = nil
     if len(args.ConfigPath) > 0 {
-        if loaded, ok := util.load_config(args.ConfigPath); ok {
+        if loaded, ok := persistence.load_config(args.ConfigPath); ok {
             if loaded.width > 0 {
                 image_width = loaded.width
             }
@@ -70,6 +71,7 @@ main :: proc() {
     fmt.printf("  Image size: %dx%d pixels\n", image_width, image_height)
     fmt.printf("  Samples per pixel: %d\n", samples_per_pixel)
     fmt.printf("  Threads: %d\n", thread_count)
+    fmt.printf("  GPU mode: %v\n", args.UseGPU)
 
     util.print_system_info()
 
@@ -77,7 +79,7 @@ main :: proc() {
     world: [dynamic]raytrace.Object
 
     if len(args.ScenePath) > 0 {
-        cam, w, ok := raytrace.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
+        cam, w, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
         if !ok {
             fmt.fprintf(os.stderr, "Failed to load scene: %s\n", args.ScenePath)
             return
@@ -90,12 +92,12 @@ main :: proc() {
     }
 
     if len(args.SaveScenePath) > 0 {
-        if !raytrace.save_scene(args.SaveScenePath, camera, world) {
+        if !persistence.save_scene(args.SaveScenePath, camera, world) {
             fmt.fprintf(os.stderr, "Failed to save scene: %s\n", args.SaveScenePath)
         }
     }
 
-    ui.run_app(camera, world, thread_count, initial_editor, args.SaveConfigPath, initial_presets)
+    editor.run_app(camera, world, thread_count, args.UseGPU, initial_editor, args.SaveConfigPath, initial_presets)
     if initial_editor != nil {
         delete(initial_editor.panels)
         free(initial_editor)

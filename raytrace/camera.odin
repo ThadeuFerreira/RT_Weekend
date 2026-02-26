@@ -6,7 +6,7 @@ import "core:strings"
 import "core:thread"
 import "core:sync"
 import "core:time"
-import "RT_Weekend:scene"
+import "RT_Weekend:core"
 import "RT_Weekend:util"
 
 degrees_to_radians :: proc(degrees: f32) -> f32 {
@@ -68,6 +68,9 @@ ParallelRenderContext :: struct {
     thread_id:         int,
     rng:               util.ThreadRNG,
     bvh_root:          ^BVHNode,
+    // Linear BVH: flat array used by bvh_hit_linear (Step 1).
+    // Workers use this when non-nil (faster, cache-friendly, GPU-uploadable).
+    linear_bvh:        []LinearBVHNode,
     breakdown:         ^ThreadRenderingBreakdown,
     thread_time:       ^f64,
     thread_tile_count: ^int,
@@ -80,12 +83,17 @@ RenderSession :: struct {
     threads:                     []^thread.Thread,
     heap_contexts:               []^ParallelRenderContext,
     bvh_root:                    ^BVHNode,
+    // Flat linear BVH shared across all worker threads (read-only after build).
+    linear_bvh:                  []LinearBVHNode,
     timing:                      ParallelTimingBreakdown,
     thread_tile_times:           [dynamic]f64,
     thread_tile_counts:          [dynamic]int,
     thread_rendering_breakdowns: [dynamic]ThreadRenderingBreakdown,
     num_threads:                 int,
     start_time:                  time.Time,
+    // GPU backend — nil when using the CPU path.
+    gpu_backend:                 ^GPUBackend,
+    use_gpu:                     bool,
 }
 
 // Default camera
@@ -112,7 +120,7 @@ make_camera :: proc(image_width : int, image_height : int, samples_per_pixel : i
 }
 
 // apply_scene_camera copies shared camera params into the raytrace Camera. Call init_camera(cam) after this.
-apply_scene_camera :: proc(cam: ^Camera, params: ^scene.CameraParams) {
+apply_scene_camera :: proc(cam: ^Camera, params: ^core.CameraParams) {
     cam.lookfrom      = params.lookfrom
     cam.lookat        = params.lookat
     cam.vup           = params.vup
@@ -123,7 +131,7 @@ apply_scene_camera :: proc(cam: ^Camera, params: ^scene.CameraParams) {
 }
 
 // copy_camera_to_scene_params fills shared camera params from a raytrace Camera (e.g. at startup).
-copy_camera_to_scene_params :: proc(params: ^scene.CameraParams, cam: ^Camera) {
+copy_camera_to_scene_params :: proc(params: ^core.CameraParams, cam: ^Camera) {
     params.lookfrom      = cam.lookfrom
     params.lookat        = cam.lookat
     params.vup           = cam.vup
@@ -235,7 +243,7 @@ render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
                         thread_breakdown.total_rays += 1
                     }
 
-                    color := ray_color(r, camera.max_depth, world, rng, thread_breakdown, ctx.bvh_root)
+                    color := ray_color_linear(r, camera.max_depth, world, rng, thread_breakdown, ctx.bvh_root, ctx.linear_bvh)
 
                     pixel_color += color
                     thread_breakdown.total_samples += 1
@@ -305,6 +313,9 @@ start_render :: proc(camera: ^Camera, world: [dynamic]Object, num_threads: int) 
     session.timing.bvh_construction = start_timer()
     world_slice := world[:]
     session.bvh_root = build_bvh(world_slice)
+    // Build the flat linear BVH from the recursive tree.
+    // Workers use bvh_hit_linear (iterative) instead of bvh_hit (recursive).
+    session.linear_bvh = flatten_bvh(session.bvh_root, world_slice)
     stop_timer(&session.timing.bvh_construction)
 
     session.timing.context_setup = start_timer()
@@ -326,6 +337,7 @@ start_render :: proc(camera: ^Camera, world: [dynamic]Object, num_threads: int) 
             thread_id         = i,
             rng               = util.create_thread_rng(base_seed + u64(i)),
             bvh_root          = session.bvh_root,
+            linear_bvh        = session.linear_bvh,
             breakdown         = &session.thread_rendering_breakdowns[i],
             thread_time       = &session.thread_tile_times[i],
             thread_tile_count = &session.thread_tile_counts[i],
@@ -358,6 +370,11 @@ free_session :: proc(session: ^RenderSession) {
 }
 
 get_render_progress :: proc(session: ^RenderSession) -> f32 {
+    if session.use_gpu {
+        b := session.gpu_backend
+        if b == nil || b.total_samples == 0 { return 1.0 }
+        return f32(b.current_sample) / f32(b.total_samples)
+    }
     if session.work_queue.total_tiles == 0 {
         return 1.0
     }
@@ -370,7 +387,31 @@ get_render_progress :: proc(session: ^RenderSession) -> f32 {
 // the window mid-render, the UI still calls this and the process can hang for several
 // seconds on large renders (e.g. 4K @ 500 spp) until the tile queue is drained.
 // Future work: add an atomic "abort" flag so workers exit early and join quickly.
+//
+// GPU path: no threads to join. Destroys the GPU backend and frees BVH memory.
 finish_render :: proc(session: ^RenderSession) {
+    if session.use_gpu {
+        if session.gpu_backend != nil {
+            gpu_backend_destroy(session.gpu_backend)
+            session.gpu_backend = nil
+        }
+        if session.linear_bvh != nil {
+            delete(session.linear_bvh)
+            session.linear_bvh = nil
+        }
+        if session.bvh_root != nil {
+            free_bvh(session.bvh_root)
+            session.bvh_root = nil
+        }
+        if session.threads != nil       { delete(session.threads);       session.threads = nil }
+        if session.heap_contexts != nil { delete(session.heap_contexts); session.heap_contexts = nil }
+        delete(session.thread_tile_times)
+        delete(session.thread_tile_counts)
+        delete(session.thread_rendering_breakdowns)
+        fmt.println("[GPU] Render complete")
+        return
+    }
+
     stop_timer(&session.timing.rendering)
 
     session.timing.thread_join = start_timer()
@@ -387,6 +428,10 @@ finish_render :: proc(session: ^RenderSession) {
     delete(session.heap_contexts)
     session.heap_contexts = nil
 
+    if session.linear_bvh != nil {
+        delete(session.linear_bvh)
+        session.linear_bvh = nil
+    }
     if session.bvh_root != nil {
         free_bvh(session.bvh_root)
         session.bvh_root = nil
@@ -444,4 +489,73 @@ finish_render :: proc(session: ^RenderSession) {
 
     rendering_time := get_elapsed_seconds(session.timing.rendering)
     print_rendering_breakdown(&rendering_breakdown, rendering_time)
+}
+
+// start_render_auto starts a render session using the GPU compute-shader path when
+// use_gpu=true and the GPU backend initialises successfully, otherwise falls back
+// to the standard CPU multi-threaded path.
+//
+// GPU path:
+//   Builds the pixel buffer and BVH (needed for GPU upload) without spawning any
+//   CPU worker threads.  gpu_backend_init compiles the shader and uploads the scene.
+//   If GPU init fails the partial session is cleaned up and start_render is called.
+//
+// CPU path (use_gpu=false or GPU init failure):
+//   Identical to calling start_render directly.
+start_render_auto :: proc(
+    cam:         ^Camera,
+    world:       [dynamic]Object,
+    num_threads: int,
+    use_gpu:     bool,
+) -> ^RenderSession {
+    if !use_gpu {
+        return start_render(cam, world, num_threads)
+    }
+
+    // Build session without spawning CPU worker threads.
+    session := new(RenderSession)
+    session.camera      = cam
+    session.num_threads = 0
+    session.start_time  = time.now()
+    session.timing      = start_parallel_timing()
+
+    session.timing.buffer_creation = start_timer()
+    session.pixel_buffer = create_test_pixel_buffer(cam.image_width, cam.image_height)
+    stop_timer(&session.timing.buffer_creation)
+
+    session.timing.bvh_construction = start_timer()
+    world_slice       := world[:]
+    session.bvh_root   = build_bvh(world_slice)
+    session.linear_bvh = flatten_bvh(session.bvh_root, world_slice)
+    stop_timer(&session.timing.bvh_construction)
+
+    // Initialise empty slices so finish_render never dereferences nil.
+    session.threads                     = make([]^thread.Thread, 0)
+    session.heap_contexts               = make([]^ParallelRenderContext, 0)
+    session.thread_tile_times           = make([dynamic]f64, 0)
+    session.thread_tile_counts          = make([dynamic]int, 0)
+    session.thread_rendering_breakdowns = make([dynamic]ThreadRenderingBreakdown, 0)
+
+    // Try to initialise the GPU backend.
+    backend, gpu_ok := gpu_backend_init(cam, world_slice, session.linear_bvh, cam.samples_per_pixel)
+    if gpu_ok {
+        session.gpu_backend = backend
+        session.use_gpu     = true
+        fmt.println("[GPU] Init OK — GPU rendering enabled")
+        return session
+    }
+
+    // GPU init failed: clean up the partial session and fall back to CPU.
+    fmt.println("[GPU] Init failed — falling back to CPU")
+    delete(session.pixel_buffer.pixels)
+    if session.linear_bvh != nil { delete(session.linear_bvh) }
+    if session.bvh_root   != nil { free_bvh(session.bvh_root)  }
+    delete(session.threads)
+    delete(session.heap_contexts)
+    delete(session.thread_tile_times)
+    delete(session.thread_tile_counts)
+    delete(session.thread_rendering_breakdowns)
+    free(session)
+
+    return start_render(cam, world, num_threads)
 }
