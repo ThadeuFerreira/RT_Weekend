@@ -3,6 +3,7 @@ package ui
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
+import ed "RT_Weekend:ui/editor"
 import rt "RT_Weekend:raytrace"
 
 FILE_MODAL_MAX_INPUT :: 512
@@ -14,10 +15,10 @@ FileModalMode :: enum {
 }
 
 FileModalState :: struct {
-    active:   bool,
-    mode:     FileModalMode,
-    title:    string,
-    input:    [FILE_MODAL_MAX_INPUT]u8,
+    active:    bool,
+    mode:      FileModalMode,
+    title:     string,
+    input:     [FILE_MODAL_MAX_INPUT]u8,
     input_len: int,
 }
 
@@ -35,7 +36,15 @@ file_modal_input_string :: proc(modal: ^FileModalState) -> string {
     return string(modal.input[:modal.input_len])
 }
 
-// file_modal_update handles keyboard input for the modal. Returns true when modal consumed input.
+// modal_button_rects returns the OK and Cancel button rectangles for a dialog at (dx,dy,w,h).
+@(private="file")
+modal_button_rects :: proc(dx, dy, dialog_w, dialog_h: f32) -> (btn_ok, btn_cancel: rl.Rectangle) {
+    btn_ok     = rl.Rectangle{dx + dialog_w - 130, dy + dialog_h - 30, 55, 22}
+    btn_cancel = rl.Rectangle{dx + dialog_w - 70,  dy + dialog_h - 30, 60, 22}
+    return
+}
+
+// file_modal_update handles all input for the modal (keyboard + mouse buttons).
 // Sets app.input_consumed = true when modal is active.
 file_modal_update :: proc(app: ^App) {
     modal := &app.file_modal
@@ -70,6 +79,23 @@ file_modal_update :: proc(app: ^App) {
     // Cancel on Escape
     if rl.IsKeyPressed(.ESCAPE) {
         modal.active = false
+        return
+    }
+
+    // Mouse button clicks
+    if rl.IsMouseButtonPressed(.LEFT) {
+        sw := f32(rl.GetScreenWidth())
+        sh := f32(rl.GetScreenHeight())
+        dialog_w, dialog_h := f32(420), f32(130)
+        dx := (sw - dialog_w) * 0.5
+        dy := (sh - dialog_h) * 0.5
+        btn_ok, btn_cancel := modal_button_rects(dx, dy, dialog_w, dialog_h)
+        mouse := rl.GetMousePosition()
+        if rl.CheckCollisionPointRec(mouse, btn_ok) {
+            file_modal_confirm(app)
+        } else if rl.CheckCollisionPointRec(mouse, btn_cancel) {
+            modal.active = false
+        }
     }
 }
 
@@ -80,6 +106,8 @@ file_modal_confirm :: proc(app: ^App) {
 
     text := strings.clone(file_modal_input_string(modal))
     modal.active = false
+
+    ev := &app.edit_view
 
     switch modal.mode {
     case .Import:
@@ -92,14 +120,14 @@ file_modal_confirm :: proc(app: ^App) {
         }
         // Apply loaded camera to params
         rt.copy_camera_to_scene_params(&app.camera_params, cam)
-        // Convert world to edit view objects
+        // Load converted spheres into scene manager
         converted := rt.convert_world_to_edit_spheres(world)
-        delete(app.edit_view.objects)
-        app.edit_view.objects     = converted
-        app.edit_view.selection_kind = .None
-        app.edit_view.selected_idx   = -1
+        ed.LoadFromSceneSpheres(ev.scene_mgr, converted[:])
+        delete(converted)
+        ev.selection_kind = .None
+        ev.selected_idx   = -1
 
-        // Store path; free old camera; use new one
+        // Store path
         delete(app.current_scene_path)
         app.current_scene_path = text
 
@@ -110,22 +138,24 @@ file_modal_confirm :: proc(app: ^App) {
         }
         rt.free_session(app.session)
         app.session = nil
+        ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
         delete(app.world)
-        app.world = rt.build_world_from_scene(app.edit_view.objects[:])
-        app.finished    = false
+        app.world = rt.build_world_from_scene(ev.export_scratch[:])
+        app.finished     = false
         app.elapsed_secs = 0
         rt.apply_scene_camera(app.camera, &app.camera_params)
         rt.init_camera(app.camera)
         app.session = rt.start_render(app.camera, app.world, app.num_threads)
-        app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", text, len(app.edit_view.objects)))
+        app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", text, ed.SceneManagerLen(ev.scene_mgr)))
 
-        // Free the camera returned by load_scene (we already copied it into app.camera + params)
+        // Free the camera returned by load_scene (values already copied into app.camera + params)
         free(cam)
         delete(world)
 
     case .SaveAs:
         if len(text) == 0 { delete(text); return }
-        world := rt.build_world_from_scene(app.edit_view.objects[:])
+        ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+        world := rt.build_world_from_scene(ev.export_scratch[:])
         defer delete(world)
         rt.apply_scene_camera(app.camera, &app.camera_params)
         if rt.save_scene(text, app.camera, world) {
@@ -141,11 +171,12 @@ file_modal_confirm :: proc(app: ^App) {
         if len(text) == 0 { delete(text); return }
         layout_save_named_preset(app, text)
         app_push_log(app, fmt.aprintf("Preset saved: %s", text))
-        // text is owned by the preset after this
+        // text ownership transferred to the preset
     }
 }
 
 // file_modal_draw renders the modal overlay. Call after all other drawing (drawn on top).
+// Input handling is in file_modal_update — this proc is draw-only.
 file_modal_draw :: proc(app: ^App) {
     modal := &app.file_modal
     if !modal.active { return }
@@ -167,16 +198,14 @@ file_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleLinesEx(dialog_rect, 1, BORDER_COLOR)
 
     // Title bar
-    title_rect := rl.Rectangle{dx, dy, dialog_w, TITLE_BAR_HEIGHT}
-    rl.DrawRectangleRec(title_rect, TITLE_BG_COLOR)
+    rl.DrawRectangleRec(rl.Rectangle{dx, dy, dialog_w, TITLE_BAR_HEIGHT}, TITLE_BG_COLOR)
     draw_ui_text(app, strings.clone_to_cstring(modal.title, context.temp_allocator), i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
 
     // Input label
     input_label: cstring
     switch modal.mode {
-    case .Import:    input_label = "File path:"
-    case .SaveAs:    input_label = "File path:"
-    case .PresetName: input_label = "Preset name:"
+    case .Import, .SaveAs: input_label = "File path:"
+    case .PresetName:      input_label = "Preset name:"
     }
     draw_ui_text(app, input_label, i32(dx) + 10, i32(dy) + 32, 12, CONTENT_TEXT_COLOR)
 
@@ -187,14 +216,12 @@ file_modal_draw :: proc(app: ^App) {
 
     // Current text + cursor blink
     disp_text := file_modal_input_string(modal)
-    cursor_blink := (i32(rl.GetTime() * 2) % 2) == 0
-    cursor_str := cursor_blink ? "|" : ""
+    cursor_str := (i32(rl.GetTime() * 2) % 2) == 0 ? "|" : ""
     full_text := strings.concatenate({disp_text, cursor_str}, context.temp_allocator)
     draw_ui_text(app, strings.clone_to_cstring(full_text, context.temp_allocator), i32(input_rect.x) + 4, i32(input_rect.y) + 3, 12, CONTENT_TEXT_COLOR)
 
-    // OK button
-    btn_ok     := rl.Rectangle{dx + dialog_w - 130, dy + dialog_h - 30, 55, 22}
-    btn_cancel := rl.Rectangle{dx + dialog_w - 70,  dy + dialog_h - 30, 60, 22}
+    // Buttons (hover highlight only — clicks handled in file_modal_update)
+    btn_ok, btn_cancel := modal_button_rects(dx, dy, dialog_w, dialog_h)
     mouse      := rl.GetMousePosition()
     ok_hov     := rl.CheckCollisionPointRec(mouse, btn_ok)
     cancel_hov := rl.CheckCollisionPointRec(mouse, btn_cancel)
@@ -205,13 +232,4 @@ file_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleLinesEx(btn_cancel, 1, BORDER_COLOR)
     draw_ui_text(app, "OK",     i32(btn_ok.x) + 12, i32(btn_ok.y) + 3, 12, rl.RAYWHITE)
     draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 5, i32(btn_cancel.y) + 3, 12, rl.RAYWHITE)
-
-    // Button clicks (draw phase reads mouse press for modal since it has priority)
-    if rl.IsMouseButtonPressed(.LEFT) {
-        if rl.CheckCollisionPointRec(mouse, btn_ok) {
-            file_modal_confirm(app)
-        } else if rl.CheckCollisionPointRec(mouse, btn_cancel) {
-            modal.active = false
-        }
-    }
 }

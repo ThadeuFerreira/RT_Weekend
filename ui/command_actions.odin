@@ -2,6 +2,7 @@ package ui
 
 import "core:fmt"
 import "core:strings"
+import ed "RT_Weekend:ui/editor"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:scene"
 
@@ -13,21 +14,25 @@ cmd_action_file_new :: proc(app: ^App) {
     rt.free_session(app.session)
     app.session = nil
 
-    delete(app.edit_view.objects)
-    app.edit_view.objects = make([dynamic]scene.SceneSphere)
-    append(&app.edit_view.objects, scene.SceneSphere{center = {-1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
-    append(&app.edit_view.objects, scene.SceneSphere{center = { 0,   0.5, 0}, radius = 0.5, material_kind = .Metallic,   albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
-    append(&app.edit_view.objects, scene.SceneSphere{center = { 1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
-    app.edit_view.selection_kind = .None
-    app.edit_view.selected_idx   = -1
+    ev := &app.edit_view
+    initial := [3]scene.SceneSphere{
+        {center = {-1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}},
+        {center = { 0,   0.5, 0}, radius = 0.5, material_kind = .Metallic,   albedo = {0.2, 0.2, 0.8}, fuzz = 0.1},
+        {center = { 1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}},
+    }
+    ed.LoadFromSceneSpheres(ev.scene_mgr, initial[:])
+    ev.selection_kind = .None
+    ev.selected_idx   = -1
 
+    delete(app.current_scene_path)
     app.current_scene_path = ""
 
+    ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.world)
-    app.world = rt.build_world_from_scene(app.edit_view.objects[:])
+    app.world = rt.build_world_from_scene(ev.export_scratch[:])
 
-    app.finished      = false
-    app.elapsed_secs  = 0
+    app.finished     = false
+    app.elapsed_secs = 0
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
@@ -41,8 +46,9 @@ cmd_action_file_import :: proc(app: ^App) {
 
 cmd_action_file_save :: proc(app: ^App) {
     if len(app.current_scene_path) == 0 { return }
-    // Build world from edit view objects for saving
-    world := rt.build_world_from_scene(app.edit_view.objects[:])
+    ev := &app.edit_view
+    ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    world := rt.build_world_from_scene(ev.export_scratch[:])
     defer delete(world)
     rt.apply_scene_camera(app.camera, &app.camera_params)
     if rt.save_scene(app.current_scene_path, app.camera, world) {
@@ -118,7 +124,9 @@ cmd_action_save_preset :: proc(app: ^App) {
 // ── Render actions ───────────────────────────────────────────────────────────
 
 cmd_action_render_restart :: proc(app: ^App) {
-    app_restart_render_with_scene(app, app.edit_view.objects[:])
+    ev := &app.edit_view
+    ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    app_restart_render_with_scene(app, ev.export_scratch[:])
 }
 
 cmd_enabled_render_restart :: proc(app: ^App) -> bool {
@@ -132,11 +140,11 @@ register_all_commands :: proc(app: ^App) {
     r := &app.commands
 
     // File
-    cmd_register(r, Command{id = CMD_FILE_NEW,     label = "New",          shortcut = "Ctrl+N", action = cmd_action_file_new})
-    cmd_register(r, Command{id = CMD_FILE_IMPORT,  label = "Import…",      shortcut = "Ctrl+O", action = cmd_action_file_import})
-    cmd_register(r, Command{id = CMD_FILE_SAVE,    label = "Save",         shortcut = "Ctrl+S", action = cmd_action_file_save, enabled_proc = cmd_action_file_save_enabled})
-    cmd_register(r, Command{id = CMD_FILE_SAVE_AS, label = "Save As…",     shortcut = "",       action = cmd_action_file_save_as})
-    cmd_register(r, Command{id = CMD_FILE_EXIT,    label = "Exit",         shortcut = "Alt+F4", action = cmd_action_file_exit})
+    cmd_register(r, Command{id = CMD_FILE_NEW,     label = "New",      shortcut = "Ctrl+N", action = cmd_action_file_new})
+    cmd_register(r, Command{id = CMD_FILE_IMPORT,  label = "Import…",  shortcut = "Ctrl+O", action = cmd_action_file_import})
+    cmd_register(r, Command{id = CMD_FILE_SAVE,    label = "Save",     shortcut = "Ctrl+S", action = cmd_action_file_save, enabled_proc = cmd_action_file_save_enabled})
+    cmd_register(r, Command{id = CMD_FILE_SAVE_AS, label = "Save As…", shortcut = "",       action = cmd_action_file_save_as})
+    cmd_register(r, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
 
     // View — panels
     cmd_register(r, Command{id = CMD_VIEW_RENDER,  label = "Render Preview", action = cmd_action_view_render,  checked_proc = cmd_checked_view_render})
@@ -149,10 +157,10 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(r, Command{id = CMD_VIEW_PREVIEW, label = "Preview Port",   action = cmd_action_view_preview, checked_proc = cmd_checked_view_preview})
 
     // View — presets
-    cmd_register(r, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",          action = cmd_action_preset_default})
-    cmd_register(r, Command{id = CMD_VIEW_PRESET_RENDER,  label = "Rendering Focus",  action = cmd_action_preset_render})
-    cmd_register(r, Command{id = CMD_VIEW_PRESET_EDIT,    label = "Editing Focus",    action = cmd_action_preset_edit})
-    cmd_register(r, Command{id = CMD_VIEW_SAVE_PRESET,    label = "Save Layout As…",  action = cmd_action_save_preset})
+    cmd_register(r, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",         action = cmd_action_preset_default})
+    cmd_register(r, Command{id = CMD_VIEW_PRESET_RENDER,  label = "Rendering Focus", action = cmd_action_preset_render})
+    cmd_register(r, Command{id = CMD_VIEW_PRESET_EDIT,    label = "Editing Focus",   action = cmd_action_preset_edit})
+    cmd_register(r, Command{id = CMD_VIEW_SAVE_PRESET,    label = "Save Layout As…", action = cmd_action_save_preset})
 
     // Render
     cmd_register(r, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})

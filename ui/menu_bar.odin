@@ -17,12 +17,13 @@ MenuBarState :: struct {
 
 // MenuEntryDyn is a single item in a dynamic dropdown.
 MenuEntryDyn :: struct {
-    label:    string,
-    cmd_id:   string,        // CommandID constant; used to look up enabled/checked
-    disabled: bool,
-    checked:  bool,
-    shortcut: string,        // display only
-    separator: bool,         // when true, draw a horizontal rule (label/cmd_id ignored)
+    label:            string,
+    cmd_id:           string, // CommandID constant; used to look up enabled/checked
+    user_preset_name: string, // non-empty = call layout_apply_named_preset with this name
+    disabled:         bool,
+    checked:          bool,
+    shortcut:         string, // display only
+    separator:        bool,   // when true, draw a horizontal rule (label/cmd_id ignored)
 }
 
 // MenuDyn is a top-level menu entry with its dynamic dropdown entries.
@@ -32,27 +33,37 @@ MenuDyn :: struct {
 }
 
 // get_menus_dynamic builds the menu list each frame using the temp allocator.
-// Menus reflect live state (panel visibility checkmarks, enabled states).
+// Menus reflect live state (panel visibility checkmarks, enabled states, user presets).
 get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
     if app == nil { return nil }
 
-    // View panel entries
-    view_panel_entries := []MenuEntryDyn{
-        {label = "Render Preview", cmd_id = CMD_VIEW_RENDER,  checked = cmd_is_checked(app, CMD_VIEW_RENDER)},
-        {label = "Stats",          cmd_id = CMD_VIEW_STATS,   checked = cmd_is_checked(app, CMD_VIEW_STATS)},
-        {label = "Log",            cmd_id = CMD_VIEW_LOG,     checked = cmd_is_checked(app, CMD_VIEW_LOG)},
-        {label = "System Info",    cmd_id = CMD_VIEW_SYSINFO, checked = cmd_is_checked(app, CMD_VIEW_SYSINFO)},
-        {label = "Edit View",      cmd_id = CMD_VIEW_EDIT,    checked = cmd_is_checked(app, CMD_VIEW_EDIT)},
-        {label = "Camera",         cmd_id = CMD_VIEW_CAMERA,  checked = cmd_is_checked(app, CMD_VIEW_CAMERA)},
-        {label = "Object Props",   cmd_id = CMD_VIEW_PROPS,   checked = cmd_is_checked(app, CMD_VIEW_PROPS)},
-        {label = "Preview Port",   cmd_id = CMD_VIEW_PREVIEW, checked = cmd_is_checked(app, CMD_VIEW_PREVIEW)},
-        {separator = true},
-        {label = "Default Layout",        cmd_id = CMD_VIEW_PRESET_DEFAULT},
-        {label = "Rendering Focus Layout", cmd_id = CMD_VIEW_PRESET_RENDER},
-        {label = "Editing Focus Layout",  cmd_id = CMD_VIEW_PRESET_EDIT},
-        {separator = true},
-        {label = "Save Layout As…", cmd_id = CMD_VIEW_SAVE_PRESET},
+    // Build View entries as a dynamic slice so user presets can be appended.
+    view_entries := make([dynamic]MenuEntryDyn, context.temp_allocator)
+    append(&view_entries,
+        MenuEntryDyn{label = "Render Preview", cmd_id = CMD_VIEW_RENDER,  checked = cmd_is_checked(app, CMD_VIEW_RENDER)},
+        MenuEntryDyn{label = "Stats",          cmd_id = CMD_VIEW_STATS,   checked = cmd_is_checked(app, CMD_VIEW_STATS)},
+        MenuEntryDyn{label = "Log",            cmd_id = CMD_VIEW_LOG,     checked = cmd_is_checked(app, CMD_VIEW_LOG)},
+        MenuEntryDyn{label = "System Info",    cmd_id = CMD_VIEW_SYSINFO, checked = cmd_is_checked(app, CMD_VIEW_SYSINFO)},
+        MenuEntryDyn{label = "Edit View",      cmd_id = CMD_VIEW_EDIT,    checked = cmd_is_checked(app, CMD_VIEW_EDIT)},
+        MenuEntryDyn{label = "Camera",         cmd_id = CMD_VIEW_CAMERA,  checked = cmd_is_checked(app, CMD_VIEW_CAMERA)},
+        MenuEntryDyn{label = "Object Props",   cmd_id = CMD_VIEW_PROPS,   checked = cmd_is_checked(app, CMD_VIEW_PROPS)},
+        MenuEntryDyn{label = "Preview Port",   cmd_id = CMD_VIEW_PREVIEW, checked = cmd_is_checked(app, CMD_VIEW_PREVIEW)},
+        MenuEntryDyn{separator = true},
+        MenuEntryDyn{label = "Default Layout",        cmd_id = CMD_VIEW_PRESET_DEFAULT},
+        MenuEntryDyn{label = "Rendering Focus Layout", cmd_id = CMD_VIEW_PRESET_RENDER},
+        MenuEntryDyn{label = "Editing Focus Layout",  cmd_id = CMD_VIEW_PRESET_EDIT},
+    )
+    // User-saved presets
+    if len(app.layout_presets) > 0 {
+        append(&view_entries, MenuEntryDyn{separator = true})
+        for &p in app.layout_presets {
+            append(&view_entries, MenuEntryDyn{label = p.name, user_preset_name = p.name})
+        }
     }
+    append(&view_entries,
+        MenuEntryDyn{separator = true},
+        MenuEntryDyn{label = "Save Layout As…", cmd_id = CMD_VIEW_SAVE_PRESET},
+    )
 
     file_entries := []MenuEntryDyn{
         {label = "New",      cmd_id = CMD_FILE_NEW,     shortcut = "Ctrl+N"},
@@ -70,9 +81,22 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
 
     menus := make([]MenuDyn, 3, context.temp_allocator)
     menus[0] = MenuDyn{title = "File",   entries = file_entries}
-    menus[1] = MenuDyn{title = "View",   entries = view_panel_entries}
+    menus[1] = MenuDyn{title = "View",   entries = view_entries[:]}
     menus[2] = MenuDyn{title = "Render", entries = render_entries}
     return menus
+}
+
+// menu_entry_execute runs the action for an entry (cmd_id or user_preset_name).
+@(private="file")
+menu_entry_execute :: proc(app: ^App, entry: ^MenuEntryDyn) {
+    if entry.separator || entry.disabled { return }
+    if len(entry.user_preset_name) > 0 {
+        layout_apply_named_preset(app, entry.user_preset_name)
+        return
+    }
+    if len(entry.cmd_id) > 0 {
+        cmd_execute(app, entry.cmd_id)
+    }
 }
 
 // menu_bar_update handles click to open/close dropdowns and to invoke actions. Call before drawing.
@@ -80,7 +104,6 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
 menu_bar_update :: proc(app: ^App, state: ^MenuBarState, mouse: rl.Vector2, lmb_pressed: bool) {
     if app == nil || state == nil { return }
     menus := get_menus_dynamic(app)
-    sw := f32(rl.GetScreenWidth())
 
     if lmb_pressed {
         // Check if click is inside open dropdown first
@@ -91,24 +114,16 @@ menu_bar_update :: proc(app: ^App, state: ^MenuBarState, mouse: rl.Vector2, lmb_
                 title_c := make_cstring_temp(menus[k].title)
                 px += f32(measure_ui_text(app, title_c, 14).width) + MENU_PADDING * 2
             }
-            visible_count := 0
-            for &e in menu.entries {
-                if !e.separator { visible_count += 1 }
-            }
-            // height = total rows (separators take half height)
             drop_h := entry_list_height(menu.entries)
             dropdown_rect := rl.Rectangle{px, MENU_BAR_HEIGHT + DROP_SHADOW, DROPDOWN_W, drop_h}
 
             if rl.CheckCollisionPointRec(mouse, dropdown_rect) {
-                // Find which entry was clicked
                 local_y := mouse.y - dropdown_rect.y
                 ey: f32 = 0
                 for &entry in menu.entries {
                     ih := entry_height(entry)
                     if local_y >= ey && local_y < ey + ih {
-                        if !entry.separator && !entry.disabled && len(entry.cmd_id) > 0 {
-                            cmd_execute(app, entry.cmd_id)
-                        }
+                        menu_entry_execute(app, &entry)
                         state.open_menu_index = -1
                         app.input_consumed = true
                         return
@@ -146,9 +161,6 @@ menu_bar_update :: proc(app: ^App, state: ^MenuBarState, mouse: rl.Vector2, lmb_
             state.open_menu_index = -1
         }
     }
-
-    // Also consume bar area hover (nothing to do for hover, but keep menu open)
-    _ = sw
 }
 
 // entry_height returns the pixel height for one menu entry (separator = half row).
@@ -190,8 +202,8 @@ menu_bar_draw :: proc(app: ^App, state: ^MenuBarState) {
         menu := &menus[i]
         title_c := make_cstring_temp(menu.title)
         w := f32(measure_ui_text(app, title_c, 14).width) + MENU_PADDING * 2
-        active   := state.open_menu_index == i
-        hovered  := rl.CheckCollisionPointRec(mouse, rl.Rectangle{x, 0, w, MENU_BAR_HEIGHT})
+        active  := state.open_menu_index == i
+        hovered := rl.CheckCollisionPointRec(mouse, rl.Rectangle{x, 0, w, MENU_BAR_HEIGHT})
         bg_color := TITLE_BG_COLOR
         if active {
             bg_color = PANEL_BG_COLOR
@@ -222,7 +234,6 @@ menu_bar_draw :: proc(app: ^App, state: ^MenuBarState) {
             ry := dropdown_rect.y + ey
 
             if entry.separator {
-                // Draw a thin horizontal rule
                 sep_y := i32(ry + ih * 0.5)
                 rl.DrawRectangle(i32(dropdown_rect.x) + 4, sep_y, i32(dropdown_rect.width) - 8, 1, BORDER_COLOR)
                 ey += ih
