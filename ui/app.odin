@@ -109,7 +109,7 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render(app.camera, app.world, app.num_threads)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, false)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
 
@@ -130,7 +130,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []scene.SceneSph
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render(app.camera, app.world, app.num_threads)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, false)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
 
@@ -277,6 +277,7 @@ run_app :: proc(
     camera: ^rt.Camera,
     world: [dynamic]rt.Object,
     num_threads: int,
+    use_gpu: bool = false,
     initial_editor_layout: ^util.EditorLayout = nil,
     config_save_path: string = "",
 ) {
@@ -450,12 +451,21 @@ run_app :: proc(
 
     app_push_log(&app, fmt.aprintf("Scene: %dx%d, %d spp", camera.image_width, camera.image_height, camera.samples_per_pixel))
     app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))
-    app_push_log(&app, strings.clone("Starting render..."))
+    if use_gpu {
+        app_push_log(&app, strings.clone("Starting render (GPU mode requested)..."))
+    } else {
+        app_push_log(&app, strings.clone("Starting render..."))
+    }
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session      = rt.start_render(app.camera, app.world, app.num_threads)
+    app.session      = rt.start_render_auto(app.camera, app.world, app.num_threads, use_gpu)
     app.render_start = time.now()
+
+    // Log the actual render mode after start_render_auto decides CPU vs GPU.
+    if app.session.use_gpu {
+        app_push_log(&app, strings.clone("[GPU] GPU rendering active"))
+    }
 
     frame := 0
 
@@ -496,14 +506,39 @@ run_app :: proc(
             }
         }
 
+        // GPU path: dispatch one more sample per frame until all samples done.
+        if app.session.use_gpu {
+            b := app.session.gpu_backend
+            if b != nil && b.current_sample < b.total_samples {
+                rt.gpu_backend_dispatch(b)
+            }
+        }
+
         if frame % 4 == 0 {
-            upload_render_texture(&app)
+            if app.session.use_gpu {
+                // Only readback while the backend is alive (nil after finish_render).
+                if app.session.gpu_backend != nil {
+                    out_bytes := transmute([][4]u8)(app.pixel_staging)
+                    rt.gpu_backend_readback(app.session.gpu_backend, out_bytes)
+                    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+                }
+            } else {
+                upload_render_texture(&app)
+            }
         }
 
         if !app.finished && rt.get_render_progress(app.session) >= 1.0 {
+            if app.session.use_gpu {
+                // Do a final readback before finish_render destroys the backend.
+                out_bytes := transmute([][4]u8)(app.pixel_staging)
+                rt.gpu_backend_readback(app.session.gpu_backend, out_bytes)
+                rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+            }
             rt.finish_render(app.session)
             app.finished = true
-            upload_render_texture(&app)
+            if !app.session.use_gpu {
+                upload_render_texture(&app)
+            }
             app_push_log(&app, fmt.aprintf("Done! (%.2fs)", app.elapsed_secs))
         }
 

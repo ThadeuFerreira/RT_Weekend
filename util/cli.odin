@@ -15,6 +15,7 @@ Args :: struct {
 	ScenePath:        string,
 	SaveConfigPath:   string,
 	SaveScenePath:    string,
+	UseGPU:           bool,   // -gpu flag: use OpenGL compute-shader path
 }
 
 
@@ -26,7 +27,14 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 		if arg == "-help" || arg == "--help" {
 			fmt.println("Usage: raytracer [-w width] [-h height] [-s samples] [-n spheres] [-c threads]")
 			fmt.println("                [-config path] [-scene path] [-save-config path] [-save-scene path]")
+			fmt.println("                [-gpu]")
 			return false
+		}
+		// Boolean flags (presence = true, no value argument)
+		if arg == "-gpu" {
+			args.UseGPU = true
+			i += 1
+			continue
 		}
 		if arg == "--" {
 			i += 1
