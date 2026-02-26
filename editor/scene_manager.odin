@@ -95,3 +95,11 @@ SetSceneSphere :: proc(sm: ^SceneManager, idx: int, s: core.SceneSphere) {
 	if idx < 0 || idx >= len(sm.objects) { return }
 	sm.objects[idx] = s
 }
+
+// InsertSphereAt inserts a sphere at the given index, shifting later elements right.
+InsertSphereAt :: proc(sm: ^SceneManager, idx: int, s: core.SceneSphere) {
+	if sm == nil { return }
+	if idx < 0 || idx > len(sm.objects) { return }
+	obj: EditorObject = s
+	inject_at(&sm.objects, idx, obj)
+}
