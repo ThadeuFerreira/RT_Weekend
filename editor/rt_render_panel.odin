@@ -84,12 +84,13 @@ draw_dropdown :: proc(
     x, y: f32,
     w, h: f32,
     active: bool,
+    label_offset: f32 = 55,
 ) -> rl.Rectangle {
     // Label
     draw_ui_text(app, label, i32(x), i32(y + 4), 12, CONTENT_TEXT_COLOR)
 
     // Dropdown box
-    box := rl.Rectangle{x + 55, y, w, h}
+    box := rl.Rectangle{x + label_offset, y, w, h}
     bg_color := active ? rl.Color{50, 60, 85, 255} : rl.Color{40, 42, 55, 255}
     border_color := active ? ACCENT_COLOR : BORDER_COLOR
     rl.DrawRectangleRec(box, bg_color)
@@ -186,7 +187,7 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
     base_x := content.x + RENDER_PADDING_X
 
     // Height input
-    height_box := draw_input_field(
+    _ = draw_input_field(
         app,
         "Height:",
         app.r_height_input,
@@ -197,17 +198,18 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
 
     // Aspect ratio dropdown
     aspect_options := [2]cstring{"4:3", "16:9"}
-    aspect_box := draw_dropdown(
+    _ = draw_dropdown(
         app,
         "Aspect:",
         app.r_aspect_ratio,
         aspect_options[:],
         base_x + RENDER_ASPECT_X, input_y, RENDER_DROPDOWN_W, RENDER_INPUT_H,
         app.r_active_input == 3,
+        RENDER_ASPECT_LABEL_W,
     )
 
     // Samples input
-    samples_box := draw_input_field(
+    _ = draw_input_field(
         app,
         "Samples:",
         app.r_samples_input,
