@@ -153,6 +153,16 @@ App :: struct {
     // User's chosen render path (GPU vs CPU). Persists across scene changes and re-renders until toggled.
     prefer_gpu:    bool,
 
+    // Render settings inputs (editable in render panel)
+    r_height_input:     string,  // e.g., "600" (vertical resolution)
+    r_samples_input:    string,  // e.g., "10"
+    r_aspect_ratio:     int,     // 0=4:3, 1=16:9
+    r_active_input:     int,     // 0=none, 1=height, 2=samples, 3=aspect dropdown
+    r_render_btn_down:  bool,    // button pressed state
+
+    // Track if render settings or scene have changed since last render
+    r_render_pending:   bool,    // true when settings or scene changed
+
     log_lines:     [LOG_RING_SIZE]string,
     log_count:     int,
 
@@ -341,11 +351,15 @@ run_app :: proc(
     defer delete(pixel_staging)
 
     app := App{
-        render_tex      = render_tex,
-        pixel_staging   = pixel_staging,
-        use_sdf_font    = sdf_ok,
-        ui_font         = ui_font,
-        ui_font_shader  = ui_shader,
+        render_tex          = render_tex,
+        pixel_staging       = pixel_staging,
+        use_sdf_font        = sdf_ok,
+        ui_font             = ui_font,
+        ui_font_shader      = ui_shader,
+        r_height_input      = fmt.aprintf("%d", r_camera.image_height),
+        r_samples_input     = fmt.aprintf("%d", r_camera.samples_per_pixel),
+        r_aspect_ratio      = 1, // default to 16:9
+        r_render_pending    = true, // initial render needed
     }
     when USE_SDF_FONT {
         if has_custom_ui_font(&app) {
@@ -398,15 +412,18 @@ run_app :: proc(
     defer {
         for p in app.panels { free(p) }
         delete(app.panels)
+        delete(app.r_height_input)
+        delete(app.r_samples_input)
     }
 
     app_add_panel(&app, make_panel(PanelDesc{
-        id           = PANEL_ID_RENDER,
-        title        = "Render Preview",
-        rect         = rl.Rectangle{10, 30, 820, 700},
-        min_size     = rl.Vector2{200, 150},
-        visible      = true,
-        draw_content = draw_render_content,
+        id             = PANEL_ID_RENDER,
+        title          = "Render Preview",
+        rect           = rl.Rectangle{10, 30, 820, 700},
+        min_size       = rl.Vector2{260, 200},
+        visible        = true,
+        draw_content   = draw_render_content,
+        update_content = update_render_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
         id             = PANEL_ID_STATS,
