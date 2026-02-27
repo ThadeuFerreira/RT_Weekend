@@ -124,24 +124,24 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     if app.finished {
         profile := rt.get_render_profile(app.session)
         if profile != nil && profile.total_seconds > 0 {
-            if y > content_bottom { return }
+            if y >= content_bottom { return }
             draw_ui_text(app, "Performance:", x, y, fs, CONTENT_TEXT_COLOR)
             y += line_h
-            if y > content_bottom { return }
+            if y >= content_bottom { return }
             draw_ui_text(app, fmt.ctprintf("  Total: %.2fs", profile.total_seconds), x, y, fs, CONTENT_TEXT_COLOR)
             y += line_h
             for i in 0..<profile.phase_count {
-                if y > content_bottom { break }
+                if y >= content_bottom { break }
                 p := profile.phases[i]
                 if p.seconds <= 0 { continue }
                 draw_ui_text(app, fmt.ctprintf("  %s: %.2fs (%.1f%%)", p.name, p.seconds, p.percent), x, y, fs, CONTENT_TEXT_COLOR)
                 y += line_h
             }
             if profile.has_sample_breakdown {
-                if y > content_bottom { return }
+                if y >= content_bottom { return }
                 draw_ui_text(app, "  Sample: Ray/Int/Scat/BG/Pix %", x, y, fs, CONTENT_TEXT_COLOR)
                 y += line_h
-                if y > content_bottom { return }
+                if y >= content_bottom { return }
                 draw_ui_text(app, fmt.ctprintf("  %.1f / %.1f / %.1f / %.1f / %.1f",
                     profile.sample_get_ray_pct, profile.sample_intersection_pct, profile.sample_scatter_pct,
                     profile.sample_background_pct, profile.sample_pixel_setup_pct), x, y, fs, CONTENT_TEXT_COLOR)
