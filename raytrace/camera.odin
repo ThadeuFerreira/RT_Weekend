@@ -400,7 +400,7 @@ get_render_progress :: proc(session: ^RenderSession) -> f32 {
 finish_render :: proc(session: ^RenderSession) {
     if session.use_gpu {
         stop_timer(&session.timing.total)
-        aggregate_into_summary(&session.timing, nil, 0, &session.last_profile)
+        aggregate_into_summary(&session.timing, nil, &session.last_profile)
         // GPU path: only buffer_creation and bvh_construction were timed in start_render_auto; other phases stay zero.
         if session.gpu_backend != nil {
             gpu_backend_destroy(session.gpu_backend)
@@ -499,7 +499,7 @@ finish_render :: proc(session: ^RenderSession) {
     )
 
     rendering_time := get_elapsed_seconds(session.timing.rendering)
-    aggregate_into_summary(&session.timing, &rendering_breakdown, rendering_time, &session.last_profile)
+    aggregate_into_summary(&session.timing, &rendering_breakdown, &session.last_profile)
 
     print_rendering_breakdown(&rendering_breakdown, rendering_time)
 }

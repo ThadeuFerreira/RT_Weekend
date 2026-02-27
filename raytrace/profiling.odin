@@ -307,7 +307,6 @@ print_rendering_breakdown :: proc(breakdown: ^RenderingBreakdown, total_renderin
 aggregate_into_summary :: proc(
     parallel: ^ParallelTimingBreakdown,
     rendering: ^RenderingBreakdown,
-    rendering_wall_s: f64,
     summary: ^RenderProfileSummary,
 ) {
     summary^ = {}
