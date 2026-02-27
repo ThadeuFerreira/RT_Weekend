@@ -9,6 +9,7 @@ import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
 
 // calculate_render_dimensions computes width and height from app settings.
+// Returns false if dimensions are out of bounds (16k max, 720p min).
 calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool) {
     h, h_ok := strconv.parse_int(strings.trim_space(app.r_height_input))
     if !h_ok || h <= 0 {
@@ -22,6 +23,14 @@ calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool)
         aspect = 16.0 / 9.0
     }
     w := int(f32(h) * aspect)
+
+    // Check bounds (16k max, 720p min)
+    if h < MIN_RENDER_HEIGHT || h > MAX_RENDER_HEIGHT {
+        return w, h, false
+    }
+    if w < MIN_RENDER_WIDTH || w > MAX_RENDER_WIDTH {
+        return w, h, false
+    }
 
     return w, h, true
 }
@@ -509,12 +518,28 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			delete(app.r_world)
 			app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
 
-			// Parse render settings and start render
+			// Parse render settings
 			width, height, res_ok := calculate_render_dimensions(app)
 			samples, samp_ok := strconv.parse_int(app.r_samples_input)
 
 			if !res_ok {
-				app_push_log(app, strings.clone("Invalid height. Must be a positive integer."))
+				// Check if it's a parse error or bounds error
+				h, h_ok := strconv.parse_int(strings.trim_space(app.r_height_input))
+				if !h_ok || h <= 0 {
+					app_push_log(app, strings.clone("Invalid height. Must be a positive integer."))
+				} else {
+					// Bounds error
+					if h < MIN_RENDER_HEIGHT {
+						app_push_log(app, fmt.aprintf("Warning: Height %d below minimum (%d)", h, MIN_RENDER_HEIGHT))
+					} else if h > MAX_RENDER_HEIGHT {
+						app_push_log(app, fmt.aprintf("Warning: Height %d exceeds maximum (%d)", h, MAX_RENDER_HEIGHT))
+					}
+					if width < MIN_RENDER_WIDTH {
+						app_push_log(app, fmt.aprintf("Warning: Width %d below minimum (%d)", width, MIN_RENDER_WIDTH))
+					} else if width > MAX_RENDER_WIDTH {
+						app_push_log(app, fmt.aprintf("Warning: Width %d exceeds maximum (%d)", width, MAX_RENDER_WIDTH))
+					}
+				}
 			} else if !samp_ok || samples <= 0 {
 				app_push_log(app, strings.clone("Invalid samples count. Must be a positive integer."))
 			} else {

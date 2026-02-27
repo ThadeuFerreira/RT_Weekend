@@ -29,6 +29,12 @@ RENDER_SAMPLES_X :: f32(280)    // Samples input: RENDER_ASPECT_X + 145
 RENDER_SAMPLES_LABEL_W :: f32(60) // Width for "Samples:" label
 RENDER_INFO_X :: f32(405)       // Info text: RENDER_SAMPLES_X + 125
 
+// Resolution bounds (16k max, 720p min)
+MIN_RENDER_HEIGHT :: 720
+MAX_RENDER_HEIGHT :: 16384
+MIN_RENDER_WIDTH :: 1280  // 720p at 16:9 is 1280x720
+MAX_RENDER_WIDTH :: 16384
+
 // render_settings_height returns the height of the settings area above the render preview.
 render_settings_height :: proc() -> f32 {
     return RENDER_ROW_H + 8 // input row + padding
@@ -108,6 +114,16 @@ draw_dropdown :: proc(
 // rebuilds the render texture, and starts a fresh render.
 restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     if !app.finished { return }
+
+    // Validate resolution bounds
+    if height < MIN_RENDER_HEIGHT || height > MAX_RENDER_HEIGHT {
+        app_push_log(app, fmt.aprintf("Warning: Height %d is out of bounds (%d-%d)", height, MIN_RENDER_HEIGHT, MAX_RENDER_HEIGHT))
+        return
+    }
+    if width < MIN_RENDER_WIDTH || width > MAX_RENDER_WIDTH {
+        app_push_log(app, fmt.aprintf("Warning: Width %d is out of bounds (%d-%d)", width, MIN_RENDER_WIDTH, MAX_RENDER_WIDTH))
+        return
+    }
 
     // Free old session
     rt.free_session(app.r_session)
