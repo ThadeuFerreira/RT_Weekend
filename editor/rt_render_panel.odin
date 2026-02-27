@@ -7,13 +7,7 @@ import "core:time"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 
-// AspectRatio enum for dropdown selection
-AspectRatio :: enum {
-    Ratio_4_3,
-    Ratio_16_9,
-}
-
-// Aspect ratio values for calculations
+// get_aspect_ratio returns the aspect ratio for the given index (0=4:3, 1=16:9).
 get_aspect_ratio :: proc(idx: int) -> f32 {
     if idx == 0 { return 4.0 / 3.0 }
     return 16.0 / 9.0
@@ -53,11 +47,12 @@ draw_input_field :: proc(
 
     // Text content (with cursor if active)
     display_text := text
-    if active && int(rl.GetTime() * 2) % 2 == 0 {
+    show_cursor := active && int(rl.GetTime() * 2) % 2 == 0
+    if show_cursor {
         display_text = fmt.aprintf("%s_", text)
     }
     draw_ui_text(app, fmt.ctprintf("%s", display_text), i32(box.x + 6), i32(box.y + 4), 12, CONTENT_TEXT_COLOR)
-    if active && int(rl.GetTime() * 2) % 2 == 0 {
+    if show_cursor {
         delete(display_text)
     }
 
@@ -98,18 +93,6 @@ draw_dropdown :: proc(
     return box
 }
 
-// calculate_dimensions computes width and height from height input and aspect ratio.
-calculate_dimensions :: proc(height_str: string, aspect_idx: int) -> (width, height: int, ok: bool) {
-    h, h_ok := strconv.parse_int(strings.trim_space(height_str))
-    if !h_ok || h <= 0 {
-        return 0, 0, false
-    }
-
-    aspect := get_aspect_ratio(aspect_idx)
-    w := int(f32(h) * aspect)
-
-    return w, h, true
-}
 
 // restart_render_with_settings creates a new camera with the specified resolution and samples,
 // rebuilds the render texture, and starts a fresh render.
@@ -213,7 +196,7 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
     // but update_render_content recalculates - just keep the offsets in sync!)
 
     // Show calculated width
-    if width, height, ok := calculate_dimensions(app.r_height_input, app.r_aspect_ratio); ok {
+    if width, height, ok := calculate_render_dimensions(app); ok {
         info_x := samples_x + 125
         draw_ui_text(app, fmt.ctprintf("= %dx%d", width, height), i32(info_x), i32(input_y + 4), 12, rl.Color{140, 150, 165, 255})
     }

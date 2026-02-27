@@ -158,7 +158,6 @@ App :: struct {
     r_samples_input:    string,  // e.g., "10"
     r_aspect_ratio:     int,     // 0=4:3, 1=16:9
     r_active_input:     int,     // 0=none, 1=height, 2=samples, 3=aspect dropdown
-    r_render_btn_down:  bool,    // button pressed state
 
     // Track if render settings or scene have changed since last render
     r_render_pending:   bool,    // true when settings or scene changed
