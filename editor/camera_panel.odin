@@ -4,7 +4,7 @@ import "core:fmt"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
 
-// Camera panel drag state (which field is being dragged).
+// CameraPanelState: camera panel drag state (which field is being dragged).
 CameraPanelState :: struct {
 	drag_idx:       int,   // 0..9: from_xyz, at_xyz, vfov, defocus, focus_dist, max_depth
 	drag_start_x:   f32,
@@ -54,8 +54,8 @@ draw_camera_panel_drag_field :: proc(app: ^App, label: cstring, value: f32, box:
 }
 
 draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
-	cp := &app.camera_panel
-	p  := &app.camera_params
+	cp := &app.e_camera_panel
+	p  := &app.c_camera_params
 	mouse := rl.GetMousePosition()
 
 	rl.DrawRectangleRec(content, rl.Color{25, 28, 40, 240})
@@ -87,8 +87,8 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
-	cp := &app.camera_panel
-	p  := &app.camera_params
+	cp := &app.e_camera_panel
+	p  := &app.c_camera_params
 	content := rect
 
 	if cp.drag_idx >= 0 {

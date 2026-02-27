@@ -88,7 +88,7 @@ Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is
 
 ### Non-blocking Render API (`raytrace/camera.odin`)
 Three procedures replace the old blocking `render_parallel`:
-- `start_render(camera, world, num_threads) -> ^RenderSession` — allocates buffer, builds BVH, spawns threads, returns immediately
+- `start_render(r_camera, world, num_threads) -> ^RenderSession` — allocates buffer, builds BVH, spawns threads, returns immediately
 - `get_render_progress(session) -> f32` — returns 0.0–1.0; safe to call from any thread
 - `finish_render(session)` — joins threads, frees BVH + contexts, prints timing breakdown to stdout
 
@@ -134,3 +134,4 @@ Simple `Interval` struct used for ray `t`-range clamping and AABB overlap tests.
 - No heap allocator is configured explicitly; Odin's default context allocator is used.
 - Worker threads receive their context via `thread.Thread.data` (a `rawptr` cast to `^ParallelRenderContext`).
 - The Raylib trace log callback uses `proc "c"` calling convention; `context = runtime.default_context()` is required at the top to use Odin allocators.
+- **Naming (scope prefixes):** Use idiomatic Odin type/function names. Variables/fields use short scope prefixes where useful: `e_` (editor), `r_` (render), `c_` (core). See each package's AGENTS.md for the convention.

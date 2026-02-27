@@ -3,7 +3,7 @@ package editor
 import rl "vendor:raylib"
 
 // draw_preview_port_content renders a rasterized 3D preview from the render camera
-// (app.camera_params) and scene (via scene manager export) into the panel content area.
+// (app.c_camera_params) and scene (via scene manager export) into the panel content area.
 draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	new_w := i32(content.width)
 	new_h := i32(content.height)
@@ -21,7 +21,7 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 
 	if app.preview_port_w <= 0 || app.preview_port_h <= 0 { return }
 
-	cp := &app.camera_params
+	cp := &app.c_camera_params
 	cam3d := rl.Camera3D{
 		position   = rl.Vector3{cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]},
 		target     = rl.Vector3{cp.lookat[0], cp.lookat[1], cp.lookat[2]},
@@ -35,8 +35,8 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.BeginMode3D(cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	ExportToSceneSpheres(app.edit_view.scene_mgr, &app.edit_view.export_scratch)
-	for s in app.edit_view.export_scratch {
+	ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
+	for s in app.e_edit_view.export_scratch {
 		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 		col := rl.Color{
 			u8(clamp(s.albedo[0], f32(0), f32(1)) * 255),

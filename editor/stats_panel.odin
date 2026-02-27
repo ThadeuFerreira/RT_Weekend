@@ -30,7 +30,7 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     draw_ui_text(app, app.prefer_gpu ? cstring(" GPU") : cstring(" CPU"), i32(box.x + box.width + 4), y, fs, CONTENT_TEXT_COLOR)
     y += line_h
 
-    session := app.session
+    session := app.r_session
     if session == nil { return }
 
     elapsed := app.elapsed_secs
@@ -90,13 +90,13 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     y += line_h
 
     draw_ui_text(app,
-        fmt.ctprintf("Size:     %dx%d", session.camera.image_width, session.camera.image_height),
+        fmt.ctprintf("Size:     %dx%d", session.r_camera.image_width, session.r_camera.image_height),
         x, y, fs, CONTENT_TEXT_COLOR,
     )
     y += line_h
 
     draw_ui_text(app,
-        fmt.ctprintf("Samples:  %d/px", session.camera.samples_per_pixel),
+        fmt.ctprintf("Samples:  %d/px", session.r_camera.samples_per_pixel),
         x, y, fs, CONTENT_TEXT_COLOR,
     )
     y += line_h
@@ -122,7 +122,7 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     // Performance: per-step times when render is complete (CLI and UI share same summary).
     content_bottom := i32(content.y + content.height)
     if app.finished {
-        profile := rt.get_render_profile(app.session)
+        profile := rt.get_render_profile(app.r_session)
         if profile != nil && profile.total_seconds > 0 {
             if y >= content_bottom { return }
             draw_ui_text(app, "Performance:", x, y, fs, CONTENT_TEXT_COLOR)

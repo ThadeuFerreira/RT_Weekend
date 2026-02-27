@@ -11,10 +11,10 @@ import rt "RT_Weekend:raytrace"
 cmd_action_file_new :: proc(app: ^App) {
     if !app.finished { return }
 
-    rt.free_session(app.session)
-    app.session = nil
+    rt.free_session(app.r_session)
+    app.r_session = nil
 
-    ev := &app.edit_view
+    ev := &app.e_edit_view
     initial := [3]core.SceneSphere{
         {center = {-1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}},
         {center = { 0,   0.5, 0}, radius = 0.5, material_kind = .Metallic,   albedo = {0.2, 0.2, 0.8}, fuzz = 0.1},
@@ -28,15 +28,15 @@ LoadFromSceneSpheres(ev.scene_mgr, initial[:])
     app.current_scene_path = ""
 
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    delete(app.world)
-    app.world = rt.build_world_from_scene(ev.export_scratch[:])
+    delete(app.r_world)
+    app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
 
     app.finished     = false
     app.elapsed_secs = 0
 
-    rt.apply_scene_camera(app.camera, &app.camera_params)
-    rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
+    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+    rt.init_camera(app.r_camera)
+    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
     app_push_log(app, strings.clone("New scene (3 default spheres)"))
 }
 
@@ -46,12 +46,12 @@ cmd_action_file_import :: proc(app: ^App) {
 
 cmd_action_file_save :: proc(app: ^App) {
     if len(app.current_scene_path) == 0 { return }
-    ev := &app.edit_view
+    ev := &app.e_edit_view
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := rt.build_world_from_scene(ev.export_scratch[:])
     defer delete(world)
-    rt.apply_scene_camera(app.camera, &app.camera_params)
-    if persistence.save_scene(app.current_scene_path, app.camera, world) {
+    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+    if persistence.save_scene(app.current_scene_path, app.r_camera, world) {
         app_push_log(app, fmt.aprintf("Saved: %s", app.current_scene_path))
     } else {
         app_push_log(app, fmt.aprintf("Save failed: %s", app.current_scene_path))
@@ -124,7 +124,7 @@ cmd_action_save_preset :: proc(app: ^App) {
 // ── Render actions ───────────────────────────────────────────────────────────
 
 cmd_action_render_restart :: proc(app: ^App) {
-    ev := &app.edit_view
+    ev := &app.e_edit_view
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     app_restart_render_with_scene(app, ev.export_scratch[:])
 }
@@ -137,7 +137,7 @@ cmd_enabled_render_restart :: proc(app: ^App) -> bool {
 
 // apply_edit_action applies an EditAction in the undo (is_undo=true) or redo (is_undo=false) direction.
 apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
-    ev := &app.edit_view
+    ev := &app.e_edit_view
     switch a in action {
     case ModifySphereAction:
         sphere := a.before if is_undo else a.after
@@ -173,10 +173,10 @@ apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
         }
     case ModifyCameraAction:
         if is_undo {
-            app.camera_params = a.before
+            app.c_camera_params = a.before
             app_push_log(app, strings.clone("Undo: camera"))
         } else {
-            app.camera_params = a.after
+            app.c_camera_params = a.after
             app_push_log(app, strings.clone("Redo: camera"))
         }
     }

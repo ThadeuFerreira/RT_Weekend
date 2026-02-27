@@ -14,6 +14,10 @@ This package is the **editor**: Raylib window, panels, menus, layout, widgets, f
 - **File modal** — **file_modal.odin**: Import / Save As / Preset Name dialog; uses **persistence** for load_scene/save_scene.
 - **Viewport / picking** — **viewport.odin**: `EditorObject`, `compute_viewport_ray`, `ray_hit_plane_y`, `pick_camera`. **scene_manager.odin**: `SceneManager`, `LoadFromSceneSpheres`, `ExportToSceneSpheres`, `GetSceneSphere`, `SetSceneSphere`, etc. **materials.odin**: `material_name(k: core.MaterialKind)`.
 
+## Naming / scope
+
+Use idiomatic Odin names for editor types/functions. Use scoped variable/field prefixes: `e_` for editor state (e.g. `e_edit_view`, `e_menu_bar`, `e_object_props`, `e_camera_panel`), `r_` for render state (`app.r_camera`, `app.r_session`, `app.r_world`), and `c_` for core params (`app.c_camera_params`).
+
 Panel content procs live in: **rt_render_panel.odin**, **stats_panel.odin**, **log_panel.odin**, **system_info.odin**, **edit_view_panel.odin**, **camera_panel.odin**, **camera_preview_panel.odin**, **object_props_panel.odin**.
 
 ## Dependency rule

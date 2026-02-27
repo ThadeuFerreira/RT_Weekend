@@ -61,7 +61,7 @@ TileWorkQueue :: struct {
 }
 
 ParallelRenderContext :: struct {
-    camera:            ^Camera,
+    r_camera:          ^Camera,
     world:             [dynamic]Object,
     buffer:            ^TestPixelBuffer,
     work_queue:        ^TileWorkQueue,
@@ -77,7 +77,7 @@ ParallelRenderContext :: struct {
 }
 
 RenderSession :: struct {
-    camera:                      ^Camera,
+    r_camera:                    ^Camera,
     pixel_buffer:                TestPixelBuffer,
     work_queue:                  TileWorkQueue,
     threads:                     []^thread.Thread,
@@ -169,11 +169,11 @@ init_camera :: proc(c :^Camera){
     c.defocus_disk_v = defocus_radius * c.v
 }
 
-get_ray :: proc(camera : ^Camera, u : f32, v : f32, rng: ^util.ThreadRNG) -> ray {
+get_ray :: proc(r_camera: ^Camera, u : f32, v : f32, rng: ^util.ThreadRNG) -> ray {
     offset := sample_square(rng)
-    pixel_sample := camera.pixel00_loc + (u+offset[0])*camera.pixel_delta_u + (v + offset[1])*camera.pixel_delta_v
+    pixel_sample := r_camera.pixel00_loc + (u+offset[0])*r_camera.pixel_delta_u + (v + offset[1])*r_camera.pixel_delta_v
 
-    ray_origin := (camera.defocus_angle <= 0)? camera.center : defocus_disk_sample(camera, rng)
+    ray_origin := (r_camera.defocus_angle <= 0)? r_camera.center : defocus_disk_sample(r_camera, rng)
     ray_direction := pixel_sample - ray_origin
 
     return ray{ray_origin, ray_direction}
@@ -181,11 +181,11 @@ get_ray :: proc(camera : ^Camera, u : f32, v : f32, rng: ^util.ThreadRNG) -> ray
 
 // pixel_to_ray returns a deterministic ray through the center of pixel (px, py).
 // No antialiasing jitter, no depth-of-field. Intended for mouse picking only.
-pixel_to_ray :: proc(camera: ^Camera, px, py: f32) -> ray {
-    pixel_world := camera.pixel00_loc +
-                   px * camera.pixel_delta_u +
-                   py * camera.pixel_delta_v
-    return ray{camera.center, pixel_world - camera.center}
+pixel_to_ray :: proc(r_camera: ^Camera, px, py: f32) -> ray {
+    pixel_world := r_camera.pixel00_loc +
+                   px * r_camera.pixel_delta_u +
+                   py * r_camera.pixel_delta_v
+    return ray{r_camera.center, pixel_world - r_camera.center}
 }
 
 defocus_disk_sample :: proc(c : ^Camera, rng: ^util.ThreadRNG) -> [3]f32 {
@@ -220,7 +220,7 @@ generate_tiles :: proc(image_width: int, image_height: int, tile_size: int) -> [
 }
 
 render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
-    camera := ctx.camera
+    camera := ctx.r_camera
     world := ctx.world
     buffer := ctx.buffer
     rng := &ctx.rng
@@ -287,21 +287,21 @@ worker_thread :: proc(t: ^thread.Thread) {
     }
 }
 
-start_render :: proc(camera: ^Camera, world: [dynamic]Object, num_threads: int) -> ^RenderSession {
+start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int) -> ^RenderSession {
     session := new(RenderSession)
-    session.camera = camera
+    session.r_camera = r_camera
     session.num_threads = num_threads
     session.start_time = time.now()
 
     session.timing = start_parallel_timing()
 
     session.timing.buffer_creation = start_timer()
-    session.pixel_buffer = create_test_pixel_buffer(camera.image_width, camera.image_height)
+    session.pixel_buffer = create_test_pixel_buffer(r_camera.image_width, r_camera.image_height)
     stop_timer(&session.timing.buffer_creation)
 
     session.timing.tile_generation = start_timer()
     tile_size := 32
-    tiles := generate_tiles(camera.image_width, camera.image_height, tile_size)
+    tiles := generate_tiles(r_camera.image_width, r_camera.image_height, tile_size)
     stop_timer(&session.timing.tile_generation)
 
     session.work_queue = TileWorkQueue{
@@ -331,7 +331,7 @@ start_render :: proc(camera: ^Camera, world: [dynamic]Object, num_threads: int) 
     for i in 0..<num_threads {
         ctx := new(ParallelRenderContext)
         ctx^ = ParallelRenderContext{
-            camera            = camera,
+            r_camera          = r_camera,
             world             = world,
             buffer            = &session.pixel_buffer,
             work_queue        = &session.work_queue,
@@ -404,9 +404,9 @@ finish_render :: proc(session: ^RenderSession) {
         stop_timer(&session.timing.total)
         aggregate_into_summary(&session.timing, nil, &session.last_profile)
         // GPU path: only buffer_creation and bvh_construction were timed in start_render_auto; other phases stay zero.
-        if session.gpu_backend != nil {
-            gpu_backend_destroy(session.gpu_backend)
-            session.gpu_backend = nil
+        if session.gpu_renderer != nil {
+            gpu_renderer_destroy(session.gpu_renderer)
+            session.gpu_renderer = nil
         }
         if session.linear_bvh != nil {
             delete(session.linear_bvh)
@@ -493,9 +493,9 @@ finish_render :: proc(session: ^RenderSession) {
     total_tiles := session.work_queue.total_tiles
     print_parallel_timing_breakdown(
         &session.timing,
-        session.camera.image_width,
-        session.camera.image_height,
-        session.camera.samples_per_pixel,
+        session.r_camera.image_width,
+        session.r_camera.image_height,
+        session.r_camera.samples_per_pixel,
         session.num_threads,
         total_tiles,
     )
@@ -518,24 +518,24 @@ finish_render :: proc(session: ^RenderSession) {
 // CPU path (use_gpu=false or GPU init failure):
 //   Identical to calling start_render directly.
 start_render_auto :: proc(
-    cam:         ^Camera,
+    r_camera:    ^Camera,
     world:       [dynamic]Object,
     num_threads: int,
     use_gpu:     bool,
 ) -> ^RenderSession {
     if !use_gpu {
-        return start_render(cam, world, num_threads)
+        return start_render(r_camera, world, num_threads)
     }
 
     // Build session without spawning CPU worker threads.
     session := new(RenderSession)
-    session.camera      = cam
+    session.r_camera    = r_camera
     session.num_threads = 0
     session.start_time  = time.now()
     session.timing      = start_parallel_timing()
 
     session.timing.buffer_creation = start_timer()
-    session.pixel_buffer = create_test_pixel_buffer(cam.image_width, cam.image_height)
+    session.pixel_buffer = create_test_pixel_buffer(r_camera.image_width, r_camera.image_height)
     stop_timer(&session.timing.buffer_creation)
 
     session.timing.bvh_construction = start_timer()
@@ -552,7 +552,7 @@ start_render_auto :: proc(
     session.thread_rendering_breakdowns = make([dynamic]ThreadRenderingBreakdown, 0)
 
     // Try to initialise the GPU renderer (platform-aware factory).
-    renderer := create_gpu_renderer(cam, world_slice, session.linear_bvh, cam.samples_per_pixel)
+    renderer := create_gpu_renderer(r_camera, world_slice, session.linear_bvh, r_camera.samples_per_pixel)
     if renderer != nil {
         session.gpu_renderer = renderer
         session.use_gpu      = true
@@ -572,5 +572,5 @@ start_render_auto :: proc(
     delete(session.thread_rendering_breakdowns)
     free(session)
 
-    return start_render(cam, world, num_threads)
+    return start_render(r_camera, world, num_threads)
 }

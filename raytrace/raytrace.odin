@@ -22,7 +22,7 @@ set_pixel :: proc(buffer: ^TestPixelBuffer, x: int, y: int, color: [3]f32) {
     }
 }
 
-write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, camera: ^Camera) {
+write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camera: ^Camera) {
     f, err := os.open(file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0644)
     if err != os.ERROR_NONE {
         fmt.fprint(os.stderr, "Error opening file: %s\n", err)
@@ -45,7 +45,7 @@ write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, camera:
 
     for y in 0..<buffer.height {
         for x in 0..<buffer.width {
-            raw_color := buffer.pixels[y * buffer.width + x] * camera.pixel_samples_scale
+            raw_color := buffer.pixels[y * buffer.width + x] * r_camera.pixel_samples_scale
 
             r := linear_to_gamma(raw_color[0])
             g := linear_to_gamma(raw_color[1])

@@ -130,7 +130,7 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 // can be shared by object implementations without creating package cycles.
 
 draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSphere) {
-	ev := &app.edit_view
+	ev := &app.e_edit_view
 	new_w := i32(vp_rect.width)
 	new_h := i32(vp_rect.height)
 
@@ -164,7 +164,7 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 	}
 
 	// Render camera gizmo: bright pink square base + pyramid (lens) fused, camera-shaped
-	cp := &app.camera_params
+	cp := &app.c_camera_params
 	cam_pos := rl.Vector3{cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
 	cam_at  := rl.Vector3{cp.lookat[0], cp.lookat[1], cp.lookat[2]}
 	vup     := rl.Vector3{cp.vup[0], cp.vup[1], cp.vup[2]}
@@ -257,7 +257,7 @@ draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: b
 }
 
 draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []core.SceneSphere) {
-	ev := &app.edit_view
+	ev := &app.e_edit_view
 	rl.DrawRectangleRec(rect, rl.Color{25, 28, 40, 240})
 	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
 
@@ -307,7 +307,7 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 // ── Panel draw ─────────────────────────────────────────────────────────────
 
 draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
-	ev    := &app.edit_view
+	ev    := &app.e_edit_view
 	mouse := rl.GetMousePosition()
 
 	// Toolbar
@@ -367,7 +367,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 // ── Panel update ───────────────────────────────────────────────────────────
 
 update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
-	ev      := &app.edit_view
+	ev      := &app.e_edit_view
 	content := rect
 
 	// Orbit camera is always updated at the end, even on early return.
@@ -470,7 +470,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			return
 		}
 		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
-			// Apply current app.camera_params to raytracer and start render
+			// Apply current app.c_camera_params to raytracer and start render
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			app_restart_render_with_scene(app, ev.export_scratch[:])
 			if g_app != nil { g_app.input_consumed = true }
@@ -481,9 +481,9 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 	btn_from_view := rl.Rectangle{content.x + content.width - 180, content.y + 5, 82, 22}
 	if lmb_pressed && rl.CheckCollisionPointRec(mouse, btn_from_view) {
 		lookfrom, lookat := get_orbit_camera_pose(ev)
-		app.camera_params.lookfrom = lookfrom
-		app.camera_params.lookat   = lookat
-		app.camera_params.vup      = [3]f32{0, 1, 0}
+		app.c_camera_params.lookfrom = lookfrom
+		app.c_camera_params.lookat   = lookat
+		app.c_camera_params.vup      = [3]f32{0, 1, 0}
 		return
 	}
 
@@ -554,7 +554,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 						}
 					}
 				}
-			} else if pick_camera(ray, app.camera_params.lookfrom) {
+			} else if pick_camera(ray, app.c_camera_params.lookfrom) {
 				ev.selection_kind  = .Camera
 				ev.selected_idx    = -1
 				ev.drag_obj_active = false

@@ -4,8 +4,12 @@ This package is the **path tracer only**: camera, BVH, materials, ray math, tile
 
 ## Purpose
 
-- **Camera** — `Camera`, `make_camera`, `init_camera`, `apply_scene_camera`, `copy_camera_to_scene_params`; non-blocking render API: `start_render`, `get_render_progress`, `finish_render`, `RenderSession`.
+- **Camera** — `Camera`, `make_camera`, `init_camera`, `apply_scene_camera`, `copy_camera_to_scene_params`; non-blocking render API: `start_render`, `get_render_progress`, `finish_render`, `RenderSession` (field `r_camera`).
 - **Scene build** — `convert_world_to_edit_spheres`, `build_world_from_scene` (core.SceneSphere ↔ Object).
+
+## Naming / scope
+
+Use idiomatic Odin names for raytrace types/functions (`Camera`, `make_camera`, `init_camera`, etc.). Use `r_` for variables/fields that hold render state (e.g. `r_camera`, `r_session`, `r_world`).
 - **Geometry** — `Sphere`, `Cube`, `Object` union; BVH and intersection in **hittable.odin**.
 - **Materials** — `material` union (lambertian, metallic, dielectric), `scatter` in **material.odin**.
 - **Ray / color** — Vec3, ray math, `ray_color`, `linear_to_gamma` in **vector3.odin**; **raytrace.odin**: `TestPixelBuffer`, `write_buffer_to_ppm`, scene setup helpers.
