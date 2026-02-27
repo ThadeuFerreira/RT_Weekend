@@ -1,0 +1,37 @@
+{
+  "camera": {
+    "lookfrom": [0, 1, 5],
+    "lookat": [0, 0, 0],
+    "vup": [0, 1, 0],
+    "vfov": 35,
+    "defocus_angle": 0,
+    "focus_dist": 5,
+    "max_depth": 15
+  },
+  "objects": [
+    {
+      "type": "sphere",
+      "center": [0, -100.5, 0],
+      "radius": 100,
+      "material": { "type": "lambertian", "albedo": [0.6, 0.6, 0.6] }
+    },
+    {
+      "type": "sphere",
+      "center": [-1.1, 0, 0],
+      "radius": 0.5,
+      "material": { "type": "lambertian", "albedo": [0.8, 0.3, 0.1] }
+    },
+    {
+      "type": "sphere",
+      "center": [0, 0, 0],
+      "radius": 0.5,
+      "material": { "type": "metal", "albedo": [0.8, 0.8, 0.8], "fuzz": 0.1 }
+    },
+    {
+      "type": "sphere",
+      "center": [1.1, 0, 0],
+      "radius": 0.5,
+      "material": { "type": "dielectric", "ref_idx": 1.5 }
+    }
+  ]
+}
