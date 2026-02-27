@@ -69,6 +69,44 @@
             "args": ["-w", "160", "-h", "90", "-s", "2", "-n", "2", "-c", "2", "-gpu"],
             "cwd": "${workspaceFolder}",
             "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Release (Linux)",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux-release",
+            "program": "${workspaceFolder}/build/release",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Release (Linux) GPU",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux-release",
+            "program": "${workspaceFolder}/build/release",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-gpu"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Release (Windows)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "build-windows-release",
+            "program": "${workspaceFolder}/build/release.exe",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Release (Windows) GPU",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "build-windows-release",
+            "program": "${workspaceFolder}/build/release.exe",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-gpu"],
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

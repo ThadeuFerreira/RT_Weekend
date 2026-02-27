@@ -23,16 +23,30 @@ scene editing, and a GPU compute-shader path.
 
 ### Build
 
+**Using the Makefile (recommended):**
+
+```sh
+make debug    # Debug build → build/debug
+make release  # Optimized release build → build/release
+```
+
+**Manual build:**
+
 ```sh
 mkdir -p build
 odin build . -collection:RT_Weekend=. -debug -out:build/debug
 ```
+
+Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose output (`-define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false`). Use `./build/release` to run the release binary.
 
 ### Run
 
 ```sh
 # CPU render (default): 800×450, 10 samples, 10 spheres
 ./build/debug
+
+# Or use the release binary for faster rendering
+./build/release
 
 # Custom resolution and sample count
 ./build/debug -w 1280 -h 720 -s 50

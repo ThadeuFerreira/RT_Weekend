@@ -13,7 +13,7 @@ Use idiomatic Odin names for raytrace types/functions (`Camera`, `make_camera`, 
 - **Geometry** — `Sphere`, `Cube`, `Object` union; BVH and intersection in **hittable.odin**.
 - **Materials** — `material` union (lambertian, metallic, dielectric), `scatter` in **material.odin**.
 - **Ray / color** — Vec3, ray math, `ray_color`, `linear_to_gamma` in **vector3.odin**; **raytrace.odin**: `TestPixelBuffer`, `write_buffer_to_ppm`, scene setup helpers.
-- **Profiling** — `PROFILING_ENABLED`, `Profile_Scope`, per-phase timings in **profiling.odin**.
+- **Profiling** — `PROFILING_ENABLED`, `Profile_Scope`, per-phase timings in **profiling.odin**. `VERBOSE_OUTPUT` (#config, default true) gates non-essential stdout; `aggregate_into_summary` always runs so the Stats panel has data in release builds.
 - **Interval** — `Interval`, `interval_clamp`, etc. in **interval.odin**.
 
 ## Files

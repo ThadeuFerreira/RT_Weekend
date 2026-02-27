@@ -566,7 +566,9 @@ start_render_auto :: proc(
     if renderer != nil {
         session.gpu_renderer = renderer
         session.use_gpu      = true
-        fmt.println("[GPU] Init OK — GPU rendering enabled")
+        when VERBOSE_OUTPUT {
+            fmt.println("[GPU] Init OK — GPU rendering enabled")
+        }
         return session
     }
 

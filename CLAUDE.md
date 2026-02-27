@@ -6,12 +6,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This project is written in the [Odin programming language](https://odin-lang.org/).
 
+**Build (Makefile):**
+
 ```bash
-# Build debug binary (use collection so main can import core, util, raytrace, persistence, editor)
+make debug    # Debug build → build/debug
+make release  # Release build → build/release (-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false)
+```
+
+**Manual build:**
+
+```bash
+# Debug
 odin build . -collection:RT_Weekend=. -debug -out:build/debug
 
+# Release (optimized, quiet stdout)
+odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -out:build/release
+```
+
+**Run:**
+
+```bash
 # Run with defaults (800px wide, 10 samples, 10 spheres)
 ./build/debug
+# or
+./build/release
 
 # Custom resolution / samples / threads
 ./build/debug -w 400 -h 225 -s 20 -c 8
@@ -19,6 +37,8 @@ odin build . -collection:RT_Weekend=. -debug -out:build/debug
 # Full options
 ./build/debug -w <int> -h <int> -s <samples> -n <spheres> -c <threads>
 ```
+
+**VERBOSE_OUTPUT:** A compile-time flag (`#config`, default `true`) controls non-essential stdout: startup config, system info, per-thread stats, timing breakdown, and GPU success messages. Error and fallback messages (e.g. GPU init failed) are always printed. Release builds set `VERBOSE_OUTPUT=false`.
 
 **Key flags:**
 - `-w` / `-h`: image width / height in pixels
@@ -117,7 +137,7 @@ Union-based dispatch over `Lambertian`, `Metallic`, and `Dielectric`. Each imple
 `Sphere` and `Cube` primitives. BVH nodes are also `Hittable` variants (recursive union tree).
 
 ### Profiling (`raytrace/profiling.odin`)
-Zero-cost profiling gated by `PROFILING_ENABLED` compile flag. Records nanosecond-precision timings per thread for: ray generation, `ray_color`, intersection, scatter, background, and pixel setup. Per-phase wall-clock breakdowns (BVH build, render, I/O) are always printed to stdout after the render completes.
+Zero-cost profiling gated by `PROFILING_ENABLED` compile flag. Records nanosecond-precision timings per thread for: ray generation, `ray_color`, intersection, scatter, background, and pixel setup. When `VERBOSE_OUTPUT` is true, per-phase wall-clock breakdowns (BVH build, render, I/O) are printed to stdout after the render completes. `aggregate_into_summary` always runs so the Stats panel retains profiling data even in release mode.
 
 ### Utilities (`util/`)
 - `util/cli.odin`: CLI argument parsing (`Args`, `parse_args_with_short_flags`), system info (`get_number_of_physical_cores`, `print_system_info` via `core:sys/info`).
