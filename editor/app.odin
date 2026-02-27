@@ -98,41 +98,41 @@ app_find_panel :: proc(app: ^App, id: string) -> ^FloatingPanel {
 app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     if !app.finished { return }
 
-    rt.free_session(app.session)
-    app.session = nil
+    rt.free_session(app.r_session)
+    app.r_session = nil
 
-    delete(app.world)
-    app.world = new_world
+    delete(app.r_world)
+    app.r_world = new_world
 
     app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
 
-    rt.apply_scene_camera(app.camera, &app.camera_params)
-    rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
-    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
+    rt.apply_scene_render_camera(app.r_camera, &app.c_camera_params)
+    rt.init_render_camera(app.r_camera)
+    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
 // Used by the edit view so it does not need to import raytrace.
-app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere) {
+app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.Core_SceneSphere) {
     if !app.finished { return }
 
-    rt.free_session(app.session)
-    app.session = nil
+    rt.free_session(app.r_session)
+    app.r_session = nil
 
-    delete(app.world)
-    app.world = rt.build_world_from_scene(scene_objects)
+    delete(app.r_world)
+    app.r_world = rt.build_world_from_scene(scene_objects)
 
     app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
 
-    rt.apply_scene_camera(app.camera, &app.camera_params)
-    rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
-    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
+    rt.apply_scene_render_camera(app.r_camera, &app.c_camera_params)
+    rt.init_render_camera(app.r_camera)
+    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
 App :: struct {
@@ -142,13 +142,13 @@ App :: struct {
     render_tex:    rl.Texture2D,
     pixel_staging: []rl.Color,
 
-    session:       ^rt.RenderSession,
+    r_session:     ^rt.RenderSession,
 
     // Kept separately so re-renders can reuse the same camera and replace the world.
     num_threads:   int,
-    camera:        ^rt.Camera,
-    world:         [dynamic]rt.Object,
-    camera_params: core.CameraParams, // shared camera definition; applied to camera before each render
+    r_camera:      ^rt.Render_Camera,
+    r_world:       [dynamic]rt.Object,
+    c_camera_params: core.Core_CameraParams, // shared camera definition; applied to r_camera before each render
 
     // User's chosen render path (GPU vs CPU). Persists across scene changes and re-renders until toggled.
     prefer_gpu:    bool,
@@ -161,11 +161,11 @@ App :: struct {
     render_start:  time.Time,
 
     edit_view:      EditViewState,
-    camera_panel:   CameraPanelState,
+    e_camera_panel: Editor_Camera_Panel_State,
     menu_bar:       MenuBarState,
     object_props:   ObjectPropsPanelState,
 
-    // Preview Port: rasterized view from render camera (app.camera_params)
+    // Preview Port: rasterized view from render camera (app.c_camera_params)
     preview_port_tex: rl.RenderTexture2D,
     preview_port_w:   i32,
     preview_port_h:   i32,
@@ -299,8 +299,8 @@ app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^raw
 }
 
 run_app :: proc(
-    camera: ^rt.Camera,
-    world: [dynamic]rt.Object,
+    r_camera: ^rt.Render_Camera,
+    r_world: [dynamic]rt.Object,
     num_threads: int,
     use_gpu: bool = false,
     initial_editor_layout: ^persistence.EditorLayout = nil,
@@ -332,12 +332,12 @@ run_app :: proc(
         rl.SetTraceLogLevel(.WARNING)
     }
 
-    img := rl.GenImageColor(i32(camera.image_width), i32(camera.image_height), rl.BLACK)
+    img := rl.GenImageColor(i32(r_camera.image_width), i32(r_camera.image_height), rl.BLACK)
     render_tex := rl.LoadTextureFromImage(img)
     rl.UnloadImage(img)
     defer rl.UnloadTexture(render_tex)
 
-    pixel_staging := make([]rl.Color, camera.image_width * camera.image_height)
+    pixel_staging := make([]rl.Color, r_camera.image_width * r_camera.image_height)
     defer delete(pixel_staging)
 
     app := App{
@@ -352,7 +352,7 @@ run_app :: proc(
             defer unload_ui_font(&app.ui_font, app.ui_font_shader, app.use_sdf_font)
         }
     }
-    app.camera      = camera
+    app.r_camera    = r_camera
     app.num_threads = num_threads
     app.prefer_gpu  = use_gpu
     app.menu_bar    = MenuBarState{open_menu_index = -1}
@@ -375,26 +375,26 @@ run_app :: proc(
         }
         append(&app.layout_presets, import_preset)
     }
-    rt.copy_camera_to_scene_params(&app.camera_params, camera)
+    rt.copy_render_camera_to_scene_params(&app.c_camera_params, r_camera)
     init_edit_view(&app.edit_view)
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
-    if len(world) > 0 {
-        converted := rt.convert_world_to_edit_spheres(world)
+    if len(r_world) > 0 {
+        converted := rt.convert_world_to_edit_spheres(r_world)
         LoadFromSceneSpheres(app.edit_view.scene_mgr, converted[:])
         delete(converted)
     }
-    delete(world) // edit view is now the source of truth; free the raw rt.Object array
+    delete(r_world) // edit view is now the source of truth; free the raw rt.Object array
     // Build the startup world from the edit view (always).
     ExportToSceneSpheres(app.edit_view.scene_mgr, &app.edit_view.export_scratch)
-    app.world = rt.build_world_from_scene(app.edit_view.export_scratch[:])
+    app.r_world = rt.build_world_from_scene(app.edit_view.export_scratch[:])
     app.object_props = ObjectPropsPanelState{prop_drag_idx = -1}
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer delete(app.edit_view.export_scratch)
     defer free_scene_manager(app.edit_view.scene_mgr)
-    defer { rt.free_session(app.session) }
-    defer delete(app.world)
+    defer { rt.free_session(app.r_session) }
+    defer delete(app.r_world)
     defer {
         for p in app.panels { free(p) }
         delete(app.panels)
@@ -457,8 +457,8 @@ run_app :: proc(
         visible        = true,
         closeable      = true,
         detachable     = true,
-        draw_content   = draw_camera_panel_content,
-        update_content = update_camera_panel_content,
+        draw_content   = draw_editor_camera_panel_content,
+        update_content = update_editor_camera_panel_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
         id             = PANEL_ID_OBJECT_PROPS,
@@ -498,7 +498,7 @@ run_app :: proc(
         app_push_log(&app, strings.clone("Font: default (SDF/Inter load failed)"))
     }
 
-    app_push_log(&app, fmt.aprintf("Scene: %dx%d, %d spp", camera.image_width, camera.image_height, camera.samples_per_pixel))
+    app_push_log(&app, fmt.aprintf("Scene: %dx%d, %d spp", r_camera.image_width, r_camera.image_height, r_camera.samples_per_pixel))
     app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))
     if use_gpu {
         app_push_log(&app, strings.clone("Starting render (GPU mode requested)..."))
@@ -506,13 +506,13 @@ run_app :: proc(
         app_push_log(&app, strings.clone("Starting render..."))
     }
 
-    rt.apply_scene_camera(app.camera, &app.camera_params)
-    rt.init_camera(app.camera)
-    app.session      = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
+    rt.apply_scene_render_camera(app.r_camera, &app.c_camera_params)
+    rt.init_render_camera(app.r_camera)
+    app.r_session      = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
     app.render_start = time.now()
 
     // Log the actual render mode after start_render_auto decides CPU vs GPU.
-    if app.session.use_gpu {
+    if app.r_session.use_gpu {
         app_push_log(&app, strings.clone("[GPU] GPU rendering active"))
     }
 
@@ -567,8 +567,8 @@ run_app :: proc(
         }
 
         // GPU path: dispatch one more sample per frame until all samples done.
-        if app.session.use_gpu {
-            r := app.session.gpu_renderer
+        if app.r_session.use_gpu {
+            r := app.r_session.gpu_renderer
             if r != nil && !rt.gpu_renderer_done(r) {
                 rt.gpu_renderer_dispatch(r)
             }
@@ -576,11 +576,11 @@ run_app :: proc(
 
         // ── Render texture upload ─────────────────────────────────────────
         if frame % 4 == 0 {
-            if app.session.use_gpu {
+            if app.r_session.use_gpu {
                 // Only readback while the renderer is alive (nil after finish_render).
-                if app.session.gpu_renderer != nil {
+                if app.r_session.gpu_renderer != nil {
                     out_bytes := transmute([][4]u8)(app.pixel_staging)
-                    rt.gpu_renderer_readback(app.session.gpu_renderer, out_bytes)
+                    rt.gpu_renderer_readback(app.r_session.gpu_renderer, out_bytes)
                     rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
                 }
             } else {
@@ -588,16 +588,16 @@ run_app :: proc(
             }
         }
 
-        if !app.finished && rt.get_render_progress(app.session) >= 1.0 {
-            if app.session.use_gpu {
+        if !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
+            if app.r_session.use_gpu {
                 // Do a final readback before finish_render destroys the renderer.
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
-                rt.gpu_renderer_readback(app.session.gpu_renderer, out_bytes)
+                rt.gpu_renderer_readback(app.r_session.gpu_renderer, out_bytes)
                 rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
             }
-            rt.finish_render(app.session)
+            rt.finish_render(app.r_session)
             app.finished = true
-            if !app.session.use_gpu {
+            if !app.r_session.use_gpu {
                 upload_render_texture(&app)
             }
             app_push_log(&app, fmt.aprintf("Done! (%.2fs)", app.elapsed_secs))
@@ -620,14 +620,14 @@ run_app :: proc(
 
     // Early close: finish_render still runs and blocks until workers drain the tile queue (no abort).
     if !app.finished {
-        rt.finish_render(app.session)
+        rt.finish_render(app.r_session)
     }
 
     if len(config_save_path) > 0 {
         config := persistence.RenderConfig{
-            width             = camera.image_width,
-            height            = camera.image_height,
-            samples_per_pixel = camera.samples_per_pixel,
+            width             = r_camera.image_width,
+            height            = r_camera.image_height,
+            samples_per_pixel = r_camera.samples_per_pixel,
         }
         config.editor = build_editor_layout_from_app(&app)
         // Snapshot user presets for saving

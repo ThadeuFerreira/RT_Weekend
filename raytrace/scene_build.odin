@@ -2,16 +2,16 @@ package raytrace
 
 import "RT_Weekend:core"
 
-// convert_world_to_edit_spheres converts rt.Object spheres to core.SceneSphere for the edit view.
+// convert_world_to_edit_spheres converts rt.Object spheres to core.Core_SceneSphere for the edit view.
 // Skips the ground plane (center.y < -100) and Cube objects.
 // Caller must delete the returned array.
-convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.SceneSphere {
-	result := make([dynamic]core.SceneSphere)
+convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.Core_SceneSphere {
+	result := make([dynamic]core.Core_SceneSphere)
 	for obj in world {
 		s, ok := obj.(Sphere)
 		if !ok { continue }
 		if s.center[1] < -100 { continue } // skip ground plane
-		ss := core.SceneSphere{center = s.center, radius = s.radius}
+		ss := core.Core_SceneSphere{center = s.center, radius = s.radius}
 		switch m in s.material {
 		case lambertian:
 			ss.material_kind = .Lambertian
@@ -31,7 +31,7 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 
 // build_world_from_scene converts shared scene spheres to raytrace Objects.
 // Prepends a grey ground plane. Caller owns and must delete the returned dynamic array.
-build_world_from_scene :: proc(scene_objects: []core.SceneSphere) -> [dynamic]Object {
+build_world_from_scene :: proc(scene_objects: []core.Core_SceneSphere) -> [dynamic]Object {
 	world := make([dynamic]Object)
 
 	// Ground plane

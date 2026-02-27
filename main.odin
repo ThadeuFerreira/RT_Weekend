@@ -75,8 +75,8 @@ main :: proc() {
 
     util.print_system_info()
 
-    camera: ^raytrace.Camera
-    world: [dynamic]raytrace.Object
+    r_camera: ^raytrace.Render_Camera
+    r_world: [dynamic]raytrace.Object
 
     if len(args.ScenePath) > 0 {
         cam, w, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
@@ -84,20 +84,20 @@ main :: proc() {
             fmt.fprintf(os.stderr, "Failed to load scene: %s\n", args.ScenePath)
             return
         }
-        camera = cam
-        world = w
+        r_camera = cam
+        r_world = w
     } else {
-        camera = raytrace.make_camera(image_width, image_height, samples_per_pixel)
-        world  = make([dynamic]raytrace.Object) // empty; edit view provides the scene
+        r_camera = raytrace.make_render_camera(image_width, image_height, samples_per_pixel)
+        r_world  = make([dynamic]raytrace.Object) // empty; edit view provides the scene
     }
 
     if len(args.SaveScenePath) > 0 {
-        if !persistence.save_scene(args.SaveScenePath, camera, world) {
+        if !persistence.save_scene(args.SaveScenePath, r_camera, r_world) {
             fmt.fprintf(os.stderr, "Failed to save scene: %s\n", args.SaveScenePath)
         }
     }
 
-    editor.run_app(camera, world, thread_count, args.UseGPU, initial_editor, args.SaveConfigPath, initial_presets)
+    editor.run_app(r_camera, r_world, thread_count, args.UseGPU, initial_editor, args.SaveConfigPath, initial_presets)
     if initial_editor != nil {
         delete(initial_editor.panels)
         free(initial_editor)

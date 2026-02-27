@@ -43,7 +43,7 @@ load_scene :: proc(
 	image_width: int,
 	image_height: int,
 	samples_per_pixel: int,
-) -> (^rt.Camera, [dynamic]rt.Object, bool) {
+) -> (^rt.Render_Camera, [dynamic]rt.Object, bool) {
 	data, read_ok := os.read_entire_file(path)
 	if !read_ok {
 		fmt.fprintf(os.stderr, "Scene file not found or unreadable: %s\n", path)
@@ -58,7 +58,7 @@ load_scene :: proc(
 		return nil, nil, false
 	}
 
-	cam := rt.make_camera(image_width, image_height, samples_per_pixel)
+	cam := rt.make_render_camera(image_width, image_height, samples_per_pixel)
 	// Default camera pose if scene file has zero or missing camera (edge case)
 	zero_vec := [3]f32{0, 0, 0}
 	use_default_camera := scene.camera.lookfrom == zero_vec && scene.camera.lookat == zero_vec
@@ -83,7 +83,7 @@ load_scene :: proc(
 	if scene.camera.max_depth > 0 {
 		cam.max_depth = scene.camera.max_depth
 	}
-	rt.init_camera(cam)
+	rt.init_render_camera(cam)
 
 	cap_val := 0
 	if scene.objects != nil {
@@ -122,26 +122,26 @@ scene_material_to_material :: proc(s: ^SceneMaterial) -> rt.material {
 }
 
 // save_scene writes the current camera (pose/view) and world to a JSON scene file.
-save_scene :: proc(path: string, camera: ^rt.Camera, world: [dynamic]rt.Object) -> bool {
-	if camera == nil {
+save_scene :: proc(path: string, r_camera: ^rt.Render_Camera, r_world: [dynamic]rt.Object) -> bool {
+	if r_camera == nil {
 		return false
 	}
 
 	scene := SceneFile{
 		camera = SceneCamera{
-			lookfrom      = camera.lookfrom,
-			lookat        = camera.lookat,
-			vup           = camera.vup,
-			vfov          = camera.vfov,
-			defocus_angle = camera.defocus_angle,
-			focus_dist    = camera.focus_dist,
-			max_depth     = camera.max_depth,
+			lookfrom      = r_camera.lookfrom,
+			lookat        = r_camera.lookat,
+			vup           = r_camera.vup,
+			vfov          = r_camera.vfov,
+			defocus_angle = r_camera.defocus_angle,
+			focus_dist    = r_camera.focus_dist,
+			max_depth     = r_camera.max_depth,
 		},
 		objects = make([dynamic]SceneObject),
 	}
 	defer delete(scene.objects)
 
-	for obj in world {
+	for obj in r_world {
 		switch o in obj {
 		case rt.Sphere:
 			append(&scene.objects, SceneObject{

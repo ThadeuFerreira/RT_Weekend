@@ -62,7 +62,7 @@ Paths are resolved **relative to the current working directory** at launch. Run 
 Layout is Godot-inspired: **core** (shared types), **raytrace** (renderer only), **persistence** (scene/config load and save), **editor** (application UI). See each major folder’s **AGENTS.md** for scoped context.
 
 - **`main.odin`** (package `main`) — entry point; imports `RT_Weekend:core`, `RT_Weekend:util`, `RT_Weekend:raytrace`, `RT_Weekend:persistence`, `RT_Weekend:editor`.
-- **`core/`** (package `core`) — shared types used by editor and renderer: `MaterialKind`, `CameraParams`, `SceneSphere`. No I/O, no editor/raytrace dependency. See [core/AGENTS.md](core/AGENTS.md).
+- **`core/`** (package `core`) — shared types used by editor and renderer: `Core_MaterialKind`, `Core_CameraParams`, `Core_SceneSphere`. No I/O, no editor/raytrace dependency. See [core/AGENTS.md](core/AGENTS.md).
 - **`util/`** (package `util`) — CLI args (`Args`, `parse_args_with_short_flags`), system info (`get_number_of_physical_cores`, `print_system_info`), per-thread RNG. No file I/O. See [util/AGENTS.md](util/AGENTS.md).
 - **`raytrace/`** (package `raytrace`) — path tracer only: camera, BVH, materials, vector/ray math, pixel buffer, profiling, `scene_build`. No scene file I/O. See [raytrace/AGENTS.md](raytrace/AGENTS.md).
 - **`persistence/`** (package `persistence`) — scene/config persistence: `load_scene`/`save_scene`, `load_config`/`save_config`; types `RenderConfig`, `EditorLayout`, etc. Depends on core and raytrace. See [persistence/AGENTS.md](persistence/AGENTS.md).
@@ -88,7 +88,7 @@ Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is
 
 ### Non-blocking Render API (`raytrace/camera.odin`)
 Three procedures replace the old blocking `render_parallel`:
-- `start_render(camera, world, num_threads) -> ^RenderSession` — allocates buffer, builds BVH, spawns threads, returns immediately
+- `start_render(r_camera, world, num_threads) -> ^RenderSession` — allocates buffer, builds BVH, spawns threads, returns immediately
 - `get_render_progress(session) -> f32` — returns 0.0–1.0; safe to call from any thread
 - `finish_render(session)` — joins threads, frees BVH + contexts, prints timing breakdown to stdout
 
@@ -134,3 +134,4 @@ Simple `Interval` struct used for ray `t`-range clamping and AABB overlap tests.
 - No heap allocator is configured explicitly; Odin's default context allocator is used.
 - Worker threads receive their context via `thread.Thread.data` (a `rawptr` cast to `^ParallelRenderContext`).
 - The Raylib trace log callback uses `proc "c"` calling convention; `context = runtime.default_context()` is required at the top to use Odin allocators.
+- **Naming (scope prefixes):** Types and functions use full scope names: `Render_Camera`, `init_render_camera`, `Editor_Camera_Panel_State`, `Core_CameraParams`. Variables use short prefixes: `e_` (editor), `r_` (render), `c_` (core). See each package's AGENTS.md for the convention.

@@ -1,16 +1,20 @@
 # persistence — Scene and config load/save
 
-This package implements **persistence**: scene file and config file load/save. It depends on **core** and **raytrace** (to build Camera and Object for scene I/O).
+This package implements **persistence**: scene file and config file load/save. It depends on **core** and **raytrace** (to build Render_Camera and Object for scene I/O).
 
 ## Purpose
 
-- **Scene I/O** — `load_scene(path, image_width, image_height, samples_per_pixel)` → `(^Camera, [dynamic]Object, bool)`; `save_scene(path, camera, world)` → `bool`. JSON types: `SceneFile`, `SceneCamera`, `SceneMaterial`, `SceneObject`.
+- **Scene I/O** — `load_scene(path, image_width, image_height, samples_per_pixel)` → `(^rt.Render_Camera, [dynamic]Object, bool)`; `save_scene(path, r_camera, r_world)` → `bool`. JSON types: `SceneFile`, `SceneCamera`, `SceneMaterial`, `SceneObject`.
 - **Config I/O** — `load_config(path)` → `(RenderConfig, bool)`; `save_config(path, config)` → `bool`. Types: `RenderConfig`, `EditorLayout`, `PanelState`, `RectF`, `LayoutPreset` (panel layout persistence).
 
 ## Files
 
-- **scene_io.odin** — Scene JSON (de)serialization; uses raytrace for `Camera`, `Object`, `make_camera`, `init_camera`, material conversion.
+- **scene_io.odin** — Scene JSON (de)serialization; uses raytrace for `Render_Camera`, `Object`, `make_render_camera`, `init_render_camera`, material conversion.
 - **config_io.odin** — Config JSON (de)serialization and layout types.
+
+## Naming / scope
+
+This package does not introduce its own scope prefix. It uses full type names from core and raytrace (`core.Core_CameraParams`, `rt.Render_Camera`). Parameter names use `r_` when they represent render state (e.g. `save_scene(path, r_camera, r_world)`).
 
 ## Dependency rule
 

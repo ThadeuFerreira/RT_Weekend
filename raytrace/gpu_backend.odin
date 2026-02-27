@@ -93,10 +93,10 @@ when ODIN_OS == .Darwin {
 
 // ── Internal helper ──────────────────────────────────────────────────────────
 
-// _camera_to_gpu_uniforms converts Camera fields to the flat GPUCameraUniforms
+// _render_camera_to_gpu_uniforms converts Render_Camera fields to the flat GPUCameraUniforms
 // struct that matches the CameraBlock UBO layout in raytrace.comp.
 // defocus_angle is packed into the .w component of defocus_disk_u (see shader).
-_camera_to_gpu_uniforms :: proc(cam: ^Camera, total_samples, current_sample: int) -> GPUCameraUniforms {
+_render_camera_to_gpu_uniforms :: proc(cam: ^Render_Camera, total_samples, current_sample: int) -> GPUCameraUniforms {
     return GPUCameraUniforms{
         camera_center  = cam.center,
         pixel00_loc    = cam.pixel00_loc,
@@ -122,7 +122,7 @@ _camera_to_gpu_uniforms :: proc(cam: ^Camera, total_samples, current_sample: int
 // Must be called after rl.InitWindow() (a current GL context is required).
 // Returns (nil, false) on any failure — caller falls back to the CPU path.
 gpu_backend_init :: proc(
-    cam:     ^Camera,
+    cam:     ^Render_Camera,
     objects: []Object,
     lin_bvh: []LinearBVHNode,
     samples: int,
@@ -169,7 +169,7 @@ gpu_backend_init :: proc(
     // ── UBO: camera parameters ────────────────────────────────────────────
     // Uploaded once here; only current_sample changes per dispatch, so
     // dispatch re-uploads the full 128-byte struct (cheap).
-    b.cached_uniforms = _camera_to_gpu_uniforms(cam, samples, 0)
+    b.cached_uniforms = _render_camera_to_gpu_uniforms(cam, samples, 0)
     gl.BindBuffer(gl.UNIFORM_BUFFER, b.ubo_camera)
     gl.BufferData(gl.UNIFORM_BUFFER, size_of(GPUCameraUniforms), &b.cached_uniforms, gl.DYNAMIC_DRAW)
     gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
@@ -321,7 +321,7 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
 // ── OpenGL backend vtable registration ───────────────────────────────────────
 
 @(private)
-_ogl_init :: proc(cam: ^Camera, world: []Object, bvh: []LinearBVHNode, total: int) -> (rawptr, bool) {
+_ogl_init :: proc(cam: ^Render_Camera, world: []Object, bvh: []LinearBVHNode, total: int) -> (rawptr, bool) {
     b, ok := gpu_backend_init(cam, world, bvh, total)
     return b, ok
 }

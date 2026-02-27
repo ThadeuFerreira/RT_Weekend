@@ -231,11 +231,11 @@ draw_dim_overlay :: proc() {
 }
 
 upload_render_texture :: proc(app: ^App) {
-    session := app.session
+    session := app.r_session
     if session == nil { return }
 
     buf    := &session.pixel_buffer
-    camera := session.camera
+    camera := session.r_camera
     clamp  := rt.Interval{0.0, 0.999}
 
     for y in 0..<buf.height {
@@ -264,7 +264,7 @@ upload_render_texture :: proc(app: ^App) {
 // the session is nil, or the position is outside the letterboxed image.
 screen_to_render_ray :: proc(app: ^App, pos: rl.Vector2) -> (r: rl.Ray, ok: bool) {
     render_panel := app_find_panel(app, PANEL_ID_RENDER)
-    if render_panel == nil || !render_panel.visible || app.session == nil {
+    if render_panel == nil || !render_panel.visible || app.r_session == nil {
         return {}, false
     }
 
@@ -284,7 +284,7 @@ screen_to_render_ray :: proc(app: ^App, pos: rl.Vector2) -> (r: rl.Ray, ok: bool
     u := (pos.x - dest.x) / dest.width
     v := (pos.y - dest.y) / dest.height
 
-    cam := app.session.camera
+    cam := app.r_session.r_camera
     internal_ray := rt.pixel_to_ray(cam, u * f32(cam.image_width), v * f32(cam.image_height))
 
     dir := rt.unit_vector(internal_ray.dir)
