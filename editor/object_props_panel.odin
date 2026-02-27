@@ -15,7 +15,7 @@ OP_SP  :: f32(4)                           // spacing after a field group
 OP_COL :: OP_LW + OP_GAP + OP_FW + OP_SP  // = 68 px per column
 
 // ObjectPropsPanelState holds per-frame drag state for the Object Properties panel.
-// For sphere: data in app.edit_view.objects[selected_idx]. For camera: app.c_camera_params.
+// For sphere: data in app.e_edit_view.objects[selected_idx]. For camera: app.c_camera_params.
 // Drag indices: sphere 0–7 (xyz, radius, rgb, mat_param); camera 0–9 (from xyz, at xyz, vfov, defocus, focus, max_depth).
 ObjectPropsPanelState :: struct {
 	prop_drag_idx:       int,
@@ -23,8 +23,8 @@ ObjectPropsPanelState :: struct {
 	prop_drag_start_val: f32,
 
 	// Before-state captured at drag start (for undo history)
-	drag_before_sphere: core.Core_SceneSphere,
-	drag_before_c_camera_params: core.Core_CameraParams,
+	drag_before_sphere: core.SceneSphere,
+	drag_before_c_camera_params: core.CameraParams,
 }
 
 // OpLayout holds every interactive rectangle for a single frame, computed once
@@ -43,7 +43,7 @@ OpLayout :: struct {
 	swatch:       rl.Rectangle,
 }
 
-op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.Core_MaterialKind) -> OpLayout {
+op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) -> OpLayout {
 	lo: OpLayout
 	lo.lx = content.x + 8
 	lo.x0 = lo.lx + OP_LW + OP_GAP
@@ -98,7 +98,7 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.Core_MaterialKin
 
 // Camera layout in Object Properties: same 10 fields as camera panel, using OP_* for consistency.
 OP_CAM_ROW :: f32(20)
-op_editor_camera_field_rects :: proc(content: rl.Rectangle) -> [10]rl.Rectangle {
+op_camera_field_rects :: proc(content: rl.Rectangle) -> [10]rl.Rectangle {
 	x0 := content.x + 8
 	y0 := content.y + 6
 	off := OP_LW + OP_GAP
@@ -174,8 +174,8 @@ op_try_start_drag :: proc(
 // ── draw 
 
 draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
-	ev    := &app.edit_view
-	st    := &app.object_props
+	ev    := &app.e_edit_view
+	st    := &app.e_object_props
 	mouse := rl.GetMousePosition()
 
 	if ev.selection_kind == .None {
@@ -189,7 +189,7 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	if ev.selection_kind == .Camera {
 		p := &app.c_camera_params
 		op_section_label(app, "CAMERA (non-deletable)", content.x + 8, content.y + 6)
-		fields := op_editor_camera_field_rects(content)
+		fields := op_camera_field_rects(content)
 		y0 := content.y + 6 + 18
 		draw_ui_text(app, "From", i32(content.x) + 8, i32(y0), 10, CONTENT_TEXT_COLOR)
 		draw_ui_text(app, "At",   i32(content.x) + 8, i32(y0 + OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
@@ -252,8 +252,8 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 // ── update 
 
 update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
-	ev := &app.edit_view
-	st := &app.object_props
+	ev := &app.e_edit_view
+	st := &app.e_object_props
 
 	if ev.selection_kind == .None {
 		if st.prop_drag_idx >= 0 {
@@ -304,7 +304,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			}
 			return
 		}
-		fields := op_editor_camera_field_rects(rect)
+		fields := op_camera_field_rects(rect)
 		vals := [10]f32{
 			p.lookfrom[0], p.lookfrom[1], p.lookfrom[2],
 			p.lookat[0], p.lookat[1], p.lookat[2],

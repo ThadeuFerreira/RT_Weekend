@@ -13,7 +13,7 @@ degrees_to_radians :: proc(degrees: f32) -> f32 {
     return degrees * (math.PI / 180.0)
 }
 
-Render_Camera :: struct{
+Camera :: struct{
     aspect_ratio : f32,
     image_width : int,
     image_height : int,
@@ -61,7 +61,7 @@ TileWorkQueue :: struct {
 }
 
 ParallelRenderContext :: struct {
-    r_camera:          ^Render_Camera,
+    r_camera:          ^Camera,
     world:             [dynamic]Object,
     buffer:            ^TestPixelBuffer,
     work_queue:        ^TileWorkQueue,
@@ -77,7 +77,7 @@ ParallelRenderContext :: struct {
 }
 
 RenderSession :: struct {
-    r_camera:                    ^Render_Camera,
+    r_camera:                    ^Camera,
     pixel_buffer:                TestPixelBuffer,
     work_queue:                  TileWorkQueue,
     threads:                     []^thread.Thread,
@@ -99,9 +99,9 @@ RenderSession :: struct {
 
 // Default camera
 // If no scene is loaded, the camera is at {8, 2, 3} with this configuration
-make_render_camera :: proc(image_width : int, image_height : int, samples_per_pixel : int) -> ^Render_Camera {
+make_camera :: proc(image_width : int, image_height : int, samples_per_pixel : int) -> ^Camera {
 
-    cam := new(Render_Camera)
+    cam := new(Camera)
     cam.aspect_ratio = f32(image_width) / f32(image_height)
     cam.image_width = image_width
     cam.image_height = image_height
@@ -120,8 +120,8 @@ make_render_camera :: proc(image_width : int, image_height : int, samples_per_pi
     return cam
 }
 
-// apply_scene_render_camera copies shared camera params into the raytrace Render_Camera. Call init_render_camera(cam) after this.
-apply_scene_render_camera :: proc(cam: ^Render_Camera, params: ^core.Core_CameraParams) {
+// apply_scene_camera copies shared camera params into the raytrace Camera. Call init_camera(cam) after this.
+apply_scene_camera :: proc(cam: ^Camera, params: ^core.CameraParams) {
     cam.lookfrom      = params.lookfrom
     cam.lookat        = params.lookat
     cam.vup           = params.vup
@@ -131,8 +131,8 @@ apply_scene_render_camera :: proc(cam: ^Render_Camera, params: ^core.Core_Camera
     cam.max_depth     = params.max_depth
 }
 
-// copy_render_camera_to_scene_params fills shared camera params from a raytrace Render_Camera (e.g. at startup).
-copy_render_camera_to_scene_params :: proc(params: ^core.Core_CameraParams, cam: ^Render_Camera) {
+// copy_camera_to_scene_params fills shared camera params from a raytrace Camera (e.g. at startup).
+copy_camera_to_scene_params :: proc(params: ^core.CameraParams, cam: ^Camera) {
     params.lookfrom      = cam.lookfrom
     params.lookat        = cam.lookat
     params.vup           = cam.vup
@@ -142,7 +142,7 @@ copy_render_camera_to_scene_params :: proc(params: ^core.Core_CameraParams, cam:
     params.max_depth     = cam.max_depth
 }
 
-init_render_camera :: proc(c :^Render_Camera){
+init_camera :: proc(c :^Camera){
 
     c.center = c.lookfrom
 
@@ -169,7 +169,7 @@ init_render_camera :: proc(c :^Render_Camera){
     c.defocus_disk_v = defocus_radius * c.v
 }
 
-get_ray :: proc(r_camera: ^Render_Camera, u : f32, v : f32, rng: ^util.ThreadRNG) -> ray {
+get_ray :: proc(r_camera: ^Camera, u : f32, v : f32, rng: ^util.ThreadRNG) -> ray {
     offset := sample_square(rng)
     pixel_sample := r_camera.pixel00_loc + (u+offset[0])*r_camera.pixel_delta_u + (v + offset[1])*r_camera.pixel_delta_v
 
@@ -181,14 +181,14 @@ get_ray :: proc(r_camera: ^Render_Camera, u : f32, v : f32, rng: ^util.ThreadRNG
 
 // pixel_to_ray returns a deterministic ray through the center of pixel (px, py).
 // No antialiasing jitter, no depth-of-field. Intended for mouse picking only.
-pixel_to_ray :: proc(r_camera: ^Render_Camera, px, py: f32) -> ray {
+pixel_to_ray :: proc(r_camera: ^Camera, px, py: f32) -> ray {
     pixel_world := r_camera.pixel00_loc +
                    px * r_camera.pixel_delta_u +
                    py * r_camera.pixel_delta_v
     return ray{r_camera.center, pixel_world - r_camera.center}
 }
 
-defocus_disk_sample :: proc(c : ^Render_Camera, rng: ^util.ThreadRNG) -> [3]f32 {
+defocus_disk_sample :: proc(c : ^Camera, rng: ^util.ThreadRNG) -> [3]f32 {
     p := vector_random_in_unit_disk(rng)
     return c.center +(p[0]*c.defocus_disk_u) + (p[1]*c.defocus_disk_v)
 }
@@ -287,7 +287,7 @@ worker_thread :: proc(t: ^thread.Thread) {
     }
 }
 
-start_render :: proc(r_camera: ^Render_Camera, world: [dynamic]Object, num_threads: int) -> ^RenderSession {
+start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int) -> ^RenderSession {
     session := new(RenderSession)
     session.r_camera = r_camera
     session.num_threads = num_threads
@@ -518,7 +518,7 @@ finish_render :: proc(session: ^RenderSession) {
 // CPU path (use_gpu=false or GPU init failure):
 //   Identical to calling start_render directly.
 start_render_auto :: proc(
-    r_camera:    ^Render_Camera,
+    r_camera:    ^Camera,
     world:       [dynamic]Object,
     num_threads: int,
     use_gpu:     bool,

@@ -36,7 +36,7 @@ EditViewState :: struct {
 
 	// Scene manager (holds scene spheres for now; adapter for future polymorphism)
 	scene_mgr:      ^SceneManager,
-	export_scratch: [dynamic]core.Core_SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
+	export_scratch: [dynamic]core.SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
 	selection_kind: EditViewSelectionKind,      // what is selected
 	selected_idx:   int,                   // when Sphere: index into objects; else -1
 
@@ -50,11 +50,11 @@ EditViewState :: struct {
 	drag_obj_active: bool,
 	drag_plane_y:    f32,    // Y of the horizontal movement plane
 	drag_offset_xz:  [2]f32, // grab-point offset in world XZ so the object doesn't snap
-	drag_before:     core.Core_SceneSphere, // sphere state captured at viewport-drag start
+	drag_before:     core.SceneSphere, // sphere state captured at viewport-drag start
 
 	// Keyboard nudge history tracking
 	nudge_active: bool,             // true while any nudge key is held
-	nudge_before: core.Core_SceneSphere, // sphere state captured at first nudge keydown
+	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
 
 	initialized: bool,
 }
@@ -70,19 +70,19 @@ init_edit_view :: proc(ev: ^EditViewState) {
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
-	ev.export_scratch = make([dynamic]core.Core_SceneSphere)
-	initial := make([dynamic]core.Core_SceneSphere)
-	append(&initial, core.Core_SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
-	append(&initial, core.Core_SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
-	append(&initial, core.Core_SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
+	ev.export_scratch = make([dynamic]core.SceneSphere)
+	initial := make([dynamic]core.SceneSphere)
+	append(&initial, core.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
+	append(&initial, core.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
+	append(&initial, core.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
 LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 	delete(initial)
 
-	update_editor_orbit_camera(ev)
+	update_orbit_camera(ev)
 	ev.initialized = true
 }
 
-update_editor_orbit_camera :: proc(ev: ^EditViewState) {
+update_orbit_camera :: proc(ev: ^EditViewState) {
 	pitch := ev.orbit_pitch
 	if pitch >  math.PI * 0.45 { pitch =  math.PI * 0.45 }
 	if pitch < -math.PI * 0.45 { pitch = -math.PI * 0.45 }
@@ -108,8 +108,8 @@ update_editor_orbit_camera :: proc(ev: ^EditViewState) {
 	}
 }
 
-// get_editor_orbit_camera_pose returns lookfrom and lookat for the current orbit (for translating to path-tracer camera).
-get_editor_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
+// get_orbit_camera_pose returns lookfrom and lookat for the current orbit (for translating to path-tracer camera).
+get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
 	pitch := ev.orbit_pitch
 	dist  := ev.orbit_distance
 	t     := ev.orbit_target
@@ -129,8 +129,8 @@ get_editor_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [
 // NOTE: viewport / picking helpers were moved into the editor package so they
 // can be shared by object implementations without creating package cycles.
 
-draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.Core_SceneSphere) {
-	ev := &app.edit_view
+draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSphere) {
+	ev := &app.e_edit_view
 	new_w := i32(vp_rect.width)
 	new_h := i32(vp_rect.height)
 
@@ -256,8 +256,8 @@ draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: b
 	draw_ui_text(g_app, label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
 }
 
-draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []core.Core_SceneSphere) {
-	ev := &app.edit_view
+draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []core.SceneSphere) {
+	ev := &app.e_edit_view
 	rl.DrawRectangleRec(rect, rl.Color{25, 28, 40, 240})
 	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
 
@@ -307,7 +307,7 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 // ── Panel draw ─────────────────────────────────────────────────────────────
 
 draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
-	ev    := &app.edit_view
+	ev    := &app.e_edit_view
 	mouse := rl.GetMousePosition()
 
 	// Toolbar
@@ -367,11 +367,11 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 // ── Panel update ───────────────────────────────────────────────────────────
 
 update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
-	ev      := &app.edit_view
+	ev      := &app.e_edit_view
 	content := rect
 
 	// Orbit camera is always updated at the end, even on early return.
-	defer update_editor_orbit_camera(ev)
+	defer update_orbit_camera(ev)
 
 	// Shared rects (mirror draw proc)
 	btn_add    := rl.Rectangle{content.x + 8,                    content.y + 5, 90, 22}
@@ -480,7 +480,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 	// "From view" copies orbit into camera_params so Render uses current orbit view
 	btn_from_view := rl.Rectangle{content.x + content.width - 180, content.y + 5, 82, 22}
 	if lmb_pressed && rl.CheckCollisionPointRec(mouse, btn_from_view) {
-		lookfrom, lookat := get_editor_orbit_camera_pose(ev)
+		lookfrom, lookat := get_orbit_camera_pose(ev)
 		app.c_camera_params.lookfrom = lookfrom
 		app.c_camera_params.lookat   = lookat
 		app.c_camera_params.vup      = [3]f32{0, 1, 0}
@@ -554,7 +554,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 						}
 					}
 				}
-			} else if pick_render_camera_gizmo(ray, app.c_camera_params.lookfrom) {
+			} else if pick_camera(ray, app.c_camera_params.lookfrom) {
 				ev.selection_kind  = .Camera
 				ev.selected_idx    = -1
 				ev.drag_obj_active = false

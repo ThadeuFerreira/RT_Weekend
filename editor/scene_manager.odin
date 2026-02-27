@@ -4,7 +4,7 @@ import rl "vendor:raylib"
 import "RT_Weekend:core"
 
 // SceneManager is a thin wrapper around the editor-side object list.
-// Stores core.Core_SceneSphere directly in EditorObject; no conversion on Get/Set.
+// Stores core.SceneSphere directly in EditorObject; no conversion on Get/Set.
 // Single place to add adapters later (EditorObject polymorphism).
 SceneManager :: struct {
 	objects: [dynamic]EditorObject,
@@ -24,7 +24,7 @@ free_scene_manager :: proc(sm: ^SceneManager) {
 }
 
 // Load from canonical scene representation
-LoadFromSceneSpheres :: proc(sm: ^SceneManager, src: []core.Core_SceneSphere) {
+LoadFromSceneSpheres :: proc(sm: ^SceneManager, src: []core.SceneSphere) {
 	if sm == nil { return }
 	clear(&sm.objects)
 	for i in 0..<len(src) {
@@ -33,12 +33,12 @@ LoadFromSceneSpheres :: proc(sm: ^SceneManager, src: []core.Core_SceneSphere) {
 }
 
 // ExportToSceneSpheres clears out and fills it with current sphere data. Caller owns out; no per-call allocation.
-ExportToSceneSpheres :: proc(sm: ^SceneManager, out: ^[dynamic]core.Core_SceneSphere) {
+ExportToSceneSpheres :: proc(sm: ^SceneManager, out: ^[dynamic]core.SceneSphere) {
 	if sm == nil { clear(out); return }
 	clear(out)
 	for obj in sm.objects {
 		switch s in obj {
-		case core.Core_SceneSphere:
+		case core.SceneSphere:
 			append(out, s)
 		}
 	}
@@ -46,7 +46,7 @@ ExportToSceneSpheres :: proc(sm: ^SceneManager, out: ^[dynamic]core.Core_SceneSp
 
 AppendDefaultSphere :: proc(sm: ^SceneManager) {
 	if sm == nil { return }
-	s := core.Core_SceneSphere{center = {0, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.7, 0.7, 0.7}}
+	s := core.SceneSphere{center = {0, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.7, 0.7, 0.7}}
 	append(&sm.objects, s)
 }
 
@@ -67,7 +67,7 @@ PickSphereInManager :: proc(sm: ^SceneManager, ray: rl.Ray) -> int {
 	best_dist := f32(1e30)
 	for i in 0..<len(sm.objects) {
 		switch s in sm.objects[i] {
-		case core.Core_SceneSphere:
+		case core.SceneSphere:
 			center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
 			hit    := rl.GetRayCollisionSphere(ray, center, s.radius)
 			if hit.hit && hit.distance > 0 && hit.distance < best_dist {
@@ -79,25 +79,25 @@ PickSphereInManager :: proc(sm: ^SceneManager, ray: rl.Ray) -> int {
 	return best_idx
 }
 
-GetSceneSphere :: proc(sm: ^SceneManager, idx: int) -> (s: core.Core_SceneSphere, ok: bool) {
-	if sm == nil { return core.Core_SceneSphere{}, false }
-	if idx < 0 || idx >= len(sm.objects) { return core.Core_SceneSphere{}, false }
+GetSceneSphere :: proc(sm: ^SceneManager, idx: int) -> (s: core.SceneSphere, ok: bool) {
+	if sm == nil { return core.SceneSphere{}, false }
+	if idx < 0 || idx >= len(sm.objects) { return core.SceneSphere{}, false }
 	switch s in sm.objects[idx] {
-	case core.Core_SceneSphere:
+	case core.SceneSphere:
 		return s, true
 	case:
-		return core.Core_SceneSphere{}, false
+		return core.SceneSphere{}, false
 	}
 }
 
-SetSceneSphere :: proc(sm: ^SceneManager, idx: int, s: core.Core_SceneSphere) {
+SetSceneSphere :: proc(sm: ^SceneManager, idx: int, s: core.SceneSphere) {
 	if sm == nil { return }
 	if idx < 0 || idx >= len(sm.objects) { return }
 	sm.objects[idx] = s
 }
 
 // InsertSphereAt inserts a sphere at the given index, shifting later elements right.
-InsertSphereAt :: proc(sm: ^SceneManager, idx: int, s: core.Core_SceneSphere) {
+InsertSphereAt :: proc(sm: ^SceneManager, idx: int, s: core.SceneSphere) {
 	if sm == nil { return }
 	if idx < 0 || idx > len(sm.objects) { return }
 	obj: EditorObject = s

@@ -107,7 +107,7 @@ file_modal_confirm :: proc(app: ^App) {
     text := strings.clone(file_modal_input_string(modal))
     modal.active = false
 
-    ev := &app.edit_view
+    ev := &app.e_edit_view
 
     switch modal.mode {
     case .Import:
@@ -119,7 +119,7 @@ file_modal_confirm :: proc(app: ^App) {
             return
         }
         // Apply loaded camera to params
-        rt.copy_render_camera_to_scene_params(&app.c_camera_params, cam)
+        rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
         // Load converted spheres into scene manager
         converted := rt.convert_world_to_edit_spheres(world)
 LoadFromSceneSpheres(ev.scene_mgr, converted[:])
@@ -143,8 +143,8 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
         app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
         app.finished     = false
         app.elapsed_secs = 0
-        rt.apply_scene_render_camera(app.r_camera, &app.c_camera_params)
-        rt.init_render_camera(app.r_camera)
+        rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+        rt.init_camera(app.r_camera)
         app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
         app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", text, SceneManagerLen(ev.scene_mgr)))
 
@@ -157,7 +157,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
         world := rt.build_world_from_scene(ev.export_scratch[:])
         defer delete(world)
-        rt.apply_scene_render_camera(app.r_camera, &app.c_camera_params)
+        rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         if persistence.save_scene(text, app.r_camera, world) {
             delete(app.current_scene_path)
             app.current_scene_path = text

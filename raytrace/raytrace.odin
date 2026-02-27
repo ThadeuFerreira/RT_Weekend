@@ -22,7 +22,7 @@ set_pixel :: proc(buffer: ^TestPixelBuffer, x: int, y: int, color: [3]f32) {
     }
 }
 
-write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camera: ^Render_Camera) {
+write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camera: ^Camera) {
     f, err := os.open(file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0644)
     if err != os.ERROR_NONE {
         fmt.fprint(os.stderr, "Error opening file: %s\n", err)
@@ -62,7 +62,7 @@ write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camer
     os.write(f, pixel_data)
 }
 
-setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_spheres: int) -> (^Render_Camera, [dynamic]Object) {
+setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_spheres: int) -> (^Camera, [dynamic]Object) {
     world := make([dynamic]Object, 0, number_of_spheres)
 
     scene_rng := util.create_thread_rng(54321)
@@ -107,8 +107,8 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
     material3 := material(metallic{[3]f32{0.7, 0.6, 0.5}, 0.0})
     append(&world, Sphere{[3]f32{4, 1, 0}, 1.0, material3})
 
-    cam := make_render_camera(image_width, image_height, samples_per_pixel)
-    init_render_camera(cam)
+    cam := make_camera(image_width, image_height, samples_per_pixel)
+    init_camera(cam)
 
     return cam, world
 }

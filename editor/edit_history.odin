@@ -6,23 +6,23 @@ EDIT_HISTORY_MAX :: 128
 
 ModifySphereAction :: struct {
     idx:    int,
-    before: core.Core_SceneSphere,
-    after:  core.Core_SceneSphere,
+    before: core.SceneSphere,
+    after:  core.SceneSphere,
 }
 
 AddSphereAction :: struct {
     idx:    int,
-    sphere: core.Core_SceneSphere,
+    sphere: core.SceneSphere,
 }
 
 DeleteSphereAction :: struct {
     idx:    int,
-    sphere: core.Core_SceneSphere,
+    sphere: core.SceneSphere,
 }
 
 ModifyCameraAction :: struct {
-    before: core.Core_CameraParams,
-    after:  core.Core_CameraParams,
+    before: core.CameraParams,
+    after:  core.CameraParams,
 }
 
 EditAction :: union { ModifySphereAction, AddSphereAction, DeleteSphereAction, ModifyCameraAction }

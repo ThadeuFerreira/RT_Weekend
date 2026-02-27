@@ -8,7 +8,7 @@ package raytrace
 //   3. Declare a package-level constant MY_RENDERER_API :: GpuRendererApi{...}.
 //   4. Add a `when ODIN_OS == .Whatever` branch in create_gpu_renderer() to try it.
 GpuRendererApi :: struct {
-    init:        proc "odin" (cam: ^Render_Camera, world: []Object, bvh: []LinearBVHNode, total: int) -> (rawptr, bool),
+    init:        proc "odin" (cam: ^Camera, world: []Object, bvh: []LinearBVHNode, total: int) -> (rawptr, bool),
     dispatch:    proc "odin" (state: rawptr),
     readback:    proc "odin" (state: rawptr, out: [][4]u8),
     destroy:     proc "odin" (state: rawptr),
@@ -36,7 +36,7 @@ gpu_renderer_done :: proc(r: ^GpuRenderer) -> bool {
 // It tries the best backend for the current OS, falling back through options
 // until one succeeds.  Returns nil if no GPU backend is available.
 create_gpu_renderer :: proc(
-    cam:   ^Render_Camera,
+    cam:   ^Camera,
     world: []Object,
     bvh:   []LinearBVHNode,
     total: int,

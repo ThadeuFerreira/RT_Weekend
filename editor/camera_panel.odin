@@ -4,8 +4,8 @@ import "core:fmt"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
 
-// Editor_Camera_Panel_State: camera panel drag state (which field is being dragged).
-Editor_Camera_Panel_State :: struct {
+// CameraPanelState: camera panel drag state (which field is being dragged).
+CameraPanelState :: struct {
 	drag_idx:       int,   // 0..9: from_xyz, at_xyz, vfov, defocus, focus_dist, max_depth
 	drag_start_x:   f32,
 	drag_start_val: f32,
@@ -17,9 +17,9 @@ CAMERA_PROP_GAP :: f32(4)
 CAMERA_PROP_FW  :: f32(64)
 CAMERA_PROP_FH  :: f32(18)
 
-// editor_camera_panel_field_rects returns 10 value-box rectangles for the camera panel content area.
+// camera_panel_field_rects returns 10 value-box rectangles for the camera panel content area.
 // [0,1,2]=lookfrom xyz, [3,4,5]=lookat xyz, [6]=vfov, [7]=defocus, [8]=focus_dist, [9]=max_depth
-editor_camera_panel_field_rects :: proc(r: rl.Rectangle) -> [10]rl.Rectangle {
+camera_panel_field_rects :: proc(r: rl.Rectangle) -> [10]rl.Rectangle {
 	x0 := r.x + 8
 	y0 := r.y + 8
 	off := CAMERA_PROP_LW + CAMERA_PROP_GAP
@@ -53,7 +53,7 @@ draw_camera_panel_drag_field :: proc(app: ^App, label: cstring, value: f32, box:
 	draw_ui_text(app, label, i32(box.x) - i32(CAMERA_PROP_LW + CAMERA_PROP_GAP) + 2, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
 }
 
-draw_editor_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
+draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	cp := &app.e_camera_panel
 	p  := &app.c_camera_params
 	mouse := rl.GetMousePosition()
@@ -71,7 +71,7 @@ draw_editor_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_ui_text(app, "FOV / Defocus / Focus", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
 	draw_ui_text(app, "Max depth", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
 
-	fields := editor_camera_panel_field_rects(content)
+	fields := camera_panel_field_rects(content)
 	draw_camera_panel_drag_field(app, "X", p.lookfrom[0], fields[0], cp.drag_idx == 0, mouse)
 	draw_camera_panel_drag_field(app, "Y", p.lookfrom[1], fields[1], cp.drag_idx == 1, mouse)
 	draw_camera_panel_drag_field(app, "Z", p.lookfrom[2], fields[2], cp.drag_idx == 2, mouse)
@@ -86,7 +86,7 @@ draw_editor_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 4*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
-update_editor_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
+update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
 	cp := &app.e_camera_panel
 	p  := &app.c_camera_params
 	content := rect
@@ -124,7 +124,7 @@ update_editor_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse:
 	}
 
 	if lmb_pressed {
-		fields := editor_camera_panel_field_rects(content)
+		fields := camera_panel_field_rects(content)
 		for i in 0..<10 {
 			if rl.CheckCollisionPointRec(mouse, fields[i]) {
 				cp.drag_idx = i

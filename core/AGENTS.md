@@ -4,17 +4,17 @@ This package holds **shared data types** used by the editor, the path tracer, an
 
 ## Purpose
 
-- **Core_MaterialKind** — Enum used by both the edit view (Raylib) and the path tracer so neither needs to depend on the other’s material representation.
-- **Core_SceneSphere** — Canonical in-memory representation of a sphere for the editor and renderer; `raytrace.build_world_from_scene` converts `[]Core_SceneSphere` to `[dynamic]Object`.
-- **Core_CameraParams** — Shared camera definition (lookfrom, lookat, vup, vfov, defocus_angle, focus_dist, max_depth) used by the edit view, camera panel, and path tracer; raytrace applies it to `rt.Render_Camera` before rendering.
+- **MaterialKind** — Enum used by both the edit view (Raylib) and the path tracer so neither needs to depend on the other's material representation.
+- **SceneSphere** — Canonical in-memory representation of a sphere for the editor and renderer; `raytrace.build_world_from_scene` converts `[]SceneSphere` to `[dynamic]Object`.
+- **CameraParams** — Shared camera definition (lookfrom, lookat, vup, vfov, defocus_angle, focus_dist, max_depth) used by the edit view, camera panel, and path tracer; raytrace applies it to `rt.Camera` before rendering.
 
 ## Files
 
-- **types.odin** — `Core_MaterialKind`, `Core_SceneSphere`, `Core_CameraParams`.
+- **types.odin** — `MaterialKind`, `SceneSphere`, `CameraParams`.
 
 ## Naming / scope
 
-**Types** in this package use the `Core_` prefix: `Core_CameraParams`, `Core_SceneSphere`, `Core_MaterialKind`. Variables in other packages that hold these use the short prefix `c_` (e.g. `c_camera_params`). This distinguishes shared core types from editor-only (`Editor_*`, `e_`) and render-only (`Render_*`, `r_`) symbols.
+Use idiomatic Odin names for core types (`CameraParams`, `SceneSphere`, `MaterialKind`). In caller code, use `c_` for variables/fields that hold core values (e.g. `c_camera_params`).
 
 ## Dependency rule
 

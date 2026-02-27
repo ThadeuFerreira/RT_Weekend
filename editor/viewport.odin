@@ -6,7 +6,7 @@ import "RT_Weekend:core"
 
 // EditorObject is a discriminated union; add variants here for new object types.
 // Enables switch obj in SceneManager with exhaustiveness checking.
-EditorObject :: union { core.Core_SceneSphere }
+EditorObject :: union { core.SceneSphere }
 
 // compute_viewport_ray casts a perspective ray through the given mouse position.
 // Operates on explicit camera/texture params to avoid circular imports with ui package.
@@ -54,7 +54,7 @@ ray_hit_plane_y :: proc(ray: rl.Ray, plane_y: f32) -> (xz: rl.Vector2, ok: bool)
 }
 
 CAMERA_GIZMO_RADIUS :: f32(0.35)
-pick_render_camera_gizmo :: proc(ray: rl.Ray, lookfrom: [3]f32) -> bool {
+pick_camera :: proc(ray: rl.Ray, lookfrom: [3]f32) -> bool {
 	center := rl.Vector3{lookfrom[0], lookfrom[1], lookfrom[2]}
 	hit    := rl.GetRayCollisionSphere(ray, center, CAMERA_GIZMO_RADIUS)
 	return hit.hit && hit.distance > 0

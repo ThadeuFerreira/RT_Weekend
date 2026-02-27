@@ -75,7 +75,7 @@ main :: proc() {
 
     util.print_system_info()
 
-    r_camera: ^raytrace.Render_Camera
+    r_camera: ^raytrace.Camera
     r_world: [dynamic]raytrace.Object
 
     if len(args.ScenePath) > 0 {
@@ -87,7 +87,7 @@ main :: proc() {
         r_camera = cam
         r_world = w
     } else {
-        r_camera = raytrace.make_render_camera(image_width, image_height, samples_per_pixel)
+        r_camera = raytrace.make_camera(image_width, image_height, samples_per_pixel)
         r_world  = make([dynamic]raytrace.Object) // empty; edit view provides the scene
     }
 

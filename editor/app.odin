@@ -108,15 +108,15 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     app.elapsed_secs = 0
     app.render_start = time.now()
 
-    rt.apply_scene_render_camera(app.r_camera, &app.c_camera_params)
-    rt.init_render_camera(app.r_camera)
+    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+    rt.init_camera(app.r_camera)
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
 // Used by the edit view so it does not need to import raytrace.
-app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.Core_SceneSphere) {
+app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere) {
     if !app.finished { return }
 
     rt.free_session(app.r_session)
@@ -129,8 +129,8 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.Core_Scen
     app.elapsed_secs = 0
     app.render_start = time.now()
 
-    rt.apply_scene_render_camera(app.r_camera, &app.c_camera_params)
-    rt.init_render_camera(app.r_camera)
+    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+    rt.init_camera(app.r_camera)
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
@@ -146,9 +146,9 @@ App :: struct {
 
     // Kept separately so re-renders can reuse the same camera and replace the world.
     num_threads:   int,
-    r_camera:      ^rt.Render_Camera,
+    r_camera:      ^rt.Camera,
     r_world:       [dynamic]rt.Object,
-    c_camera_params: core.Core_CameraParams, // shared camera definition; applied to r_camera before each render
+    c_camera_params: core.CameraParams, // shared camera definition; applied to r_camera before each render
 
     // User's chosen render path (GPU vs CPU). Persists across scene changes and re-renders until toggled.
     prefer_gpu:    bool,
@@ -160,10 +160,10 @@ App :: struct {
     elapsed_secs:  f64,
     render_start:  time.Time,
 
-    edit_view:      EditViewState,
-    e_camera_panel: Editor_Camera_Panel_State,
-    menu_bar:       MenuBarState,
-    object_props:   ObjectPropsPanelState,
+    e_edit_view:    EditViewState,
+    e_camera_panel: CameraPanelState,
+    e_menu_bar:     MenuBarState,
+    e_object_props: ObjectPropsPanelState,
 
     // Preview Port: rasterized view from render camera (app.c_camera_params)
     preview_port_tex: rl.RenderTexture2D,
@@ -299,7 +299,7 @@ app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^raw
 }
 
 run_app :: proc(
-    r_camera: ^rt.Render_Camera,
+    r_camera: ^rt.Camera,
     r_world: [dynamic]rt.Object,
     num_threads: int,
     use_gpu: bool = false,
@@ -355,7 +355,7 @@ run_app :: proc(
     app.r_camera    = r_camera
     app.num_threads = num_threads
     app.prefer_gpu  = use_gpu
-    app.menu_bar    = MenuBarState{open_menu_index = -1}
+    app.e_menu_bar  = MenuBarState{open_menu_index = -1}
     app.layout_presets = make([dynamic]persistence.LayoutPreset)
     defer {
         for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
@@ -375,24 +375,24 @@ run_app :: proc(
         }
         append(&app.layout_presets, import_preset)
     }
-    rt.copy_render_camera_to_scene_params(&app.c_camera_params, r_camera)
-    init_edit_view(&app.edit_view)
+    rt.copy_camera_to_scene_params(&app.c_camera_params, r_camera)
+    init_edit_view(&app.e_edit_view)
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
     if len(r_world) > 0 {
         converted := rt.convert_world_to_edit_spheres(r_world)
-        LoadFromSceneSpheres(app.edit_view.scene_mgr, converted[:])
+        LoadFromSceneSpheres(app.e_edit_view.scene_mgr, converted[:])
         delete(converted)
     }
     delete(r_world) // edit view is now the source of truth; free the raw rt.Object array
     // Build the startup world from the edit view (always).
-    ExportToSceneSpheres(app.edit_view.scene_mgr, &app.edit_view.export_scratch)
-    app.r_world = rt.build_world_from_scene(app.edit_view.export_scratch[:])
-    app.object_props = ObjectPropsPanelState{prop_drag_idx = -1}
-    defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
+    ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
+    app.r_world = rt.build_world_from_scene(app.e_edit_view.export_scratch[:])
+    app.e_object_props = ObjectPropsPanelState{prop_drag_idx = -1}
+    defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
-    defer delete(app.edit_view.export_scratch)
-    defer free_scene_manager(app.edit_view.scene_mgr)
+    defer delete(app.e_edit_view.export_scratch)
+    defer free_scene_manager(app.e_edit_view.scene_mgr)
     defer { rt.free_session(app.r_session) }
     defer delete(app.r_world)
     defer {
@@ -457,8 +457,8 @@ run_app :: proc(
         visible        = true,
         closeable      = true,
         detachable     = true,
-        draw_content   = draw_editor_camera_panel_content,
-        update_content = update_editor_camera_panel_content,
+        draw_content   = draw_camera_panel_content,
+        update_content = update_camera_panel_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
         id             = PANEL_ID_OBJECT_PROPS,
@@ -506,8 +506,8 @@ run_app :: proc(
         app_push_log(&app, strings.clone("Starting render..."))
     }
 
-    rt.apply_scene_render_camera(app.r_camera, &app.c_camera_params)
-    rt.init_render_camera(app.r_camera)
+    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+    rt.init_camera(app.r_camera)
     app.r_session      = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
     app.render_start = time.now()
 
@@ -531,7 +531,7 @@ run_app :: proc(
         app.input_consumed = false
 
         // Priority 1: menu bar
-        menu_bar_update(&app, &app.menu_bar, mouse, lmb_pressed)
+        menu_bar_update(&app, &app.e_menu_bar, mouse, lmb_pressed)
 
         // Priority 2: file modal (blocks all other input when active)
         file_modal_update(&app)
@@ -610,7 +610,7 @@ run_app :: proc(
         // Pass effective lmb_pressed (blocked when modal or menu consumed input)
         effective_lmb_pressed := lmb_pressed && !app.input_consumed
         layout_update_and_draw(&app, &app.dock_layout, mouse, lmb, effective_lmb_pressed)
-        menu_bar_draw(&app, &app.menu_bar)
+        menu_bar_draw(&app, &app.e_menu_bar)
         file_modal_draw(&app)
 
         rl.EndDrawing()
