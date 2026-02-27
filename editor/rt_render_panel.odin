@@ -31,6 +31,7 @@ render_settings_height :: proc() -> f32 {
 }
 
 // draw_input_field draws a text input field with label.
+// Returns the actual box rectangle for hit testing.
 draw_input_field :: proc(
     app: ^App,
     label: cstring,
@@ -38,12 +39,13 @@ draw_input_field :: proc(
     x, y: f32,
     w, h: f32,
     active: bool,
+    label_offset: f32 = 45,
 ) -> rl.Rectangle {
     // Label
     draw_ui_text(app, label, i32(x), i32(y + 4), 12, CONTENT_TEXT_COLOR)
 
     // Input box
-    box := rl.Rectangle{x + 45, y, w, h}
+    box := rl.Rectangle{x + label_offset, y, w, h}
     bg_color := active ? rl.Color{50, 60, 85, 255} : rl.Color{40, 42, 55, 255}
     border_color := active ? ACCENT_COLOR : BORDER_COLOR
     rl.DrawRectangleRec(box, bg_color)
@@ -174,19 +176,20 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
     input_y := content.y + 4
     input_x := content.x + 10
 
-    // Height input
-    _ = draw_input_field(
+    // Height input (label offset 45)
+    height_box := draw_input_field(
         app,
         "Height:",
         app.r_height_input,
         input_x, input_y, RENDER_INPUT_W, RENDER_INPUT_H,
         app.r_active_input == 1,
+        45,
     )
 
     // Aspect ratio dropdown (to the right of height)
     aspect_x := input_x + 125
     aspect_options := [2]cstring{"4:3", "16:9"}
-    _ = draw_dropdown(
+    aspect_box := draw_dropdown(
         app,
         "Aspect:",
         app.r_aspect_ratio,
@@ -195,15 +198,19 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
         app.r_active_input == 3,
     )
 
-    // Samples input (to the right of aspect dropdown)
+    // Samples input (to the right of aspect dropdown, wider label offset 60)
     samples_x := aspect_x + 145
-    _ = draw_input_field(
+    samples_box := draw_input_field(
         app,
         "Samples:",
         app.r_samples_input,
         samples_x, input_y, RENDER_INPUT_W, RENDER_INPUT_H,
         app.r_active_input == 2,
+        60,
     )
+
+    // Store rectangles for hit testing (passed via app state through a global is not ideal,
+    // but update_render_content recalculates - just keep the offsets in sync!)
 
     // Show calculated width
     if width, height, ok := calculate_dimensions(app.r_height_input, app.r_aspect_ratio); ok {
@@ -240,15 +247,16 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
 update_render_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
     settings_h := render_settings_height()
 
-    // Input field rectangles (same calculations as draw)
+    // Recalculate same positions as draw_render_content
     input_y := rect.y + 4
     input_x := rect.x + 10
-
-    height_box := rl.Rectangle{input_x + 45, input_y, RENDER_INPUT_W, RENDER_INPUT_H}
     aspect_x := input_x + 125
-    aspect_box := rl.Rectangle{aspect_x + 55, input_y, RENDER_DROPDOWN_W, RENDER_INPUT_H}
     samples_x := aspect_x + 145
-    samp_box := rl.Rectangle{samples_x + 70, input_y, RENDER_INPUT_W, RENDER_INPUT_H}
+
+    // Hitboxes must match draw_input_field offsets: Height=45, Samples=60
+    height_box := rl.Rectangle{input_x + 45, input_y, RENDER_INPUT_W, RENDER_INPUT_H}
+    aspect_box := rl.Rectangle{aspect_x + 55, input_y, RENDER_DROPDOWN_W, RENDER_INPUT_H}
+    samp_box := rl.Rectangle{samples_x + 60, input_y, RENDER_INPUT_W, RENDER_INPUT_H}
 
     if lmb_pressed {
         // Check which input was clicked
