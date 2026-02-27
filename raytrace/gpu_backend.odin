@@ -152,7 +152,9 @@ gpu_backend_init :: proc(
         fmt.println("[GPU] Failed to compile compute shader — falling back to CPU")
         return nil, false
     }
-    fmt.println("[GPU] Compute shader compiled OK")
+    when VERBOSE_OUTPUT {
+        fmt.println("[GPU] Compute shader compiled OK")
+    }
 
     b := new(GPUBackend)
     b.program       = program
@@ -216,8 +218,10 @@ gpu_backend_init :: proc(
     gl.BufferData(gl.SHADER_STORAGE_BUFFER, output_total, raw_data(zeroes), gl.DYNAMIC_COPY)
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 
-    fmt.printf("[GPU] Buffers ready — %d spheres, %d BVH nodes, %dx%d px\n",
-        len(spheres), len(lin_bvh), cam.image_width, cam.image_height)
+    when VERBOSE_OUTPUT {
+        fmt.printf("[GPU] Buffers ready — %d spheres, %d BVH nodes, %dx%d px\n",
+            len(spheres), len(lin_bvh), cam.image_width, cam.image_height)
+    }
     return b, true
 }
 
