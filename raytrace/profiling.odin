@@ -127,17 +127,18 @@ PhaseEntry :: struct {
 }
 
 RenderProfileSummary :: struct {
-    total_seconds:       f64,
-    phase_count:         int,
-    phases:              [8]PhaseEntry,
-    has_sample_breakdown: bool,
-    sample_get_ray_pct:  f64,
+    total_seconds:        f64,
+    phase_count:           int,
+    phases:                [8]PhaseEntry,
+    has_sample_breakdown:  bool,
+    sample_get_ray_pct:    f64,
     sample_intersection_pct: f64,
-    sample_scatter_pct:  f64,
+    sample_scatter_pct:    f64,
     sample_background_pct: f64,
     sample_pixel_setup_pct: f64,
-    total_samples:       i64,
-    total_rays:           i64,
+    // Reserved for future display (e.g. Stats panel counts line); not currently shown in UI.
+    total_samples:        i64,
+    total_rays:            i64,
     total_intersections:   i64,
 }
 
@@ -314,14 +315,22 @@ aggregate_into_summary :: proc(
     if total_seconds <= 0 { return }
     summary.total_seconds = total_seconds
 
+    buf_s    := get_elapsed_seconds(parallel.buffer_creation)
+    tiles_s  := get_elapsed_seconds(parallel.tile_generation)
+    bvh_s    := get_elapsed_seconds(parallel.bvh_construction)
+    ctx_s    := get_elapsed_seconds(parallel.context_setup)
+    thr_s    := get_elapsed_seconds(parallel.thread_creation)
+    render_s := get_elapsed_seconds(parallel.rendering)
+    join_s   := get_elapsed_seconds(parallel.thread_join)
+
     phases := []PhaseEntry{
-        {"Buf", get_elapsed_seconds(parallel.buffer_creation), (get_elapsed_seconds(parallel.buffer_creation) / total_seconds) * 100.0},
-        {"Tiles", get_elapsed_seconds(parallel.tile_generation), (get_elapsed_seconds(parallel.tile_generation) / total_seconds) * 100.0},
-        {"BVH", get_elapsed_seconds(parallel.bvh_construction), (get_elapsed_seconds(parallel.bvh_construction) / total_seconds) * 100.0},
-        {"Ctx", get_elapsed_seconds(parallel.context_setup), (get_elapsed_seconds(parallel.context_setup) / total_seconds) * 100.0},
-        {"Thr", get_elapsed_seconds(parallel.thread_creation), (get_elapsed_seconds(parallel.thread_creation) / total_seconds) * 100.0},
-        {"Render", get_elapsed_seconds(parallel.rendering), (get_elapsed_seconds(parallel.rendering) / total_seconds) * 100.0},
-        {"Join", get_elapsed_seconds(parallel.thread_join), (get_elapsed_seconds(parallel.thread_join) / total_seconds) * 100.0},
+        {"Buffer", buf_s, (buf_s / total_seconds) * 100.0},
+        {"Tiles", tiles_s, (tiles_s / total_seconds) * 100.0},
+        {"BVH", bvh_s, (bvh_s / total_seconds) * 100.0},
+        {"Context", ctx_s, (ctx_s / total_seconds) * 100.0},
+        {"Threads", thr_s, (thr_s / total_seconds) * 100.0},
+        {"Render", render_s, (render_s / total_seconds) * 100.0},
+        {"Join", join_s, (join_s / total_seconds) * 100.0},
     }
     n_phases := min(len(phases), len(summary.phases))
     for i in 0..<n_phases {
