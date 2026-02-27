@@ -16,6 +16,7 @@ Args :: struct {
 	SaveConfigPath:   string,
 	SaveScenePath:    string,
 	UseGPU:           bool,   // -gpu flag: use OpenGL compute-shader path
+	OutputPath:       string, // -output / -o: headless PNG output path
 }
 
 
@@ -27,7 +28,8 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 		if arg == "-help" || arg == "--help" {
 			fmt.println("Usage: raytracer [-w width] [-h height] [-s samples] [-n spheres] [-c threads]")
 			fmt.println("                [-config path] [-scene path] [-save-config path] [-save-scene path]")
-			fmt.println("                [-gpu]")
+			fmt.println("                [-gpu] [-output path | -o path]")
+			fmt.println("  -output/-o: headless render to PNG (no window)")
 			return false
 		}
 		// Boolean flags (presence = true, no value argument)
@@ -42,7 +44,7 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 		}
 		// Long-form options that take a path (string)
 		if len(arg) >= 2 && arg[0] == '-' {
-			if arg == "-config" || arg == "-scene" || arg == "-save-config" || arg == "-save-scene" {
+			if arg == "-config" || arg == "-scene" || arg == "-save-config" || arg == "-save-scene" || arg == "-output" || arg == "-o" {
 				if i + 1 >= len(os.args) {
 					fmt.fprintf(os.stderr, "Missing path for %s\n", arg)
 					return false
@@ -51,9 +53,10 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 				i += 2
 				switch arg {
 				case "-config":       args.ConfigPath = path_val
-				case "-scene":       args.ScenePath = path_val
-				case "-save-config": args.SaveConfigPath = path_val
-				case "-save-scene":  args.SaveScenePath = path_val
+				case "-scene":        args.ScenePath = path_val
+				case "-save-config":  args.SaveConfigPath = path_val
+				case "-save-scene":   args.SaveScenePath = path_val
+				case "-output", "-o": args.OutputPath = path_val
 				case:
 				}
 				continue
