@@ -15,11 +15,22 @@ core with:
 
 ## Build & Verify
 
-Always build before testing changes:
+Always build before testing changes.
+
+**Using the Makefile:**
+
+```bash
+make debug    # Debug build → build/debug
+make release # Release build → build/release (optimized, quiet stdout)
+```
+
+**Manual build:**
 
 ```bash
 odin build . -collection:RT_Weekend=. -debug -out:build/debug
 ```
+
+Release builds use: `-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false`. Run with `./build/release`.
 
 Verify a small, fast render starts (opens a Raylib window, closes when done):
 
@@ -33,10 +44,12 @@ For GPU path verification (requires OpenGL 4.3+):
 ./build/debug -gpu -s 20 -w 200 -h 112
 ```
 
-For performance changes, use a timed render (timing is always printed to stdout):
+For performance changes, use a timed render (timing printed to stdout in debug; Stats panel has data in both):
 
 ```bash
 ./build/debug -w 800 -h 450 -s 50
+# or
+./build/release -w 800 -h 450 -s 50
 ```
 
 Cross-compile type-checks (no linker — syntax/type errors only):

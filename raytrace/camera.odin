@@ -9,6 +9,8 @@ import "core:time"
 import "RT_Weekend:core"
 import "RT_Weekend:util"
 
+VERBOSE_OUTPUT :: #config(VERBOSE_OUTPUT, true)
+
 degrees_to_radians :: proc(degrees: f32) -> f32 {
     return degrees * (math.PI / 180.0)
 }
@@ -421,7 +423,9 @@ finish_render :: proc(session: ^RenderSession) {
         delete(session.thread_tile_times)
         delete(session.thread_tile_counts)
         delete(session.thread_rendering_breakdowns)
-        fmt.println("[GPU] Render complete")
+        when VERBOSE_OUTPUT {
+            fmt.println("[GPU] Render complete")
+        }
         return
     }
 
@@ -450,25 +454,27 @@ finish_render :: proc(session: ^RenderSession) {
         session.bvh_root = nil
     }
 
-    fmt.println("")
-    fmt.println("Per-Thread Statistics:")
-    fmt.println("  Thread | Tiles | Time (s) | Tiles/sec")
-    separator_line := strings.repeat("-", 45)
-    fmt.printf("  %s\n", separator_line)
-    total_thread_time := 0.0
-    for i in 0..<session.num_threads {
-        tiles      := session.thread_tile_counts[i]
-        thread_time := session.thread_tile_times[i]
-        total_thread_time += thread_time
-        tiles_per_sec := 0.0
-        if thread_time > 0 {
-            tiles_per_sec = f64(tiles) / thread_time
+    when VERBOSE_OUTPUT {
+        fmt.println("")
+        fmt.println("Per-Thread Statistics:")
+        fmt.println("  Thread | Tiles | Time (s) | Tiles/sec")
+        separator_line := strings.repeat("-", 45)
+        fmt.printf("  %s\n", separator_line)
+        total_thread_time := 0.0
+        for i in 0..<session.num_threads {
+            tiles      := session.thread_tile_counts[i]
+            thread_time := session.thread_tile_times[i]
+            total_thread_time += thread_time
+            tiles_per_sec := 0.0
+            if thread_time > 0 {
+                tiles_per_sec = f64(tiles) / thread_time
+            }
+            fmt.printf("  %6d | %5d | %8.3f | %10.2f\n", i, tiles, thread_time, tiles_per_sec)
         }
-        fmt.printf("  %6d | %5d | %8.3f | %10.2f\n", i, tiles, thread_time, tiles_per_sec)
+        avg_thread_time := total_thread_time / f64(session.num_threads)
+        fmt.printf("  Average thread time: %.3f s\n", avg_thread_time)
+        fmt.println("")
     }
-    avg_thread_time := total_thread_time / f64(session.num_threads)
-    fmt.printf("  Average thread time: %.3f s\n", avg_thread_time)
-    fmt.println("")
 
     rendering_breakdown := RenderingBreakdown{}
     for i in 0..<session.num_threads {
@@ -491,19 +497,23 @@ finish_render :: proc(session: ^RenderSession) {
     stop_timer(&session.timing.thread_join)
 
     total_tiles := session.work_queue.total_tiles
-    print_parallel_timing_breakdown(
-        &session.timing,
-        session.r_camera.image_width,
-        session.r_camera.image_height,
-        session.r_camera.samples_per_pixel,
-        session.num_threads,
-        total_tiles,
-    )
+    when VERBOSE_OUTPUT {
+        print_parallel_timing_breakdown(
+            &session.timing,
+            session.r_camera.image_width,
+            session.r_camera.image_height,
+            session.r_camera.samples_per_pixel,
+            session.num_threads,
+            total_tiles,
+        )
+    }
 
     rendering_time := get_elapsed_seconds(session.timing.rendering)
     aggregate_into_summary(&session.timing, &rendering_breakdown, &session.last_profile)
 
-    print_rendering_breakdown(&rendering_breakdown, rendering_time)
+    when VERBOSE_OUTPUT {
+        print_rendering_breakdown(&rendering_breakdown, rendering_time)
+    }
 }
 
 // start_render_auto starts a render session using the GPU compute-shader path when
@@ -556,7 +566,9 @@ start_render_auto :: proc(
     if renderer != nil {
         session.gpu_renderer = renderer
         session.use_gpu      = true
-        fmt.println("[GPU] Init OK — GPU rendering enabled")
+        when VERBOSE_OUTPUT {
+            fmt.println("[GPU] Init OK — GPU rendering enabled")
+        }
         return session
     }
 

@@ -58,6 +58,60 @@
             "dependsOn": "build-windows",
             "problemMatcher": [],
             "group": "test"
+        },
+        {
+            "label": "build-windows-release",
+            "type": "shell",
+            "command": "odin",
+            "args": [
+                "build", ".",
+                "-collection:RT_Weekend=.",
+                "-o:speed",
+                "-no-bounds-check",
+                "-define:PROFILING_ENABLED=false",
+                "-define:VERBOSE_OUTPUT=false",
+                "-out:build/release.exe"
+            ],
+            "dependsOn": "mkdir-windows",
+            "problemMatcher": [],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" }
+        },
+        {
+            "label": "build-linux-release",
+            "type": "shell",
+            "command": "odin",
+            "args": [
+                "build", ".",
+                "-collection:RT_Weekend=.",
+                "-o:speed",
+                "-no-bounds-check",
+                "-define:PROFILING_ENABLED=false",
+                "-define:VERBOSE_OUTPUT=false",
+                "-out:build/release"
+            ],
+            "dependsOn": "mkdir-linux",
+            "problemMatcher": [],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" }
+        },
+        {
+            "label": "run-linux-release",
+            "type": "shell",
+            "command": "./build/release",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
+            "dependsOn": "build-linux-release",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "run-windows-release",
+            "type": "shell",
+            "command": ".\\build\\release.exe",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
+            "dependsOn": "build-windows-release",
+            "problemMatcher": [],
+            "group": "test"
         }
     ]
 }

@@ -7,6 +7,8 @@ import "RT_Weekend:editor"
 import "RT_Weekend:raytrace"
 import "RT_Weekend:util"
 
+VERBOSE_OUTPUT :: #config(VERBOSE_OUTPUT, true)
+
 main :: proc() {
     args := util.Args{}
 
@@ -67,13 +69,14 @@ main :: proc() {
         }
     }
 
-    fmt.printf("Ray Tracer Configuration:\n")
-    fmt.printf("  Image size: %dx%d pixels\n", image_width, image_height)
-    fmt.printf("  Samples per pixel: %d\n", samples_per_pixel)
-    fmt.printf("  Threads: %d\n", thread_count)
-    fmt.printf("  GPU mode: %v\n", args.UseGPU)
-
-    util.print_system_info()
+    when VERBOSE_OUTPUT {
+        fmt.printf("Ray Tracer Configuration:\n")
+        fmt.printf("  Image size: %dx%d pixels\n", image_width, image_height)
+        fmt.printf("  Samples per pixel: %d\n", samples_per_pixel)
+        fmt.printf("  Threads: %d\n", thread_count)
+        fmt.printf("  GPU mode: %v\n", args.UseGPU)
+        util.print_system_info()
+    }
 
     r_camera: ^raytrace.Camera
     r_world: [dynamic]raytrace.Object
