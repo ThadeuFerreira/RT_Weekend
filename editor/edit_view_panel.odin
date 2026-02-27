@@ -2,9 +2,38 @@ package editor
 
 import "core:fmt"
 import "core:math"
+import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
+import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
+
+// calculate_render_dimensions computes width and height from app settings.
+// Returns false if dimensions are out of bounds (16k max, 720p min).
+calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool) {
+    h, h_ok := strconv.parse_int(strings.trim_space(app.r_height_input))
+    if !h_ok || h <= 0 {
+        return 0, 0, false
+    }
+
+    aspect: f32
+    if app.r_aspect_ratio == 0 {
+        aspect = 4.0 / 3.0
+    } else {
+        aspect = 16.0 / 9.0
+    }
+    w := int(f32(h) * aspect)
+
+    // Check bounds (16k max, 720p min)
+    if h < MIN_RENDER_HEIGHT || h > MAX_RENDER_HEIGHT {
+        return w, h, false
+    }
+    if w < MIN_RENDER_WIDTH || w > MAX_RENDER_WIDTH {
+        return w, h, false
+    }
+
+    return w, h, true
+}
 
 EDIT_TOOLBAR_H :: f32(32)
 EDIT_PROPS_H   :: f32(90)
@@ -328,21 +357,26 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		draw_ui_text(app, "Delete", i32(btn_del.x) + 8, i32(btn_del.y) + 4, 12, rl.RAYWHITE)
 	}
 
-	btn_from_view := rl.Rectangle{content.x + content.width - 180, content.y + 5, 82, 22}
-	fv_hover := rl.CheckCollisionPointRec(mouse, btn_from_view)
-	rl.DrawRectangleRec(btn_from_view, fv_hover ? rl.Color{70, 100, 140, 255} : rl.Color{50, 75, 110, 255})
-	draw_ui_text(app, "From view", i32(btn_from_view.x) + 4, i32(btn_from_view.y) + 4, 11, rl.RAYWHITE)
-
 	btn_render   := rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
 	render_busy  := !app.finished
+	render_ready := app.finished && app.r_render_pending
 	render_hover := !render_busy && rl.CheckCollisionPointRec(mouse, btn_render)
-	rl.DrawRectangleRec(btn_render,
-		render_busy  ? rl.Color{45, 75,  45,  200} :
-		render_hover ? rl.Color{80, 190, 80,  255} :
-		               rl.Color{50, 140, 50,  255})
-	draw_ui_text(app,
-		render_busy ? cstring("Rendering…") : cstring("Render"),
-		i32(btn_render.x) + 6, i32(btn_render.y) + 4, 12, rl.RAYWHITE)
+
+	// Button color: bright green when render is pending, normal when not, dim when busy
+	btn_color: rl.Color
+	if render_busy {
+		btn_color = rl.Color{45, 75, 45, 200}
+	} else if render_ready {
+		btn_color = rl.Color{80, 220, 80, 255} // bright green when pending
+	} else if render_hover {
+		btn_color = rl.Color{80, 190, 80, 255}
+	} else {
+		btn_color = rl.Color{50, 140, 50, 255}
+	}
+	rl.DrawRectangleRec(btn_render, btn_color)
+
+	btn_text := render_busy ? cstring("Rendering…") : (render_ready ? cstring("Render*") : cstring("Render"))
+	draw_ui_text(app, btn_text, i32(btn_render.x) + 6, i32(btn_render.y) + 4, 12, rl.RAYWHITE)
 
 	// 3D viewport
 	vp_rect := rl.Rectangle{
@@ -425,6 +459,7 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 						after  = s,
 					})
 					app_push_log(app, strings.clone("Move sphere"))
+					app.r_render_pending = true
 				}
 			}
 		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
@@ -454,6 +489,7 @@ AppendDefaultSphere(ev.scene_mgr)
 				edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
 				app_push_log(app, strings.clone("Add sphere"))
 			}
+			app.r_render_pending = true
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
@@ -467,25 +503,55 @@ AppendDefaultSphere(ev.scene_mgr)
 OrderedRemove(ev.scene_mgr, del_idx)
 			ev.selection_kind = .None
 			ev.selected_idx   = -1
+			app.r_render_pending = true
 			return
 		}
 		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
-			// Apply current app.c_camera_params to raytracer and start render
-ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-			app_restart_render_with_scene(app, ev.export_scratch[:])
+			// Copy orbit view to camera params
+			lookfrom, lookat := get_orbit_camera_pose(ev)
+			app.c_camera_params.lookfrom = lookfrom
+			app.c_camera_params.lookat   = lookat
+			app.c_camera_params.vup      = [3]f32{0, 1, 0}
+
+			// Export scene
+			ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+			delete(app.r_world)
+			app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
+
+			// Parse render settings
+			width, height, res_ok := calculate_render_dimensions(app)
+			samples, samp_ok := strconv.parse_int(app.r_samples_input)
+
+			if !res_ok {
+				// Check if it's a parse error or bounds error
+				h, h_ok := strconv.parse_int(strings.trim_space(app.r_height_input))
+				if !h_ok || h <= 0 {
+					app_push_log(app, strings.clone("Invalid height. Must be a positive integer."))
+				} else {
+					// Bounds error
+					if h < MIN_RENDER_HEIGHT {
+						app_push_log(app, fmt.aprintf("Warning: Height %d below minimum (%d)", h, MIN_RENDER_HEIGHT))
+					} else if h > MAX_RENDER_HEIGHT {
+						app_push_log(app, fmt.aprintf("Warning: Height %d exceeds maximum (%d)", h, MAX_RENDER_HEIGHT))
+					}
+					if width < MIN_RENDER_WIDTH {
+						app_push_log(app, fmt.aprintf("Warning: Width %d below minimum (%d)", width, MIN_RENDER_WIDTH))
+					} else if width > MAX_RENDER_WIDTH {
+						app_push_log(app, fmt.aprintf("Warning: Width %d exceeds maximum (%d)", width, MAX_RENDER_WIDTH))
+					}
+				}
+			} else if !samp_ok || samples <= 0 {
+				app_push_log(app, strings.clone("Invalid samples count. Must be a positive integer."))
+			} else {
+				restart_render_with_settings(app, width, height, samples)
+			}
+
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 	}
 	// "From view" copies orbit into camera_params so Render uses current orbit view
-	btn_from_view := rl.Rectangle{content.x + content.width - 180, content.y + 5, 82, 22}
-	if lmb_pressed && rl.CheckCollisionPointRec(mouse, btn_from_view) {
-		lookfrom, lookat := get_orbit_camera_pose(ev)
-		app.c_camera_params.lookfrom = lookfrom
-		app.c_camera_params.lookat   = lookat
-		app.c_camera_params.vup      = [3]f32{0, 1, 0}
-		return
-	}
+	// Removed - now integrated into render button behavior
 
 	// ── Property drag-field: start drag on click (sphere only) ───────────
 	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, props_rect) {
@@ -497,13 +563,14 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			for i in 0..<4 {
 				if rl.CheckCollisionPointRec(mouse, fields[i]) {
 					any_hovered = true
-					if lmb_pressed {
-						ev.prop_drag_idx       = i
-						ev.prop_drag_start_x   = mouse.x
-						ev.prop_drag_start_val = vals[i]
-						rl.SetMouseCursor(.RESIZE_EW)
-						return
-					}
+				if lmb_pressed {
+					ev.prop_drag_idx       = i
+					ev.prop_drag_start_x   = mouse.x
+					ev.prop_drag_start_val = vals[i]
+					rl.SetMouseCursor(.RESIZE_EW)
+					app.r_render_pending = true
+					return
+				}
 				}
 			}
 			if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else { rl.SetMouseCursor(.DEFAULT) }
@@ -614,6 +681,7 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 					after  = s,
 				})
 				app_push_log(app, strings.clone("Nudge sphere"))
+				app.r_render_pending = true
 			}
 		}
 	} else {
