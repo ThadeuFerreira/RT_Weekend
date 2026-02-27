@@ -113,18 +113,9 @@ draw_dropdown :: proc(
 
 // restart_render_with_settings creates a new camera with the specified resolution and samples,
 // rebuilds the render texture, and starts a fresh render.
+// Note: Caller is responsible for validating bounds before calling this function.
 restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     if !app.finished { return }
-
-    // Validate resolution bounds
-    if height < MIN_RENDER_HEIGHT || height > MAX_RENDER_HEIGHT {
-        app_push_log(app, fmt.aprintf("Warning: Height %d is out of bounds (%d-%d)", height, MIN_RENDER_HEIGHT, MAX_RENDER_HEIGHT))
-        return
-    }
-    if width < MIN_RENDER_WIDTH || width > MAX_RENDER_WIDTH {
-        app_push_log(app, fmt.aprintf("Warning: Width %d is out of bounds (%d-%d)", width, MIN_RENDER_WIDTH, MAX_RENDER_WIDTH))
-        return
-    }
 
     // Free old session
     rt.free_session(app.r_session)
