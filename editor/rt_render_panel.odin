@@ -19,6 +19,16 @@ RENDER_INPUT_W :: f32(70)
 RENDER_DROPDOWN_W :: f32(80)
 RENDER_ROW_H :: f32(28)
 
+// Layout constants - shared between draw and update
+RENDER_PADDING_X :: f32(10)     // Left padding
+RENDER_HEIGHT_LABEL_W :: f32(45)  // Width for "Height:" label
+RENDER_HEIGHT_X :: f32(10)      // Height input starts at left padding
+RENDER_ASPECT_X :: f32(135)     // Aspect dropdown: RENDER_HEIGHT_X + 125
+RENDER_ASPECT_LABEL_W :: f32(55)  // Width for "Aspect:" label
+RENDER_SAMPLES_X :: f32(280)    // Samples input: RENDER_ASPECT_X + 145
+RENDER_SAMPLES_LABEL_W :: f32(60) // Width for "Samples:" label
+RENDER_INFO_X :: f32(405)       // Info text: RENDER_SAMPLES_X + 125
+
 // render_settings_height returns the height of the settings area above the render preview.
 render_settings_height :: proc() -> f32 {
     return RENDER_ROW_H + 8 // input row + padding
@@ -157,48 +167,42 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
 
     // Input row
     input_y := content.y + 4
-    input_x := content.x + 10
+    base_x := content.x + RENDER_PADDING_X
 
-    // Height input (label offset 45)
+    // Height input
     height_box := draw_input_field(
         app,
         "Height:",
         app.r_height_input,
-        input_x, input_y, RENDER_INPUT_W, RENDER_INPUT_H,
+        base_x + RENDER_HEIGHT_X, input_y, RENDER_INPUT_W, RENDER_INPUT_H,
         app.r_active_input == 1,
-        45,
+        RENDER_HEIGHT_LABEL_W,
     )
 
-    // Aspect ratio dropdown (to the right of height)
-    aspect_x := input_x + 125
+    // Aspect ratio dropdown
     aspect_options := [2]cstring{"4:3", "16:9"}
     aspect_box := draw_dropdown(
         app,
         "Aspect:",
         app.r_aspect_ratio,
         aspect_options[:],
-        aspect_x, input_y, RENDER_DROPDOWN_W, RENDER_INPUT_H,
+        base_x + RENDER_ASPECT_X, input_y, RENDER_DROPDOWN_W, RENDER_INPUT_H,
         app.r_active_input == 3,
     )
 
-    // Samples input (to the right of aspect dropdown, wider label offset 60)
-    samples_x := aspect_x + 145
+    // Samples input
     samples_box := draw_input_field(
         app,
         "Samples:",
         app.r_samples_input,
-        samples_x, input_y, RENDER_INPUT_W, RENDER_INPUT_H,
+        base_x + RENDER_SAMPLES_X, input_y, RENDER_INPUT_W, RENDER_INPUT_H,
         app.r_active_input == 2,
-        60,
+        RENDER_SAMPLES_LABEL_W,
     )
-
-    // Store rectangles for hit testing (passed via app state through a global is not ideal,
-    // but update_render_content recalculates - just keep the offsets in sync!)
 
     // Show calculated width
     if width, height, ok := calculate_render_dimensions(app); ok {
-        info_x := samples_x + 125
-        draw_ui_text(app, fmt.ctprintf("= %dx%d", width, height), i32(info_x), i32(input_y + 4), 12, rl.Color{140, 150, 165, 255})
+        draw_ui_text(app, fmt.ctprintf("= %dx%d", width, height), i32(base_x + RENDER_INFO_X), i32(input_y + 4), 12, rl.Color{140, 150, 165, 255})
     }
 
     // Render preview area (below settings)
@@ -230,16 +234,14 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
 update_render_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
     settings_h := render_settings_height()
 
-    // Recalculate same positions as draw_render_content
+    // Recalculate same positions as draw_render_content using shared constants
     input_y := rect.y + 4
-    input_x := rect.x + 10
-    aspect_x := input_x + 125
-    samples_x := aspect_x + 145
+    base_x := rect.x + RENDER_PADDING_X
 
-    // Hitboxes must match draw_input_field offsets: Height=45, Samples=60
-    height_box := rl.Rectangle{input_x + 45, input_y, RENDER_INPUT_W, RENDER_INPUT_H}
-    aspect_box := rl.Rectangle{aspect_x + 55, input_y, RENDER_DROPDOWN_W, RENDER_INPUT_H}
-    samp_box := rl.Rectangle{samples_x + 60, input_y, RENDER_INPUT_W, RENDER_INPUT_H}
+    // Hitboxes must match draw_input_field offsets
+    height_box := rl.Rectangle{base_x + RENDER_HEIGHT_X + RENDER_HEIGHT_LABEL_W, input_y, RENDER_INPUT_W, RENDER_INPUT_H}
+    aspect_box := rl.Rectangle{base_x + RENDER_ASPECT_X + RENDER_ASPECT_LABEL_W, input_y, RENDER_DROPDOWN_W, RENDER_INPUT_H}
+    samp_box := rl.Rectangle{base_x + RENDER_SAMPLES_X + RENDER_SAMPLES_LABEL_W, input_y, RENDER_INPUT_W, RENDER_INPUT_H}
 
     if lmb_pressed {
         // Check which input was clicked
@@ -278,15 +280,19 @@ update_render_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, 
 
             if valid {
                 if app.r_active_input == 1 {
-                    old := app.r_height_input
-                    app.r_height_input = strings.concatenate({old, string([]u8{u8(ch)})})
-                    delete(old)
-                    app.r_render_pending = true
+                    if len(app.r_height_input) < 5 { // Cap at 5 digits (max ~99999)
+                        old := app.r_height_input
+                        app.r_height_input = strings.concatenate({old, string([]u8{u8(ch)})})
+                        delete(old)
+                        app.r_render_pending = true
+                    }
                 } else if app.r_active_input == 2 {
-                    old := app.r_samples_input
-                    app.r_samples_input = strings.concatenate({old, string([]u8{u8(ch)})})
-                    delete(old)
-                    app.r_render_pending = true
+                    if len(app.r_samples_input) < 4 { // Cap at 4 digits (max ~9999)
+                        old := app.r_samples_input
+                        app.r_samples_input = strings.concatenate({old, string([]u8{u8(ch)})})
+                        delete(old)
+                        app.r_render_pending = true
+                    }
                 }
             }
         }
