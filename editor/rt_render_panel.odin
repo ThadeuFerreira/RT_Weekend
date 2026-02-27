@@ -175,7 +175,7 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
     input_x := content.x + 10
 
     // Height input
-    height_box := draw_input_field(
+    _ = draw_input_field(
         app,
         "Height:",
         app.r_height_input,
@@ -186,7 +186,7 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
     // Aspect ratio dropdown (to the right of height)
     aspect_x := input_x + 125
     aspect_options := [2]cstring{"4:3", "16:9"}
-    aspect_box := draw_dropdown(
+    _ = draw_dropdown(
         app,
         "Aspect:",
         app.r_aspect_ratio,
@@ -197,7 +197,7 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
 
     // Samples input (to the right of aspect dropdown)
     samples_x := aspect_x + 145
-    samp_box := draw_input_field(
+    _ = draw_input_field(
         app,
         "Samples:",
         app.r_samples_input,
@@ -287,10 +287,14 @@ update_render_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, 
 
             if valid {
                 if app.r_active_input == 1 {
-                    app.r_height_input = strings.concatenate({app.r_height_input, string([]u8{u8(ch)})})
+                    old := app.r_height_input
+                    app.r_height_input = strings.concatenate({old, string([]u8{u8(ch)})})
+                    delete(old)
                     app.r_render_pending = true
                 } else if app.r_active_input == 2 {
-                    app.r_samples_input = strings.concatenate({app.r_samples_input, string([]u8{u8(ch)})})
+                    old := app.r_samples_input
+                    app.r_samples_input = strings.concatenate({old, string([]u8{u8(ch)})})
+                    delete(old)
                     app.r_render_pending = true
                 }
             }
