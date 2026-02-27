@@ -111,7 +111,7 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
-    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
+    app_push_log(app, fmt.aprintf("Re-rendering (%d user spheres + 1 ground plane)...", rt.count_user_spheres(app.r_world[:])))
 }
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
@@ -132,7 +132,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
-    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
+    app_push_log(app, fmt.aprintf("Re-rendering (%d user spheres + 1 ground plane)...", len(scene_objects)))
 }
 
 App :: struct {
@@ -499,6 +499,7 @@ run_app :: proc(
     }
 
     app_push_log(&app, fmt.aprintf("Scene: %dx%d, %d spp", r_camera.image_width, r_camera.image_height, r_camera.samples_per_pixel))
+    app_push_log(&app, fmt.aprintf("Spheres: %d user + 1 implicit ground plane", rt.count_user_spheres(app.r_world[:])))
     app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))
     if use_gpu {
         app_push_log(&app, strings.clone("Starting render (GPU mode requested)..."))

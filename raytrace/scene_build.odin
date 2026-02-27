@@ -29,6 +29,19 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 	return result
 }
 
+// count_user_spheres returns the number of user-placed spheres in world,
+// excluding the implicit ground plane (centre.y < -100).
+count_user_spheres :: proc(world: []Object) -> int {
+	count := 0
+	for obj in world {
+		s, ok := obj.(Sphere)
+		if !ok { continue }
+		if s.center[1] < -100 { continue }
+		count += 1
+	}
+	return count
+}
+
 // build_world_from_scene converts shared scene spheres to raytrace Objects.
 // Prepends a grey ground plane. Caller owns and must delete the returned dynamic array.
 build_world_from_scene :: proc(scene_objects: []core.SceneSphere) -> [dynamic]Object {

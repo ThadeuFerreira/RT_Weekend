@@ -216,8 +216,13 @@ gpu_backend_init :: proc(
     gl.BufferData(gl.SHADER_STORAGE_BUFFER, output_total, raw_data(zeroes), gl.DYNAMIC_COPY)
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 
-    fmt.printf("[GPU] Buffers ready — %d spheres, %d BVH nodes, %dx%d px\n",
-        len(spheres), len(lin_bvh), cam.image_width, cam.image_height)
+    // Report user spheres separately from the implicit ground plane (centre.y < -100).
+    user_sphere_count := 0
+    for s in spheres {
+        if s.center[1] > -100 { user_sphere_count += 1 }
+    }
+    fmt.printf("[GPU] Buffers ready — %d spheres (%d user + 1 ground plane), %d BVH nodes, %dx%d px\n",
+        len(spheres), user_sphere_count, len(lin_bvh), cam.image_width, cam.image_height)
     return b, true
 }
 
