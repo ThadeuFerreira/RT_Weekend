@@ -1,4 +1,4 @@
-package ui
+package editor
 
 import rl "vendor:raylib"
 
@@ -75,14 +75,20 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
         {label = "Exit",     cmd_id = CMD_FILE_EXIT,    shortcut = "Alt+F4"},
     }
 
+    edit_entries := []MenuEntryDyn{
+        {label = "Undo", cmd_id = CMD_UNDO, shortcut = "Ctrl+Z", disabled = !cmd_is_enabled(app, CMD_UNDO)},
+        {label = "Redo", cmd_id = CMD_REDO, shortcut = "Ctrl+Y", disabled = !cmd_is_enabled(app, CMD_REDO)},
+    }
+
     render_entries := []MenuEntryDyn{
         {label = "Restart", cmd_id = CMD_RENDER_RESTART, shortcut = "F5", disabled = !cmd_is_enabled(app, CMD_RENDER_RESTART)},
     }
 
-    menus := make([]MenuDyn, 3, context.temp_allocator)
+    menus := make([]MenuDyn, 4, context.temp_allocator)
     menus[0] = MenuDyn{title = "File",   entries = file_entries}
-    menus[1] = MenuDyn{title = "View",   entries = view_entries[:]}
-    menus[2] = MenuDyn{title = "Render", entries = render_entries}
+    menus[1] = MenuDyn{title = "Edit",   entries = edit_entries}
+    menus[2] = MenuDyn{title = "View",   entries = view_entries[:]}
+    menus[3] = MenuDyn{title = "Render", entries = render_entries}
     return menus
 }
 

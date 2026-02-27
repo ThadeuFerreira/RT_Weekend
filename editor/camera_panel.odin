@@ -1,8 +1,8 @@
-package ui
+package editor
 
 import "core:fmt"
 import rl "vendor:raylib"
-import "RT_Weekend:scene"
+import "RT_Weekend:core"
 
 // Camera panel drag state (which field is being dragged).
 CameraPanelState :: struct {

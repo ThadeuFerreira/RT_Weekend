@@ -1,10 +1,10 @@
-package ui
+package editor
 
 import "core:fmt"
 import "core:math"
+import "core:strings"
 import rl "vendor:raylib"
-import "RT_Weekend:scene"
-import ed "RT_Weekend:ui/editor"
+import "RT_Weekend:core"
 
 EDIT_TOOLBAR_H :: f32(32)
 EDIT_PROPS_H   :: f32(90)
@@ -35,8 +35,8 @@ EditViewState :: struct {
 	last_mouse: rl.Vector2,
 
 	// Scene manager (holds scene spheres for now; adapter for future polymorphism)
-	scene_mgr:      ^ed.SceneManager,
-	export_scratch: [dynamic]scene.SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
+	scene_mgr:      ^SceneManager,
+	export_scratch: [dynamic]core.SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
 	selection_kind: EditViewSelectionKind,      // what is selected
 	selected_idx:   int,                   // when Sphere: index into objects; else -1
 
@@ -50,6 +50,11 @@ EditViewState :: struct {
 	drag_obj_active: bool,
 	drag_plane_y:    f32,    // Y of the horizontal movement plane
 	drag_offset_xz:  [2]f32, // grab-point offset in world XZ so the object doesn't snap
+	drag_before:     core.SceneSphere, // sphere state captured at viewport-drag start
+
+	// Keyboard nudge history tracking
+	nudge_active: bool,             // true while any nudge key is held
+	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
 
 	initialized: bool,
 }
@@ -64,13 +69,13 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.prop_drag_idx  = -1
 
 	// initialize scene manager and seed with a few spheres
-	ev.scene_mgr = ed.new_scene_manager()
-	ev.export_scratch = make([dynamic]scene.SceneSphere)
-	initial := make([dynamic]scene.SceneSphere)
-	append(&initial, scene.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
-	append(&initial, scene.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
-	append(&initial, scene.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
-	ed.LoadFromSceneSpheres(ev.scene_mgr, initial[:])
+	ev.scene_mgr = new_scene_manager()
+	ev.export_scratch = make([dynamic]core.SceneSphere)
+	initial := make([dynamic]core.SceneSphere)
+	append(&initial, core.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
+	append(&initial, core.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
+	append(&initial, core.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
+LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 	delete(initial)
 
 	update_orbit_camera(ev)
@@ -124,7 +129,7 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 // NOTE: viewport / picking helpers were moved into the editor package so they
 // can be shared by object implementations without creating package cycles.
 
-draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []scene.SceneSphere) {
+draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSphere) {
 	ev := &app.edit_view
 	new_w := i32(vp_rect.width)
 	new_h := i32(vp_rect.height)
@@ -251,7 +256,7 @@ draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: b
 	draw_ui_text(g_app, label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
 }
 
-draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []scene.SceneSphere) {
+draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []core.SceneSphere) {
 	ev := &app.edit_view
 	rl.DrawRectangleRec(rect, rl.Color{25, 28, 40, 240})
 	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
@@ -285,7 +290,7 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 	// Row 1 — radius + material label
 	draw_drag_field("R", s.radius, fields[3], ev.prop_drag_idx == 3, mouse)
 
-	mat_name  := ed.material_name(s.material_kind)
+	mat_name  := material_name(s.material_kind)
 	mat_x := i32(rect.x) + 8 + i32(PROP_COL)
 	mat_y := i32(rect.y) + 8 + 30 + 4
 	draw_ui_text(app, "Mat:",    mat_x,      mat_y, 12, CONTENT_TEXT_COLOR)
@@ -346,7 +351,7 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		content.width,
 		content.height - EDIT_TOOLBAR_H - EDIT_PROPS_H,
 	}
-	ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 	draw_viewport_3d(app, vp_rect, ev.export_scratch[:])
 
 	// Properties strip
@@ -390,9 +395,9 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		if !lmb {
 			ev.prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
-		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
+		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 			delta := mouse.x - ev.prop_drag_start_x
-			if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 				switch ev.prop_drag_idx {
 				case 0: s.center[0] = ev.prop_drag_start_val + delta * 0.01
 				case 1: s.center[1] = ev.prop_drag_start_val + delta * 0.01
@@ -401,7 +406,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 					s.radius = ev.prop_drag_start_val + delta * 0.005
 					if s.radius < 0.05 { s.radius = 0.05 }
 				}
-				ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 			}
 		}
 		return
@@ -411,14 +416,25 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	if ev.drag_obj_active {
 		if !lmb {
 			ev.drag_obj_active = false
-		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
+			// Commit drag to history
+			if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
+				if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+					edit_history_push(&app.edit_history, ModifySphereAction{
+						idx    = ev.selected_idx,
+						before = ev.drag_before,
+						after  = s,
+					})
+					app_push_log(app, strings.clone("Move sphere"))
+				}
+			}
+		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 			// require_inside=false: keep dragging even when mouse leaves viewport
-			if ray, ok := ed.compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
-				if xz, ok2 := ed.ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
-					if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
+				if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+					if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 						s.center[0]  = xz.x - ev.drag_offset_xz[0]
 						s.center[2]  = xz.y - ev.drag_offset_xz[1]
-						ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 					}
 				}
 			}
@@ -429,22 +445,33 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// ── Toolbar buttons ─────────────────────────────────────────────────
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, btn_add) {
-			ed.AppendDefaultSphere(ev.scene_mgr)
+AppendDefaultSphere(ev.scene_mgr)
+			new_idx := SceneManagerLen(ev.scene_mgr) - 1
 			ev.selection_kind = .Sphere
-			ev.selected_idx   = ed.SceneManagerLen(ev.scene_mgr) - 1
+			ev.selected_idx   = new_idx
+			// Record add in history
+			if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
+				edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
+				app_push_log(app, strings.clone("Add sphere"))
+			}
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		// Delete only for sphere (camera is non-deletable)
 		if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, btn_del) {
-			ed.OrderedRemove(ev.scene_mgr, ev.selected_idx)
+			del_idx := ev.selected_idx
+			if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+				edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+				app_push_log(app, strings.clone("Delete sphere"))
+			}
+OrderedRemove(ev.scene_mgr, del_idx)
 			ev.selection_kind = .None
 			ev.selected_idx   = -1
 			return
 		}
 		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
 			// Apply current app.camera_params to raytracer and start render
-			ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			app_restart_render_with_scene(app, ev.export_scratch[:])
 			if g_app != nil { g_app.input_consumed = true }
 			return
@@ -463,7 +490,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// ── Property drag-field: start drag on click (sphere only) ───────────
 	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, props_rect) {
 		fields := prop_field_rects(props_rect)
-		if tmp, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+		if tmp, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 			vals := [4]f32{ tmp.center[0], tmp.center[1], tmp.center[2], tmp.radius }
 			// Hover cursor
 			any_hovered := false
@@ -511,22 +538,23 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 
 	// Left-click: select sphere or camera (sphere first, then camera)
 	if lmb_pressed && mouse_in_vp {
-		if ray, ok := ed.compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect); ok {
-			picked_sphere := ed.PickSphereInManager(ev.scene_mgr, ray)
+		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect); ok {
+			picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
 			if picked_sphere >= 0 {
 				ev.selection_kind  = .Sphere
 				ev.selected_idx    = picked_sphere
 				ev.drag_obj_active = true
-				if s, ok := ed.GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
+				if s, ok := GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
+					ev.drag_before     = s  // capture before state for history
 					ev.drag_plane_y    = s.center[1]
-					if xz, ok2 := ed.ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+					if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
 						ev.drag_offset_xz = {
 							xz.x - s.center[0],
 							xz.y - s.center[2],
 						}
 					}
 				}
-			} else if ed.pick_camera(ray, app.camera_params.lookfrom) {
+			} else if pick_camera(ray, app.camera_params.lookfrom) {
 				ev.selection_kind  = .Camera
 				ev.selected_idx    = -1
 				ev.drag_obj_active = false
@@ -541,8 +569,25 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// Keyboard nudge (sphere only)
 	MOVE_SPEED   :: f32(0.05)
 	RADIUS_SPEED :: f32(0.02)
-	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < ed.SceneManagerLen(ev.scene_mgr) {
-		if s, ok := ed.GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
+		any_nudge :=
+			rl.IsKeyDown(.W)     || rl.IsKeyDown(.UP)          ||
+			rl.IsKeyDown(.S)     || rl.IsKeyDown(.DOWN)        ||
+			rl.IsKeyDown(.A)     || rl.IsKeyDown(.LEFT)        ||
+			rl.IsKeyDown(.D)     || rl.IsKeyDown(.RIGHT)       ||
+			rl.IsKeyDown(.Q)     || rl.IsKeyDown(.E)           ||
+			rl.IsKeyDown(.EQUAL) || rl.IsKeyDown(.KP_ADD)      ||
+			rl.IsKeyDown(.MINUS) || rl.IsKeyDown(.KP_SUBTRACT)
+
+		// Capture before-state on first keydown of a nudge session
+		if any_nudge && !ev.nudge_active {
+			ev.nudge_active = true
+			if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+				ev.nudge_before = s
+			}
+		}
+
+		if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 			if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)    { s.center[2] -= MOVE_SPEED }
 			if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)  { s.center[2] += MOVE_SPEED }
 			if rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT)  { s.center[0] -= MOVE_SPEED }
@@ -556,7 +601,23 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 				s.radius -= RADIUS_SPEED
 				if s.radius < 0.05 { s.radius = 0.05 }
 			}
-			ed.SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 		}
+
+		// Commit nudge to history when all keys released
+		if !any_nudge && ev.nudge_active {
+			ev.nudge_active = false
+			if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+				edit_history_push(&app.edit_history, ModifySphereAction{
+					idx    = ev.selected_idx,
+					before = ev.nudge_before,
+					after  = s,
+				})
+				app_push_log(app, strings.clone("Nudge sphere"))
+			}
+		}
+	} else {
+		// Selection lost — clear nudge state without pushing (nothing to commit)
+		ev.nudge_active = false
 	}
 }

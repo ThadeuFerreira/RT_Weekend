@@ -1,4 +1,4 @@
-package ui
+package editor
 
 import "base:runtime"
 import "core:fmt"
@@ -6,9 +6,9 @@ import "core:os"
 import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
-import ed "RT_Weekend:ui/editor"
 import rt "RT_Weekend:raytrace"
-import "RT_Weekend:scene"
+import "RT_Weekend:core"
+import "RT_Weekend:persistence"
 import "RT_Weekend:util"
 
 LOG_RING_SIZE :: 64
@@ -110,13 +110,13 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.use_gpu)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
 // Used by the edit view so it does not need to import raytrace.
-app_restart_render_with_scene :: proc(app: ^App, scene_objects: []scene.SceneSphere) {
+app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere) {
     if !app.finished { return }
 
     rt.free_session(app.session)
@@ -131,7 +131,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []scene.SceneSph
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.use_gpu)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.world)))
 }
 
@@ -148,7 +148,10 @@ App :: struct {
     num_threads:   int,
     camera:        ^rt.Camera,
     world:         [dynamic]rt.Object,
-    camera_params: scene.CameraParams, // shared camera definition; applied to camera before each render
+    camera_params: core.CameraParams, // shared camera definition; applied to camera before each render
+
+    // User's chosen render path (GPU vs CPU). Persists across scene changes and re-renders until toggled.
+    prefer_gpu:    bool,
 
     log_lines:     [LOG_RING_SIZE]string,
     log_count:     int,
@@ -178,11 +181,11 @@ App :: struct {
     // Set true by File → Exit to signal the main loop to terminate.
     should_exit: bool,
 
-    // Mirrors the use_gpu flag passed to run_app; preserved across re-renders.
-    use_gpu: bool,
-
     // Command registry: registered once on startup
     commands: CommandRegistry,
+
+    // Undo/redo history for scene mutations
+    edit_history: EditHistory,
 
     // File modal (shared for Import, Save As, Preset Name)
     file_modal: FileModalState,
@@ -191,7 +194,7 @@ App :: struct {
     current_scene_path: string,
 
     // Named layout presets (built-ins + user-saved)
-    layout_presets: [dynamic]util.LayoutPreset,
+    layout_presets: [dynamic]persistence.LayoutPreset,
 }
 
 g_app: ^App = nil
@@ -247,9 +250,9 @@ app_push_log :: proc(app: ^App, msg: string) {
 }
 
 // apply_editor_layout sets each panel's rect, visible, maximized, and saved_rect from the loaded layout.
-apply_editor_layout :: proc(app: ^App, layout: ^util.EditorLayout) {
+apply_editor_layout :: proc(app: ^App, layout: ^persistence.EditorLayout) {
     if app == nil || layout == nil { return }
-    panel_rect :: proc(r: util.RectF) -> rl.Rectangle {
+    panel_rect :: proc(r: persistence.RectF) -> rl.Rectangle {
         return rl.Rectangle{x = r.x, y = r.y, width = r.width, height = r.height}
     }
     for p in app.panels {
@@ -263,15 +266,15 @@ apply_editor_layout :: proc(app: ^App, layout: ^util.EditorLayout) {
 }
 
 // build_editor_layout_from_app allocates an EditorLayout and fills it from the current panel state. Caller must free the result.
-build_editor_layout_from_app :: proc(app: ^App) -> ^util.EditorLayout {
+build_editor_layout_from_app :: proc(app: ^App) -> ^persistence.EditorLayout {
     if app == nil { return nil }
-    layout := new(util.EditorLayout)
-    layout.panels = make(map[string]util.PanelState)
-    rect_from :: proc(r: rl.Rectangle) -> util.RectF {
-        return util.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
+    layout := new(persistence.EditorLayout)
+    layout.panels = make(map[string]persistence.PanelState)
+    rect_from :: proc(r: rl.Rectangle) -> persistence.RectF {
+        return persistence.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
     }
     for p in app.panels {
-        layout.panels[p.id] = util.PanelState{
+        layout.panels[p.id] = persistence.PanelState{
             rect       = rect_from(p.rect),
             visible    = p.visible,
             maximized  = p.maximized,
@@ -300,9 +303,9 @@ run_app :: proc(
     world: [dynamic]rt.Object,
     num_threads: int,
     use_gpu: bool = false,
-    initial_editor_layout: ^util.EditorLayout = nil,
+    initial_editor_layout: ^persistence.EditorLayout = nil,
     config_save_path: string = "",
-    initial_presets: []util.LayoutPreset = nil,
+    initial_presets: []persistence.LayoutPreset = nil,
 ) {
     WIN_W :: i32(1280)
     WIN_H :: i32(1280)
@@ -351,20 +354,21 @@ run_app :: proc(
     }
     app.camera      = camera
     app.num_threads = num_threads
-    app.use_gpu     = use_gpu
+    app.prefer_gpu  = use_gpu
     app.menu_bar    = MenuBarState{open_menu_index = -1}
-    app.layout_presets = make([dynamic]util.LayoutPreset)
+    app.layout_presets = make([dynamic]persistence.LayoutPreset)
     defer {
         for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
         delete(app.layout_presets)
     }
     defer { if len(app.current_scene_path) > 0 { delete(app.current_scene_path) } }
+    defer edit_history_free(&app.edit_history)
     register_all_commands(&app)
     // Load persisted presets (cloned so app owns them)
     for p in initial_presets {
-        import_preset := util.LayoutPreset{
+        import_preset := persistence.LayoutPreset{
             name   = strings.clone(p.name),
-            layout = util.EditorLayout{panels = make(map[string]util.PanelState)},
+            layout = persistence.EditorLayout{panels = make(map[string]persistence.PanelState)},
         }
         for k, v in p.layout.panels {
             import_preset.layout.panels[strings.clone(k)] = v
@@ -377,18 +381,18 @@ run_app :: proc(
     // Otherwise the edit view keeps its 3 default spheres.
     if len(world) > 0 {
         converted := rt.convert_world_to_edit_spheres(world)
-        ed.LoadFromSceneSpheres(app.edit_view.scene_mgr, converted[:])
+        LoadFromSceneSpheres(app.edit_view.scene_mgr, converted[:])
         delete(converted)
     }
     delete(world) // edit view is now the source of truth; free the raw rt.Object array
     // Build the startup world from the edit view (always).
-    ed.ExportToSceneSpheres(app.edit_view.scene_mgr, &app.edit_view.export_scratch)
+    ExportToSceneSpheres(app.edit_view.scene_mgr, &app.edit_view.export_scratch)
     app.world = rt.build_world_from_scene(app.edit_view.export_scratch[:])
     app.object_props = ObjectPropsPanelState{prop_drag_idx = -1}
     defer rl.UnloadRenderTexture(app.edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer delete(app.edit_view.export_scratch)
-    defer ed.free_scene_manager(app.edit_view.scene_mgr)
+    defer free_scene_manager(app.edit_view.scene_mgr)
     defer { rt.free_session(app.session) }
     defer delete(app.world)
     defer {
@@ -405,12 +409,13 @@ run_app :: proc(
         draw_content = draw_render_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
-        id           = PANEL_ID_STATS,
-        title        = "Stats",
-        rect         = rl.Rectangle{840, 30, 430, 220},
-        min_size     = rl.Vector2{180, 140},
-        visible      = true,
-        draw_content = draw_stats_content,
+        id             = PANEL_ID_STATS,
+        title          = "Stats",
+        rect           = rl.Rectangle{840, 30, 430, 220},
+        min_size       = rl.Vector2{180, 140},
+        visible        = true,
+        draw_content   = draw_stats_content,
+        update_content = update_stats_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
         id                 = PANEL_ID_LOG,
@@ -503,7 +508,7 @@ run_app :: proc(
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session      = rt.start_render_auto(app.camera, app.world, app.num_threads, use_gpu)
+    app.session      = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
     app.render_start = time.now()
 
     // Log the actual render mode after start_render_auto decides CPU vs GPU.
@@ -548,6 +553,16 @@ run_app :: proc(
             }
             if rl.IsKeyPressed(.O) {
                 if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil { op.visible = true }
+            }
+            if rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL) {
+                if rl.IsKeyPressed(.Z) {
+                    if rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT) {
+                        cmd_execute(&app, CMD_REDO)
+                    } else {
+                        cmd_execute(&app, CMD_UNDO)
+                    }
+                }
+                if rl.IsKeyPressed(.Y) { cmd_execute(&app, CMD_REDO) }
             }
         }
 
@@ -609,7 +624,7 @@ run_app :: proc(
     }
 
     if len(config_save_path) > 0 {
-        config := util.RenderConfig{
+        config := persistence.RenderConfig{
             width             = camera.image_width,
             height            = camera.image_height,
             samples_per_pixel = camera.samples_per_pixel,
@@ -619,7 +634,7 @@ run_app :: proc(
         if len(app.layout_presets) > 0 {
             config.presets = app.layout_presets[:]
         }
-        if !util.save_config(config_save_path, config) {
+        if !persistence.save_config(config_save_path, config) {
             fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
         }
         if config.editor != nil {

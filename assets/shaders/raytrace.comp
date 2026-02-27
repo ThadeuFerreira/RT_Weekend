@@ -96,8 +96,9 @@ layout(std430, binding = 2) readonly buffer BVHBlock {
 
 // =============================================================
 // Binding 3 — Output accumulation buffer (SSBO, std430)
-// vec4 per pixel (RGB accumulation; .w unused).
-// After N samples: colour = buffer[idx].rgb / N, then gamma-correct.
+// vec4 per pixel (intentional: std430 vec3 would need careful padding;
+// .rgb = accumulated linear colour, .a unused). After N samples:
+// colour = buffer[idx].rgb / N, then gamma-correct.
 // =============================================================
 layout(std430, binding = 3) buffer OutputBlock {
     vec4 pixels[];
@@ -110,9 +111,15 @@ layout(std430, binding = 3) buffer OutputBlock {
 // safe for parallel use because each invocation carries its own
 // state in a local uint (no shared globals).
 //
-// Seed per invocation from pixel coordinates + current sample:
-//   seed = pixel_y * width + pixel_x + current_sample * width * height
-// This ensures every (pixel, sample) pair gets a unique stream.
+// Seed per invocation: combine pixel index and sample index then hash once.
+// Using pcg_hash(combined) avoids additive correlation between consecutive
+// pixels that a linear formula (e.g. pixel*P + sample*Q) would give.
+
+uint pcg_hash(uint v) {
+    v = v * 747796405u + 2891336453u;
+    uint word = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
+    return (word >> 22u) ^ word;
+}
 
 uint pcg(inout uint state) {
     // LCG step — advances the state.
@@ -262,7 +269,8 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
     float closest = t_max;
     bool  hit_anything = false;
 
-    // Stack — max depth 64 is safe for any reasonably-sized scene.
+    // max depth 64 — sufficient for up to ~10^18 objects with balanced BVH;
+    // exceeding it silently skips nodes (missing geometry).
     int stack[64];
     int stack_ptr = 0;
     stack[stack_ptr++] = 0; // start at root (index 0)
@@ -450,10 +458,9 @@ void main() {
     int pixel_idx = pixel.y * width + pixel.x;
 
     // ── Seed the RNG uniquely per (pixel, sample) ──────────
-    // Mixing coordinates and sample index gives every invocation
-    // an independent pseudo-random stream without any shared state.
-    uint seed = uint(pixel.y * width + pixel.x)
-              + uint(current_sample) * uint(width) * uint(height);
+    uint pixel_index = uint(pixel_idx);
+    uint sample_index = uint(current_sample);
+    uint seed = pcg_hash(pixel_index ^ (sample_index * 2654435761u));
     // Warm up the RNG by discarding a few values.
     pcg(seed); pcg(seed);
 

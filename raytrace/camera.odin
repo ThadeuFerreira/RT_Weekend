@@ -6,7 +6,7 @@ import "core:strings"
 import "core:thread"
 import "core:sync"
 import "core:time"
-import "RT_Weekend:scene"
+import "RT_Weekend:core"
 import "RT_Weekend:util"
 
 degrees_to_radians :: proc(degrees: f32) -> f32 {
@@ -120,7 +120,7 @@ make_camera :: proc(image_width : int, image_height : int, samples_per_pixel : i
 }
 
 // apply_scene_camera copies shared camera params into the raytrace Camera. Call init_camera(cam) after this.
-apply_scene_camera :: proc(cam: ^Camera, params: ^scene.CameraParams) {
+apply_scene_camera :: proc(cam: ^Camera, params: ^core.CameraParams) {
     cam.lookfrom      = params.lookfrom
     cam.lookat        = params.lookat
     cam.vup           = params.vup
@@ -131,7 +131,7 @@ apply_scene_camera :: proc(cam: ^Camera, params: ^scene.CameraParams) {
 }
 
 // copy_camera_to_scene_params fills shared camera params from a raytrace Camera (e.g. at startup).
-copy_camera_to_scene_params :: proc(params: ^scene.CameraParams, cam: ^Camera) {
+copy_camera_to_scene_params :: proc(params: ^core.CameraParams, cam: ^Camera) {
     params.lookfrom      = cam.lookfrom
     params.lookat        = cam.lookat
     params.vup           = cam.vup

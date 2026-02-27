@@ -1,10 +1,10 @@
-package ui
+package editor
 
 import "core:fmt"
 import "core:strings"
-import ed "RT_Weekend:ui/editor"
+import "RT_Weekend:core"
+import "RT_Weekend:persistence"
 import rt "RT_Weekend:raytrace"
-import "RT_Weekend:scene"
 
 // ── File actions ────────────────────────────────────────────────────────────
 
@@ -15,19 +15,19 @@ cmd_action_file_new :: proc(app: ^App) {
     app.session = nil
 
     ev := &app.edit_view
-    initial := [3]scene.SceneSphere{
+    initial := [3]core.SceneSphere{
         {center = {-1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}},
         {center = { 0,   0.5, 0}, radius = 0.5, material_kind = .Metallic,   albedo = {0.2, 0.2, 0.8}, fuzz = 0.1},
         {center = { 1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}},
     }
-    ed.LoadFromSceneSpheres(ev.scene_mgr, initial[:])
+LoadFromSceneSpheres(ev.scene_mgr, initial[:])
     ev.selection_kind = .None
     ev.selected_idx   = -1
 
     delete(app.current_scene_path)
     app.current_scene_path = ""
 
-    ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.world)
     app.world = rt.build_world_from_scene(ev.export_scratch[:])
 
@@ -36,7 +36,7 @@ cmd_action_file_new :: proc(app: ^App) {
 
     rt.apply_scene_camera(app.camera, &app.camera_params)
     rt.init_camera(app.camera)
-    app.session = rt.start_render(app.camera, app.world, app.num_threads)
+    app.session = rt.start_render_auto(app.camera, app.world, app.num_threads, app.prefer_gpu)
     app_push_log(app, strings.clone("New scene (3 default spheres)"))
 }
 
@@ -47,11 +47,11 @@ cmd_action_file_import :: proc(app: ^App) {
 cmd_action_file_save :: proc(app: ^App) {
     if len(app.current_scene_path) == 0 { return }
     ev := &app.edit_view
-    ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := rt.build_world_from_scene(ev.export_scratch[:])
     defer delete(world)
     rt.apply_scene_camera(app.camera, &app.camera_params)
-    if rt.save_scene(app.current_scene_path, app.camera, world) {
+    if persistence.save_scene(app.current_scene_path, app.camera, world) {
         app_push_log(app, fmt.aprintf("Saved: %s", app.current_scene_path))
     } else {
         app_push_log(app, fmt.aprintf("Save failed: %s", app.current_scene_path))
@@ -125,13 +125,77 @@ cmd_action_save_preset :: proc(app: ^App) {
 
 cmd_action_render_restart :: proc(app: ^App) {
     ev := &app.edit_view
-    ed.ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     app_restart_render_with_scene(app, ev.export_scratch[:])
 }
 
 cmd_enabled_render_restart :: proc(app: ^App) -> bool {
     return app.finished
 }
+
+// ── Undo / Redo ──────────────────────────────────────────────────────────────
+
+// apply_edit_action applies an EditAction in the undo (is_undo=true) or redo (is_undo=false) direction.
+apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
+    ev := &app.edit_view
+    switch a in action {
+    case ModifySphereAction:
+        sphere := a.before if is_undo else a.after
+        SetSceneSphere(ev.scene_mgr, a.idx, sphere)
+        if is_undo {
+            app_push_log(app, strings.clone("Undo: modify sphere"))
+        } else {
+            app_push_log(app, strings.clone("Redo: modify sphere"))
+        }
+    case AddSphereAction:
+        if is_undo {
+            OrderedRemove(ev.scene_mgr, a.idx)
+            ev.selection_kind = .None
+            ev.selected_idx   = -1
+            app_push_log(app, strings.clone("Undo: add sphere"))
+        } else {
+            InsertSphereAt(ev.scene_mgr, a.idx, a.sphere)
+            ev.selection_kind = .Sphere
+            ev.selected_idx   = a.idx
+            app_push_log(app, strings.clone("Redo: add sphere"))
+        }
+    case DeleteSphereAction:
+        if is_undo {
+            InsertSphereAt(ev.scene_mgr, a.idx, a.sphere)
+            ev.selection_kind = .Sphere
+            ev.selected_idx   = a.idx
+            app_push_log(app, strings.clone("Undo: delete sphere"))
+        } else {
+            OrderedRemove(ev.scene_mgr, a.idx)
+            ev.selection_kind = .None
+            ev.selected_idx   = -1
+            app_push_log(app, strings.clone("Redo: delete sphere"))
+        }
+    case ModifyCameraAction:
+        if is_undo {
+            app.camera_params = a.before
+            app_push_log(app, strings.clone("Undo: camera"))
+        } else {
+            app.camera_params = a.after
+            app_push_log(app, strings.clone("Redo: camera"))
+        }
+    }
+}
+
+cmd_action_undo :: proc(app: ^App) {
+    if action, ok := edit_history_undo(&app.edit_history); ok {
+        apply_edit_action(app, action, true)
+    }
+}
+
+cmd_action_redo :: proc(app: ^App) {
+    if action, ok := edit_history_redo(&app.edit_history); ok {
+        apply_edit_action(app, action, false)
+    }
+}
+
+cmd_enabled_undo :: proc(app: ^App) -> bool { return edit_history_can_undo(&app.edit_history) }
+cmd_enabled_redo :: proc(app: ^App) -> bool { return edit_history_can_redo(&app.edit_history) }
 
 // ── register_all_commands ────────────────────────────────────────────────────
 
@@ -161,6 +225,10 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(r, Command{id = CMD_VIEW_PRESET_RENDER,  label = "Rendering Focus", action = cmd_action_preset_render})
     cmd_register(r, Command{id = CMD_VIEW_PRESET_EDIT,    label = "Editing Focus",   action = cmd_action_preset_edit})
     cmd_register(r, Command{id = CMD_VIEW_SAVE_PRESET,    label = "Save Layout As…", action = cmd_action_save_preset})
+
+    // Edit
+    cmd_register(r, Command{id = CMD_UNDO, label = "Undo", shortcut = "Ctrl+Z", action = cmd_action_undo, enabled_proc = cmd_enabled_undo})
+    cmd_register(r, Command{id = CMD_REDO, label = "Redo", shortcut = "Ctrl+Y", action = cmd_action_redo, enabled_proc = cmd_enabled_redo})
 
     // Render
     cmd_register(r, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})

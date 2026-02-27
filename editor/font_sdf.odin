@@ -1,4 +1,4 @@
-package ui
+package editor
 
 import "core:c"
 import "core:fmt"
