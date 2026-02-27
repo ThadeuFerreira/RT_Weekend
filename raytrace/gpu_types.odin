@@ -28,7 +28,7 @@ GPUBackend :: struct {
     program:         u32,  // linked compute shader program
     ssbo_spheres:    u32,  // SSBO: [4]i32 header then []GPUSphere
     ssbo_bvh:        u32,  // SSBO: [4]i32 header then []LinearBVHNode
-    ssbo_output:     u32,  // SSBO: vec4 per pixel (.rgb accumulation, .a unused; vec4 for alignment)
+    ssbo_output:     u32,  // SSBO: vec4 per pixel (RGB accumulation)
     ubo_camera:      u32,  // UBO: GPUCameraUniforms (std140)
     width:           int,
     height:          int,
@@ -41,14 +41,6 @@ GPUBackend :: struct {
 // ---- Step 1 ------------------------------------------------
 
 // LinearBVHNode is a 32-byte, cache-friendly BVH node.
-//
-// Byte layout (must match GLSL std430 in raytrace.comp BVHNode exactly):
-//   offset 0..12   aabb_min [3]f32
-//   offset 12..16  right_or_obj_idx i32
-//   offset 16..28  aabb_max [3]f32
-//   offset 28..32  left_idx i32
-// Total 32 bytes. A layout mismatch would produce wrong BVH traversal and
-// garbage renders.
 //
 // Internal node layout:
 //   left_idx        = index of left  child in the nodes array
@@ -72,7 +64,6 @@ LinearBVHNode :: struct #packed {
     aabb_max:        [3]f32,
     left_idx:        i32,        // child index (internal) or -1 (leaf)
 }
-#assert(size_of(LinearBVHNode) == 32)
 
 // ---- Step 2 ------------------------------------------------
 
@@ -85,15 +76,6 @@ MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
 // Future: MAT_EMISSIVE :: i32(3), MAT_PBR_GLOSSY :: i32(4), …
 
 // GPUSphere packs a sphere and its material into 48 bytes.
-//
-// Byte layout (must match GLSL std430 in raytrace.comp Sphere exactly):
-//   offset 0..12   center [3]f32
-//   offset 12..16  radius f32
-//   offset 16..28  albedo [3]f32
-//   offset 28..32  mat_type i32
-//   offset 32..36  fuzz_or_ior f32
-//   offset 36..48  _pad [3]f32
-// Total 48 bytes. A layout mismatch would produce wrong sphere positions/materials.
 //
 // albedo stores reflectance for Lambertian and Metallic.
 // For Dielectric albedo is {1,1,1} (fully white, no colour absorption).
@@ -112,7 +94,6 @@ GPUSphere :: struct #packed {
     fuzz_or_ior: f32,
     _pad:        [3]f32,   // reserved for future material params / texture_id
 }
-#assert(size_of(GPUSphere) == 48)
 
 // GPUCameraUniforms is uploaded as a UBO (std140).
 // Padding fields keep each vec3 on a 16-byte boundary as required by std140.

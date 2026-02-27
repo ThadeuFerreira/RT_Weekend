@@ -568,19 +568,19 @@ run_app :: proc(
 
         // GPU path: dispatch one more sample per frame until all samples done.
         if app.session.use_gpu {
-            b := app.session.gpu_backend
-            if b != nil && b.current_sample < b.total_samples {
-                rt.gpu_backend_dispatch(b)
+            r := app.session.gpu_renderer
+            if r != nil && !rt.gpu_renderer_done(r) {
+                rt.gpu_renderer_dispatch(r)
             }
         }
 
         // ── Render texture upload ─────────────────────────────────────────
         if frame % 4 == 0 {
             if app.session.use_gpu {
-                // Only readback while the backend is alive (nil after finish_render).
-                if app.session.gpu_backend != nil {
+                // Only readback while the renderer is alive (nil after finish_render).
+                if app.session.gpu_renderer != nil {
                     out_bytes := transmute([][4]u8)(app.pixel_staging)
-                    rt.gpu_backend_readback(app.session.gpu_backend, out_bytes)
+                    rt.gpu_renderer_readback(app.session.gpu_renderer, out_bytes)
                     rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
                 }
             } else {
@@ -590,9 +590,9 @@ run_app :: proc(
 
         if !app.finished && rt.get_render_progress(app.session) >= 1.0 {
             if app.session.use_gpu {
-                // Do a final readback before finish_render destroys the backend.
+                // Do a final readback before finish_render destroys the renderer.
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
-                rt.gpu_backend_readback(app.session.gpu_backend, out_bytes)
+                rt.gpu_renderer_readback(app.session.gpu_renderer, out_bytes)
                 rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
             }
             rt.finish_render(app.session)

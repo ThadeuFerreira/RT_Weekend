@@ -48,17 +48,17 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     // Progress line: GPU shows sample count; CPU shows tile count.
     progress_frac := f32(0)
     if session.use_gpu {
-        b := session.gpu_backend
-        if b != nil && b.total_samples > 0 {
-            progress_frac = f32(b.current_sample) / f32(b.total_samples)
+        r := session.gpu_renderer
+        cur, tot := 0, 0
+        if r != nil { cur, tot = rt.gpu_renderer_get_samples(r) }
+        if tot > 0 {
+            progress_frac = f32(cur) / f32(tot)
         } else if app.finished {
             progress_frac = 1.0
         }
         pct := progress_frac * 100.0
-        done := b != nil ? b.current_sample : 0
-        total := b != nil ? b.total_samples : 0
         draw_ui_text(app,
-            fmt.ctprintf("Samples:  %d / %d  (%.1f%%)", done, total, pct),
+            fmt.ctprintf("Samples:  %d / %d  (%.1f%%)", cur, tot, pct),
             x, y, fs, progress_color,
         )
     } else {

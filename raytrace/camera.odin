@@ -91,8 +91,8 @@ RenderSession :: struct {
     thread_rendering_breakdowns: [dynamic]ThreadRenderingBreakdown,
     num_threads:                 int,
     start_time:                  time.Time,
-    // GPU backend — nil when using the CPU path.
-    gpu_backend:                 ^GPUBackend,
+    // GPU renderer — nil when using the CPU path.
+    gpu_renderer:                ^GpuRenderer,
     use_gpu:                     bool,
     last_profile:                RenderProfileSummary,
 }
@@ -379,9 +379,11 @@ get_render_profile :: proc(session: ^RenderSession) -> ^RenderProfileSummary {
 
 get_render_progress :: proc(session: ^RenderSession) -> f32 {
     if session.use_gpu {
-        b := session.gpu_backend
-        if b == nil || b.total_samples == 0 { return 1.0 }
-        return f32(b.current_sample) / f32(b.total_samples)
+        r := session.gpu_renderer
+        if r == nil { return 1.0 }
+        cur, tot := gpu_renderer_get_samples(r)
+        if tot == 0 { return 1.0 }
+        return f32(cur) / f32(tot)
     }
     if session.work_queue.total_tiles == 0 {
         return 1.0
@@ -396,7 +398,7 @@ get_render_progress :: proc(session: ^RenderSession) -> f32 {
 // seconds on large renders (e.g. 4K @ 500 spp) until the tile queue is drained.
 // Future work: add an atomic "abort" flag so workers exit early and join quickly.
 //
-// GPU path: no threads to join. Destroys the GPU backend and frees BVH memory.
+// GPU path: no threads to join. Destroys the GPU renderer and frees BVH memory.
 finish_render :: proc(session: ^RenderSession) {
     if session.use_gpu {
         stop_timer(&session.timing.total)
@@ -549,11 +551,11 @@ start_render_auto :: proc(
     session.thread_tile_counts          = make([dynamic]int, 0)
     session.thread_rendering_breakdowns = make([dynamic]ThreadRenderingBreakdown, 0)
 
-    // Try to initialise the GPU backend.
-    backend, gpu_ok := gpu_backend_init(cam, world_slice, session.linear_bvh, cam.samples_per_pixel)
-    if gpu_ok {
-        session.gpu_backend = backend
-        session.use_gpu     = true
+    // Try to initialise the GPU renderer (platform-aware factory).
+    renderer := create_gpu_renderer(cam, world_slice, session.linear_bvh, cam.samples_per_pixel)
+    if renderer != nil {
+        session.gpu_renderer = renderer
+        session.use_gpu      = true
         fmt.println("[GPU] Init OK — GPU rendering enabled")
         return session
     }
