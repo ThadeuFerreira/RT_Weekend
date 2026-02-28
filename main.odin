@@ -100,22 +100,63 @@ main :: proc() {
         }
     }
 
-    // Headless path (#23): render to file without opening a window.
-    if args.Headless {
+    // Headless mode: -output/-o/-out given (or -headless flag) → render without window, save PNG.
+    if len(args.OutputPath) > 0 || args.Headless {
         if len(args.OutputPath) == 0 {
-            fmt.fprintf(os.stderr, "Error: -headless requires -out <path>\n")
+            fmt.fprintf(os.stderr, "Error: -headless requires -output <path>\n")
             return
         }
-        session := raytrace.start_render(r_camera, r_world, thread_count)
+        // No scene file: use procedural scene (same as editor default).
+        if len(args.ScenePath) == 0 {
+            delete(r_world)
+            free(r_camera)
+            r_camera, r_world = raytrace.setup_scene(image_width, image_height, samples_per_pixel, number_of_spheres)
+        }
+
+        when VERBOSE_OUTPUT {
+            fmt.printf("Headless render: %dx%d, %d spp, %d threads -> %s\n",
+                image_width, image_height, samples_per_pixel, thread_count, args.OutputPath)
+        }
+
+        // GPU headless: without a GL context, gpu_backend_init will fail and
+        // start_render_auto silently falls back to CPU — no extra handling needed.
+        session := raytrace.start_render_auto(r_camera, r_world, thread_count, args.UseGPU)
+
+        when VERBOSE_OUTPUT {
+            last_pct := f32(-1.0)
+            for {
+                pct := raytrace.get_render_progress(session)
+                if pct - last_pct >= 0.05 || pct >= 1.0 {
+                    fmt.printf("\rProgress: %3.0f%%", pct * 100)
+                    last_pct = pct
+                }
+                if pct >= 1.0 { break }
+            }
+            fmt.println("")
+        } else {
+            for raytrace.get_render_progress(session) < 1.0 {}
+        }
+
         raytrace.finish_render(session)
-        raytrace.write_buffer_to_ppm(&session.pixel_buffer, args.OutputPath, r_camera)
+
+        if !raytrace.write_buffer_to_png(&session.pixel_buffer, args.OutputPath, r_camera) {
+            fmt.fprintf(os.stderr, "Failed to write PNG: %s\n", args.OutputPath)
+        } else {
+            when VERBOSE_OUTPUT {
+                fmt.printf("Saved: %s\n", args.OutputPath)
+            }
+        }
+
         if len(args.ProfileOutputPath) > 0 {
             profile := raytrace.get_render_profile(session)
             if !raytrace.write_profile_json(args.ProfileOutputPath, profile) {
                 fmt.fprintf(os.stderr, "Warning: failed to write profile: %s\n", args.ProfileOutputPath)
             }
         }
+
         raytrace.free_session(session)
+        delete(r_world)
+        free(r_camera)
         return
     }
 
