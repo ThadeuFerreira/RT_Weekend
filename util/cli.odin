@@ -6,20 +6,23 @@ import "core:strconv"
 import si "core:sys/info"
 
 Args :: struct {
-	Width:            int,
-	Height:           int,
-	Samples:          int,
-	NumberOfSpheres:  int,
-	ThreadCount:      int,
-	ConfigPath:       string,
-	ScenePath:        string,
-	SaveConfigPath:   string,
-	SaveScenePath:    string,
-	UseGPU:           bool,   // -gpu flag: use OpenGL compute-shader path
+	Width:             int,
+	Height:            int,
+	Samples:           int,
+	NumberOfSpheres:   int,
+	ThreadCount:       int,
+	ConfigPath:        string,
+	ScenePath:         string,
+	SaveConfigPath:    string,
+	SaveScenePath:     string,
+	UseGPU:            bool,   // -gpu flag: use OpenGL compute-shader path
+	Headless:          bool,   // -headless: render without GUI, write output and exit
+	OutputPath:        string, // -out <path>: PPM output path (required with -headless)
+	ProfileOutputPath: string, // -profile-out <path>: profile JSON output path
 }
 
 
-// Parse -w, -h, -s, -n, -c and -config, -scene, -save-config, -save-scene from os.args. Returns false on parse error or -help.
+// Parse -w, -h, -s, -n, -c and -config, -scene, -save-config, -save-scene, -out, -profile-out from os.args. Returns false on parse error or -help.
 parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 	i := 1
 	for i < len(os.args) {
@@ -27,12 +30,17 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 		if arg == "-help" || arg == "--help" {
 			fmt.println("Usage: raytracer [-w width] [-h height] [-s samples] [-n spheres] [-c threads]")
 			fmt.println("                [-config path] [-scene path] [-save-config path] [-save-scene path]")
-			fmt.println("                [-gpu]")
+			fmt.println("                [-gpu] [-headless] [-out path] [-profile-out path]")
 			return false
 		}
 		// Boolean flags (presence = true, no value argument)
 		if arg == "-gpu" {
 			args.UseGPU = true
+			i += 1
+			continue
+		}
+		if arg == "-headless" {
+			args.Headless = true
 			i += 1
 			continue
 		}
@@ -42,7 +50,7 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 		}
 		// Long-form options that take a path (string)
 		if len(arg) >= 2 && arg[0] == '-' {
-			if arg == "-config" || arg == "-scene" || arg == "-save-config" || arg == "-save-scene" {
+			if arg == "-config" || arg == "-scene" || arg == "-save-config" || arg == "-save-scene" || arg == "-out" || arg == "-profile-out" {
 				if i + 1 >= len(os.args) {
 					fmt.fprintf(os.stderr, "Missing path for %s\n", arg)
 					return false
@@ -51,9 +59,11 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 				i += 2
 				switch arg {
 				case "-config":       args.ConfigPath = path_val
-				case "-scene":       args.ScenePath = path_val
-				case "-save-config": args.SaveConfigPath = path_val
-				case "-save-scene":  args.SaveScenePath = path_val
+				case "-scene":        args.ScenePath = path_val
+				case "-save-config":  args.SaveConfigPath = path_val
+				case "-save-scene":   args.SaveScenePath = path_val
+				case "-out":          args.OutputPath = path_val
+				case "-profile-out":  args.ProfileOutputPath = path_val
 				case:
 				}
 				continue

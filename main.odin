@@ -100,6 +100,25 @@ main :: proc() {
         }
     }
 
+    // Headless path (#23): render to file without opening a window.
+    if args.Headless {
+        if len(args.OutputPath) == 0 {
+            fmt.fprintf(os.stderr, "Error: -headless requires -out <path>\n")
+            return
+        }
+        session := raytrace.start_render(r_camera, r_world, thread_count)
+        raytrace.finish_render(session)
+        raytrace.write_buffer_to_ppm(&session.pixel_buffer, args.OutputPath, r_camera)
+        if len(args.ProfileOutputPath) > 0 {
+            profile := raytrace.get_render_profile(session)
+            if !raytrace.write_profile_json(args.ProfileOutputPath, profile) {
+                fmt.fprintf(os.stderr, "Warning: failed to write profile: %s\n", args.ProfileOutputPath)
+            }
+        }
+        raytrace.free_session(session)
+        return
+    }
+
     editor.run_app(r_camera, r_world, thread_count, args.UseGPU, initial_editor, args.SaveConfigPath, initial_presets)
     if initial_editor != nil {
         delete(initial_editor.panels)

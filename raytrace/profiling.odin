@@ -1,6 +1,8 @@
 package raytrace
 
+import "core:encoding/json"
 import "core:fmt"
+import "core:os"
 import "core:strings"
 import "core:time"
 
@@ -303,6 +305,73 @@ print_rendering_breakdown :: proc(breakdown: ^RenderingBreakdown, total_renderin
         }
     }
     fmt.println(separator)
+}
+
+ProfilePhaseJSON :: struct {
+    name:    string `json:"name"`,
+    seconds: f64    `json:"seconds"`,
+    percent: f64    `json:"percent"`,
+}
+
+ProfileSummaryJSON :: struct {
+    total_seconds:           f64               `json:"total_seconds"`,
+    phases:                  []ProfilePhaseJSON `json:"phases"`,
+    has_sample_breakdown:    bool              `json:"has_sample_breakdown"`,
+    sample_get_ray_pct:      f64               `json:"sample_get_ray_pct"`,
+    sample_intersection_pct: f64               `json:"sample_intersection_pct"`,
+    sample_scatter_pct:      f64               `json:"sample_scatter_pct"`,
+    sample_background_pct:   f64               `json:"sample_background_pct"`,
+    sample_pixel_setup_pct:  f64               `json:"sample_pixel_setup_pct"`,
+    total_samples:           i64               `json:"total_samples"`,
+    total_rays:              i64               `json:"total_rays"`,
+    total_intersections:     i64               `json:"total_intersections"`,
+}
+
+// write_profile_json marshals summary to a JSON file at path.
+// Returns true on success. In release builds (PROFILING_ENABLED=false),
+// has_sample_breakdown will be false and sample fields will be 0 — still valid JSON.
+write_profile_json :: proc(path: string, summary: ^RenderProfileSummary) -> bool {
+    if summary == nil { return false }
+
+    phases := make([]ProfilePhaseJSON, summary.phase_count)
+    defer delete(phases)
+    for i in 0..<summary.phase_count {
+        phases[i] = ProfilePhaseJSON{
+            name    = summary.phases[i].name,
+            seconds = summary.phases[i].seconds,
+            percent = summary.phases[i].percent,
+        }
+    }
+
+    js := ProfileSummaryJSON{
+        total_seconds           = summary.total_seconds,
+        phases                  = phases,
+        has_sample_breakdown    = summary.has_sample_breakdown,
+        sample_get_ray_pct      = summary.sample_get_ray_pct,
+        sample_intersection_pct = summary.sample_intersection_pct,
+        sample_scatter_pct      = summary.sample_scatter_pct,
+        sample_background_pct   = summary.sample_background_pct,
+        sample_pixel_setup_pct  = summary.sample_pixel_setup_pct,
+        total_samples           = summary.total_samples,
+        total_rays              = summary.total_rays,
+        total_intersections     = summary.total_intersections,
+    }
+
+    data, err := json.marshal(js)
+    if err != nil {
+        fmt.fprintf(os.stderr, "Profile marshal error: %v\n", err)
+        return false
+    }
+    defer delete(data)
+
+    f, open_err := os.open(path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
+    if open_err != os.ERROR_NONE {
+        fmt.fprintf(os.stderr, "Profile write error: %s\n", path)
+        return false
+    }
+    defer os.close(f)
+    _, _ = os.write(f, data)
+    return true
 }
 
 aggregate_into_summary :: proc(
