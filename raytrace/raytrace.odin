@@ -26,7 +26,7 @@ set_pixel :: proc(buffer: ^TestPixelBuffer, x: int, y: int, color: [3]f32) {
 }
 
 write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camera: ^Camera) {
-    f, err := os.open(file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0644)
+    f, err := os.open(file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
     if err != os.ERROR_NONE {
         fmt.fprint(os.stderr, "Error opening file: %s\n", err)
         return

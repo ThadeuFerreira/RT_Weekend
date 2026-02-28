@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-02-27T23:52:15Z",
+  "build_mode": "release",
+  "binary": "build/release",
+  "tests": [
+    {"name":"smoke","scene":"tests/scenes/smoke.json","passed":true,"exit_code":0,"output_file":"tests/output/release/smoke.ppm","output_bytes":67815,"profile_file":"tests/output/release/smoke_profile.json","duration_seconds":0.012},
+    {"name":"materials","scene":"tests/scenes/materials.json","passed":true,"exit_code":0,"output_file":"tests/output/release/materials.ppm","output_bytes":67815,"profile_file":"tests/output/release/materials_profile.json","duration_seconds":0.019}
+  ],
+  "summary": {"total": 2, "passed": 2, "failed": 0}
+}

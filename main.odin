@@ -100,8 +100,12 @@ main :: proc() {
         }
     }
 
-    // Headless mode: -output given → render without window, save PNG.
-    if len(args.OutputPath) > 0 {
+    // Headless mode: -output/-o/-out given (or -headless flag) → render without window, save PNG.
+    if len(args.OutputPath) > 0 || args.Headless {
+        if len(args.OutputPath) == 0 {
+            fmt.fprintf(os.stderr, "Error: -headless requires -output <path>\n")
+            return
+        }
         // No scene file: use procedural scene (same as editor default).
         if len(args.ScenePath) == 0 {
             delete(r_world)
@@ -140,6 +144,13 @@ main :: proc() {
         } else {
             when VERBOSE_OUTPUT {
                 fmt.printf("Saved: %s\n", args.OutputPath)
+            }
+        }
+
+        if len(args.ProfileOutputPath) > 0 {
+            profile := raytrace.get_render_profile(session)
+            if !raytrace.write_profile_json(args.ProfileOutputPath, profile) {
+                fmt.fprintf(os.stderr, "Warning: failed to write profile: %s\n", args.ProfileOutputPath)
             }
         }
 

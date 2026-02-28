@@ -1,0 +1,25 @@
+{
+  "camera": {
+    "lookfrom": [0, 1, 4],
+    "lookat": [0, 0, 0],
+    "vup": [0, 1, 0],
+    "vfov": 40,
+    "defocus_angle": 0,
+    "focus_dist": 4,
+    "max_depth": 10
+  },
+  "objects": [
+    {
+      "type": "sphere",
+      "center": [0, 0, 0],
+      "radius": 0.5,
+      "material": { "type": "lambertian", "albedo": [0.8, 0.2, 0.2] }
+    },
+    {
+      "type": "sphere",
+      "center": [0, -100.5, 0],
+      "radius": 100,
+      "material": { "type": "lambertian", "albedo": [0.5, 0.5, 0.5] }
+    }
+  ]
+}
