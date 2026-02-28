@@ -23,6 +23,9 @@ CMD_VIEW_SAVE_PRESET    :: "view.preset.save"
 
 CMD_UNDO             :: "edit.undo"
 CMD_REDO             :: "edit.redo"
+CMD_EDIT_COPY        :: "edit.copy"
+CMD_EDIT_PASTE       :: "edit.paste"
+CMD_EDIT_DUPLICATE   :: "edit.duplicate"
 
 CMD_RENDER_RESTART   :: "render.restart"
 
