@@ -48,7 +48,8 @@ get_system_info :: proc() -> System_Info {
         Total = si.ram.total_ram,
     }
     
-    gpus := make([dynamic]GPU_Info, 0, len(si.gpus))
+    // Use temp_allocator so the returned GPUs slice is valid until the next temp reset (e.g. end of frame).
+    gpus := make([dynamic]GPU_Info, 0, len(si.gpus), context.temp_allocator)
     for gpu in si.gpus {
         append(&gpus, GPU_Info{
             Vendor = gpu.vendor_name,
@@ -56,7 +57,6 @@ get_system_info :: proc() -> System_Info {
             VRAM = gpu.total_ram,
         })
     }
-    defer delete(gpus)
 
     return System_Info{
         OdinVersion = ODIN_VERSION,
