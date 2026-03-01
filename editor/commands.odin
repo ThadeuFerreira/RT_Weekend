@@ -27,10 +27,6 @@ CMD_EDIT_COPY        :: "edit.copy"
 CMD_EDIT_PASTE       :: "edit.paste"
 CMD_EDIT_DUPLICATE   :: "edit.duplicate"
 
-CMD_EDIT_COPY        :: "edit.copy"
-CMD_EDIT_PASTE       :: "edit.paste"
-CMD_EDIT_DUPLICATE   :: "edit.duplicate"
-
 CMD_RENDER_RESTART   :: "render.restart"
 
 MAX_COMMANDS :: 64

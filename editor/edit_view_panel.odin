@@ -343,27 +343,27 @@ CTX_MENU_W :: f32(160)
 
 // ctx_menu_build_items returns a temp-allocated slice of menu entries for the context menu.
 @(private="file")
-ctx_menu_build_items :: proc(ev: ^EditViewState) -> []MenuEntryDyn {
+ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {
 	items := make([dynamic]MenuEntryDyn, context.temp_allocator)
 	append(&items, MenuEntryDyn{label = "Add Sphere"})
 	if ev.ctx_menu_hit_idx >= 0 {
 		append(&items, MenuEntryDyn{separator = true})
-		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = true, shortcut = "Ctrl+C"})
-		append(&items, MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, disabled = true, shortcut = "Ctrl+D"})
-		append(&items, MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     disabled = true, shortcut = "Ctrl+V"})
+		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = !cmd_is_enabled(app, CMD_EDIT_COPY),      shortcut = "Ctrl+C"})
+		append(&items, MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE), shortcut = "Ctrl+D"})
+		append(&items, MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE),     shortcut = "Ctrl+V"})
 		append(&items, MenuEntryDyn{separator = true})
 		append(&items, MenuEntryDyn{label = "Delete"})
 	} else {
 		append(&items, MenuEntryDyn{separator = true})
-		append(&items, MenuEntryDyn{label = "Paste", cmd_id = CMD_EDIT_PASTE, disabled = true, shortcut = "Ctrl+V"})
+		append(&items, MenuEntryDyn{label = "Paste", cmd_id = CMD_EDIT_PASTE, disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE), shortcut = "Ctrl+V"})
 	}
 	return items[:]
 }
 
 // ctx_menu_screen_rect returns the screen-clamped bounding rectangle for the open context menu.
 @(private="file")
-ctx_menu_screen_rect :: proc(ev: ^EditViewState) -> rl.Rectangle {
-	items := ctx_menu_build_items(ev)
+ctx_menu_screen_rect :: proc(app: ^App, ev: ^EditViewState) -> rl.Rectangle {
+	items := ctx_menu_build_items(app, ev)
 	h     := entry_list_height(items)
 	sw    := f32(rl.GetScreenWidth())
 	sh    := f32(rl.GetScreenHeight())
@@ -379,8 +379,8 @@ ctx_menu_screen_rect :: proc(ev: ^EditViewState) -> rl.Rectangle {
 // draw_edit_view_context_menu draws the right-click context menu on top of everything.
 @(private="file")
 draw_edit_view_context_menu :: proc(app: ^App, ev: ^EditViewState) {
-	items := ctx_menu_build_items(ev)
-	rect  := ctx_menu_screen_rect(ev)
+	items := ctx_menu_build_items(app, ev)
+	rect  := ctx_menu_screen_rect(app, ev)
 	mouse := rl.GetMousePosition()
 
 	rl.DrawRectangleRec(rect, PANEL_BG_COLOR)
@@ -539,8 +539,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	if ev.ctx_menu_open {
 		app.input_consumed = true
 		if rl.IsMouseButtonPressed(.LEFT) {
-			items := ctx_menu_build_items(ev)
-			rect  := ctx_menu_screen_rect(ev)
+			items := ctx_menu_build_items(app, ev)
+			rect  := ctx_menu_screen_rect(app, ev)
 			if rl.CheckCollisionPointRec(mouse, rect) {
 				local_y := mouse.y - rect.y
 				ey: f32 = 0
