@@ -2,11 +2,33 @@ package editor
 
 import rl "vendor:raylib"
 
+// get_render_aspect returns the aspect ratio (width/height) used by the render from app.r_aspect_ratio.
+get_render_aspect :: proc(app: ^App) -> f32 {
+	if app.r_aspect_ratio == 0 {
+		return 4.0 / 3.0
+	}
+	return 16.0 / 9.0
+}
+
 // draw_preview_port_content renders a rasterized 3D preview from the render camera
 // (app.c_camera_params) and scene (via scene manager export) into the panel content area.
+// The preview uses the same aspect ratio as the ray-traced render (4:3 or 16:9) and letterboxes
+// within the panel so the framing matches the final output.
 draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
-	new_w := i32(content.width)
-	new_h := i32(content.height)
+	aspect := get_render_aspect(app)
+	content_aspect := content.width / content.height
+	preview_w, preview_h: f32
+	if content_aspect > aspect {
+		preview_h = content.height
+		preview_w = content.height * aspect
+	} else {
+		preview_w = content.width
+		preview_h = content.width / aspect
+	}
+	new_w := i32(preview_w)
+	new_h := i32(preview_h)
+	if new_w < 1 { new_w = 1 }
+	if new_h < 1 { new_h = 1 }
 
 	if new_w != app.preview_port_w || new_h != app.preview_port_h {
 		if app.preview_port_w > 0 {
@@ -51,6 +73,13 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.EndMode3D()
 	rl.EndTextureMode()
 
+	// Letterbox: draw texture centered in content, preserving aspect
+	dest := rl.Rectangle{
+		content.x + (content.width - preview_w) * 0.5,
+		content.y + (content.height - preview_h) * 0.5,
+		preview_w,
+		preview_h,
+	}
 	src := rl.Rectangle{0, 0, f32(app.preview_port_w), -f32(app.preview_port_h)}
-	rl.DrawTexturePro(app.preview_port_tex.texture, src, content, rl.Vector2{0, 0}, 0.0, rl.WHITE)
+	rl.DrawTexturePro(app.preview_port_tex.texture, src, dest, rl.Vector2{0, 0}, 0.0, rl.WHITE)
 }
