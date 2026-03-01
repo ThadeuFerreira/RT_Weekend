@@ -1,4 +1,4 @@
-# agents.md
+# AGENTS.md
 
 This file guides AI agents working autonomously in this repository.
 
