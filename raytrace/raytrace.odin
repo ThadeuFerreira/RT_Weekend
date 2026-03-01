@@ -3,7 +3,10 @@ package raytrace
 import "core:fmt"
 import "core:os"
 import "core:strconv"
+import "core:strings"
+import "core:c"
 import "RT_Weekend:util"
+import stbi "vendor:stb/image"
 
 TestPixelBuffer :: struct {
     width: int,
@@ -60,6 +63,33 @@ write_buffer_to_ppm :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camer
     }
 
     os.write(f, pixel_data)
+}
+
+write_buffer_to_png :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camera: ^Camera) -> bool {
+    pixel_data := make([]u8, buffer.width * buffer.height * 3)
+    defer delete(pixel_data)
+
+    pixel_idx := 0
+    clamp_interval := Interval{0.0, 0.999}
+
+    for y in 0..<buffer.height {
+        for x in 0..<buffer.width {
+            raw_color := buffer.pixels[y * buffer.width + x] * r_camera.pixel_samples_scale
+            r := linear_to_gamma(raw_color[0])
+            g := linear_to_gamma(raw_color[1])
+            b := linear_to_gamma(raw_color[2])
+            pixel_data[pixel_idx + 0] = u8(interval_clamp(clamp_interval, r) * 255.0)
+            pixel_data[pixel_idx + 1] = u8(interval_clamp(clamp_interval, g) * 255.0)
+            pixel_data[pixel_idx + 2] = u8(interval_clamp(clamp_interval, b) * 255.0)
+            pixel_idx += 3
+        }
+    }
+
+    cname := strings.clone_to_cstring(file_name)
+    defer delete(cname)
+    result := stbi.write_png(cname, c.int(buffer.width), c.int(buffer.height), 3,
+                             raw_data(pixel_data), c.int(buffer.width * 3))
+    return result != 0
 }
 
 setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_spheres: int) -> (^Camera, [dynamic]Object) {

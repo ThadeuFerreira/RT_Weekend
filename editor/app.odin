@@ -196,6 +196,10 @@ App :: struct {
     // Undo/redo history for scene mutations
     edit_history: EditHistory,
 
+    // Clipboard for copy/paste (sphere only for now)
+    e_clipboard_sphere: core.SceneSphere,
+    e_has_clipboard:    bool,
+
     // File modal (shared for Import, Save As, Preset Name)
     file_modal: FileModalState,
 
@@ -554,31 +558,36 @@ run_app :: proc(
 
         // Priority 3: keyboard shortcuts (only when not consumed by menu/modal)
         if !app.input_consumed {
-            if rl.IsKeyPressed(.F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
-            if rl.IsKeyPressed(.L) {
-                if log := app_find_panel(&app, PANEL_ID_LOG); log != nil { log.visible = true }
+            ctrl_held  := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
+            shift_held := rl.IsKeyDown(.LEFT_SHIFT)   || rl.IsKeyDown(.RIGHT_SHIFT)
+
+            if !ctrl_held {
+                if rl.IsKeyPressed(.F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
+                if rl.IsKeyPressed(.L) {
+                    if log := app_find_panel(&app, PANEL_ID_LOG); log != nil { log.visible = true }
+                }
+                if rl.IsKeyPressed(.S) {
+                    if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil { si.visible = true }
+                }
+                if rl.IsKeyPressed(.E) {
+                    if ev := app_find_panel(&app, PANEL_ID_EDIT_VIEW); ev != nil { ev.visible = true }
+                }
+                if rl.IsKeyPressed(.C) {
+                    if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil { cam.visible = true }
+                }
+                if rl.IsKeyPressed(.O) {
+                    if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil { op.visible = true }
+                }
             }
-            if rl.IsKeyPressed(.S) {
-                if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil { si.visible = true }
-            }
-            if rl.IsKeyPressed(.E) {
-                if ev := app_find_panel(&app, PANEL_ID_EDIT_VIEW); ev != nil { ev.visible = true }
-            }
-            if rl.IsKeyPressed(.C) {
-                if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil { cam.visible = true }
-            }
-            if rl.IsKeyPressed(.O) {
-                if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil { op.visible = true }
-            }
-            if rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL) {
+
+            if ctrl_held {
                 if rl.IsKeyPressed(.Z) {
-                    if rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT) {
-                        cmd_execute(&app, CMD_REDO)
-                    } else {
-                        cmd_execute(&app, CMD_UNDO)
-                    }
+                    if shift_held { cmd_execute(&app, CMD_REDO) } else { cmd_execute(&app, CMD_UNDO) }
                 }
                 if rl.IsKeyPressed(.Y) { cmd_execute(&app, CMD_REDO) }
+                if rl.IsKeyPressed(.C) { cmd_execute(&app, CMD_EDIT_COPY) }
+                if rl.IsKeyPressed(.V) { cmd_execute(&app, CMD_EDIT_PASTE) }
+                if rl.IsKeyPressed(.D) { cmd_execute(&app, CMD_EDIT_DUPLICATE) }
             }
         }
 

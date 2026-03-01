@@ -53,6 +53,58 @@ ray_hit_plane_y :: proc(ray: rl.Ray, plane_y: f32) -> (xz: rl.Vector2, ok: bool)
 	}, true
 }
 
+// vec3_from_core converts core [3]f32 to rl.Vector3 for drawing.
+vec3_from_core :: proc(v: [3]f32) -> rl.Vector3 {
+	return rl.Vector3{v[0], v[1], v[2]}
+}
+
+// get_camera_viewport_corners returns the four corners of the render camera's viewport
+// rectangle at focus_dist in world space (ul, ur, lr, ll). Matches raytrace camera init_camera math.
+get_camera_viewport_corners :: proc(cp: ^core.CameraParams, aspect_ratio: f32) -> (ul, ur, lr, ll: [3]f32) {
+	center := cp.lookfrom
+	w_dir := cp.lookfrom - cp.lookat
+	len_w := math.sqrt(w_dir[0]*w_dir[0] + w_dir[1]*w_dir[1] + w_dir[2]*w_dir[2])
+	if len_w < 1e-6 {
+		return ul, ur, lr, ll
+	}
+	w := [3]f32{w_dir[0] / len_w, w_dir[1] / len_w, w_dir[2] / len_w}
+	// u = unit(cross(vup, w))
+	cross_vw := [3]f32{
+		cp.vup[1]*w[2] - cp.vup[2]*w[1],
+		cp.vup[2]*w[0] - cp.vup[0]*w[2],
+		cp.vup[0]*w[1] - cp.vup[1]*w[0],
+	}
+	len_u := math.sqrt(cross_vw[0]*cross_vw[0] + cross_vw[1]*cross_vw[1] + cross_vw[2]*cross_vw[2])
+	if len_u < 1e-6 {
+		return ul, ur, lr, ll
+	}
+	u := [3]f32{cross_vw[0] / len_u, cross_vw[1] / len_u, cross_vw[2] / len_u}
+	// v = cross(w, u)
+	v := [3]f32{
+		w[1]*u[2] - w[2]*u[1],
+		w[2]*u[0] - w[0]*u[2],
+		w[0]*u[1] - w[1]*u[0],
+	}
+	theta := cp.vfov * (math.PI / 180.0)
+	h := math.tan(theta * 0.5)
+	viewport_height := 2.0 * h * cp.focus_dist
+	viewport_width := viewport_height * aspect_ratio
+	viewport_u := [3]f32{u[0] * viewport_width, u[1] * viewport_width, u[2] * viewport_width}
+	viewport_v := [3]f32{-v[0] * viewport_height, -v[1] * viewport_height, -v[2] * viewport_height}
+	// viewport_upper_left = center - focus_dist*w - 0.5*(viewport_u + viewport_v)
+	half_u := [3]f32{viewport_u[0] * 0.5, viewport_u[1] * 0.5, viewport_u[2] * 0.5}
+	half_v := [3]f32{viewport_v[0] * 0.5, viewport_v[1] * 0.5, viewport_v[2] * 0.5}
+	ul = [3]f32{
+		center[0] - cp.focus_dist*w[0] - half_u[0] - half_v[0],
+		center[1] - cp.focus_dist*w[1] - half_u[1] - half_v[1],
+		center[2] - cp.focus_dist*w[2] - half_u[2] - half_v[2],
+	}
+	ur = [3]f32{ul[0] + viewport_u[0], ul[1] + viewport_u[1], ul[2] + viewport_u[2]}
+	lr = [3]f32{ur[0] + viewport_v[0], ur[1] + viewport_v[1], ur[2] + viewport_v[2]}
+	ll = [3]f32{ul[0] + viewport_v[0], ul[1] + viewport_v[1], ul[2] + viewport_v[2]}
+	return ul, ur, lr, ll
+}
+
 CAMERA_GIZMO_RADIUS :: f32(0.35)
 pick_camera :: proc(ray: rl.Ray, lookfrom: [3]f32) -> bool {
 	center := rl.Vector3{lookfrom[0], lookfrom[1], lookfrom[2]}
