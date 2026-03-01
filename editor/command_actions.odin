@@ -197,6 +197,14 @@ cmd_action_redo :: proc(app: ^App) {
 cmd_enabled_undo :: proc(app: ^App) -> bool { return edit_history_can_undo(&app.edit_history) }
 cmd_enabled_redo :: proc(app: ^App) -> bool { return edit_history_can_redo(&app.edit_history) }
 
+// ── Copy / Paste / Duplicate (placeholders until #31) ────────────────────────
+
+// TODO(#31): replace with real clipboard implementation
+cmd_action_copy_placeholder      :: proc(app: ^App) {}
+cmd_action_paste_placeholder     :: proc(app: ^App) {}
+cmd_action_duplicate_placeholder :: proc(app: ^App) {}
+cmd_enabled_copy_paste_dup       :: proc(app: ^App) -> bool { return false }
+
 // ── register_all_commands ────────────────────────────────────────────────────
 
 // register_all_commands populates app.commands. Call once during app init.
@@ -229,6 +237,9 @@ register_all_commands :: proc(app: ^App) {
     // Edit
     cmd_register(r, Command{id = CMD_UNDO, label = "Undo", shortcut = "Ctrl+Z", action = cmd_action_undo, enabled_proc = cmd_enabled_undo})
     cmd_register(r, Command{id = CMD_REDO, label = "Redo", shortcut = "Ctrl+Y", action = cmd_action_redo, enabled_proc = cmd_enabled_redo})
+    cmd_register(r, Command{id = CMD_EDIT_COPY,      label = "Copy",      shortcut = "Ctrl+C", action = cmd_action_copy_placeholder,      enabled_proc = cmd_enabled_copy_paste_dup})
+    cmd_register(r, Command{id = CMD_EDIT_PASTE,     label = "Paste",     shortcut = "Ctrl+V", action = cmd_action_paste_placeholder,     enabled_proc = cmd_enabled_copy_paste_dup})
+    cmd_register(r, Command{id = CMD_EDIT_DUPLICATE, label = "Duplicate", shortcut = "Ctrl+D", action = cmd_action_duplicate_placeholder, enabled_proc = cmd_enabled_copy_paste_dup})
 
     // Render
     cmd_register(r, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})

@@ -60,8 +60,15 @@ EditViewState :: struct {
 	orbit_target:   rl.Vector3,
 
 	// Right-drag orbit state
-	rmb_held:   bool,
-	last_mouse: rl.Vector2,
+	rmb_held:     bool,
+	last_mouse:   rl.Vector2,
+	rmb_press_pos: rl.Vector2,
+	rmb_drag_dist: f32,
+
+	// Context menu state
+	ctx_menu_open:    bool,
+	ctx_menu_pos:     rl.Vector2,
+	ctx_menu_hit_idx: int,
 
 	// Scene manager (holds scene spheres for now; adapter for future polymorphism)
 	scene_mgr:      ^SceneManager,
@@ -93,9 +100,10 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.orbit_pitch    = 0.3
 	ev.orbit_distance = 15.0
 	ev.orbit_target   = rl.Vector3{0, 0, 0}
-	ev.selection_kind = .None
-	ev.selected_idx   = -1
-	ev.prop_drag_idx  = -1
+	ev.selection_kind    = .None
+	ev.selected_idx      = -1
+	ev.prop_drag_idx     = -1
+	ev.ctx_menu_hit_idx  = -1
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
@@ -333,6 +341,90 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 	)
 }
 
+// ── Context menu helpers ────────────────────────────────────────────────────
+
+CTX_MENU_W :: f32(160)
+
+// ctx_menu_build_items returns a temp-allocated slice of menu entries for the context menu.
+@(private="file")
+ctx_menu_build_items :: proc(ev: ^EditViewState) -> []MenuEntryDyn {
+	items := make([dynamic]MenuEntryDyn, context.temp_allocator)
+	append(&items, MenuEntryDyn{label = "Add Sphere"})
+	if ev.ctx_menu_hit_idx >= 0 {
+		append(&items, MenuEntryDyn{separator = true})
+		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = true, shortcut = "Ctrl+C"})
+		append(&items, MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, disabled = true, shortcut = "Ctrl+D"})
+		append(&items, MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     disabled = true, shortcut = "Ctrl+V"})
+		append(&items, MenuEntryDyn{separator = true})
+		append(&items, MenuEntryDyn{label = "Delete"})
+	} else {
+		append(&items, MenuEntryDyn{separator = true})
+		append(&items, MenuEntryDyn{label = "Paste", cmd_id = CMD_EDIT_PASTE, disabled = true, shortcut = "Ctrl+V"})
+	}
+	return items[:]
+}
+
+// ctx_menu_screen_rect returns the screen-clamped bounding rectangle for the open context menu.
+@(private="file")
+ctx_menu_screen_rect :: proc(ev: ^EditViewState) -> rl.Rectangle {
+	items := ctx_menu_build_items(ev)
+	h     := entry_list_height(items)
+	sw    := f32(rl.GetScreenWidth())
+	sh    := f32(rl.GetScreenHeight())
+	x := ev.ctx_menu_pos.x
+	y := ev.ctx_menu_pos.y
+	if x + CTX_MENU_W > sw { x = sw - CTX_MENU_W }
+	if y + h > sh           { y = sh - h           }
+	if x < 0               { x = 0                }
+	if y < 0               { y = 0                }
+	return rl.Rectangle{x, y, CTX_MENU_W, h}
+}
+
+// draw_edit_view_context_menu draws the right-click context menu on top of everything.
+@(private="file")
+draw_edit_view_context_menu :: proc(app: ^App, ev: ^EditViewState) {
+	items := ctx_menu_build_items(ev)
+	rect  := ctx_menu_screen_rect(ev)
+	mouse := rl.GetMousePosition()
+
+	rl.DrawRectangleRec(rect, PANEL_BG_COLOR)
+	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
+
+	ey: f32 = 0
+	for &entry in items {
+		ih := entry_height(entry)
+		ry := rect.y + ey
+
+		if entry.separator {
+			sep_y := i32(ry + ih * 0.5)
+			rl.DrawRectangle(i32(rect.x) + 4, sep_y, i32(rect.width) - 8, 1, BORDER_COLOR)
+			ey += ih
+			continue
+		}
+
+		item_rect := rl.Rectangle{rect.x, ry, CTX_MENU_W, ih}
+		item_hov  := rl.CheckCollisionPointRec(mouse, item_rect)
+		text_col  := CONTENT_TEXT_COLOR
+		if entry.disabled {
+			text_col = rl.Color{100, 105, 120, 180}
+		} else if item_hov {
+			rl.DrawRectangleRec(item_rect, rl.Color{60, 65, 95, 255})
+		}
+
+		label_c := make_cstring_temp(entry.label)
+		draw_ui_text(app, label_c, i32(rect.x) + 8, i32(ry) + 3, 13, text_col)
+
+		if len(entry.shortcut) > 0 {
+			sc_c := make_cstring_temp(entry.shortcut)
+			sc_w := measure_ui_text(app, sc_c, 11).width
+			sc_x := i32(rect.x + CTX_MENU_W) - sc_w - 6
+			draw_ui_text(app, sc_c, sc_x, i32(ry) + 5, 11, rl.Color{140, 150, 170, 200})
+		}
+
+		ey += ih
+	}
+}
+
 // ── Panel draw ─────────────────────────────────────────────────────────────
 
 draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
@@ -396,6 +488,11 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 		EDIT_PROPS_H,
 	}
 	draw_edit_properties(app, props_rect, mouse, ev.export_scratch[:])
+
+	// Context menu drawn last so it renders on top of everything
+	if ev.ctx_menu_open {
+		draw_edit_view_context_menu(app, ev)
+	}
 }
 
 // ── Panel update ───────────────────────────────────────────────────────────
@@ -422,6 +519,53 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		content.y + content.height - EDIT_PROPS_H,
 		content.width,
 		EDIT_PROPS_H,
+	}
+
+	// ── Priority 0: Context menu input (highest priority when open) ───────
+	if ev.ctx_menu_open {
+		app.input_consumed = true
+		if rl.IsMouseButtonPressed(.LEFT) {
+			items := ctx_menu_build_items(ev)
+			rect  := ctx_menu_screen_rect(ev)
+			if rl.CheckCollisionPointRec(mouse, rect) {
+				local_y := mouse.y - rect.y
+				ey: f32 = 0
+				for &entry in items {
+					ih := entry_height(entry)
+					if !entry.separator && !entry.disabled && local_y >= ey && local_y < ey + ih {
+						if entry.label == "Add Sphere" {
+							AppendDefaultSphere(ev.scene_mgr)
+							new_idx := SceneManagerLen(ev.scene_mgr) - 1
+							ev.selection_kind = .Sphere
+							ev.selected_idx   = new_idx
+							if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
+								edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
+								app_push_log(app, strings.clone("Add sphere"))
+							}
+							app.r_render_pending = true
+						} else if entry.label == "Delete" {
+							del_idx := ev.ctx_menu_hit_idx
+							if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+								edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+								app_push_log(app, strings.clone("Delete sphere"))
+							}
+							OrderedRemove(ev.scene_mgr, del_idx)
+							ev.selection_kind = .None
+							ev.selected_idx   = -1
+							app.r_render_pending = true
+						} else if len(entry.cmd_id) > 0 {
+							cmd_execute(app, entry.cmd_id)
+						}
+						break
+					}
+					ey += ih
+				}
+			}
+			ev.ctx_menu_open = false
+		} else if rl.IsKeyPressed(.ESCAPE) {
+			ev.ctx_menu_open = false
+		}
+		return
 	}
 
 	// ── Priority 1: active property-field drag (sphere only) ─────────────
@@ -583,18 +727,47 @@ OrderedRemove(ev.scene_mgr, del_idx)
 	// ── Viewport: orbit, zoom, select, drag-start ───────────────────────
 	mouse_in_vp := rl.CheckCollisionPointRec(mouse, vp_rect)
 
-	// Right-mouse orbit
-	rmb := rl.IsMouseButtonDown(.RIGHT)
-	if rmb {
-		if ev.rmb_held {
-			delta          := rl.Vector2{mouse.x - ev.last_mouse.x, mouse.y - ev.last_mouse.y}
-			ev.orbit_yaw   += delta.x  * 0.005
-			ev.orbit_pitch += -delta.y * 0.005
-		} else if mouse_in_vp {
+	// Right-mouse orbit + context menu disambiguation
+	RMB_DRAG_THRESHOLD :: f32(5.0)
+	rmb_pressed := rl.IsMouseButtonPressed(.RIGHT)
+	rmb_down    := rl.IsMouseButtonDown(.RIGHT)
+	rmb_release := rl.IsMouseButtonReleased(.RIGHT)
+
+	if rmb_pressed && mouse_in_vp {
+		ev.rmb_press_pos = mouse
+		ev.rmb_drag_dist = 0
+		ev.rmb_held      = false
+		ev.last_mouse    = mouse
+	}
+	if rmb_down {
+		delta := rl.Vector2{mouse.x - ev.rmb_press_pos.x, mouse.y - ev.rmb_press_pos.y}
+		dist  := math.sqrt(delta.x*delta.x + delta.y*delta.y)
+		if dist > ev.rmb_drag_dist { ev.rmb_drag_dist = dist }
+		if ev.rmb_drag_dist >= RMB_DRAG_THRESHOLD {
 			ev.rmb_held = true
 		}
+		if ev.rmb_held {
+			orb_delta      := rl.Vector2{mouse.x - ev.last_mouse.x, mouse.y - ev.last_mouse.y}
+			ev.orbit_yaw   += orb_delta.x * 0.005
+			ev.orbit_pitch += -orb_delta.y * 0.005
+		}
 		ev.last_mouse = mouse
-	} else {
+	}
+	if rmb_release && mouse_in_vp && ev.rmb_drag_dist < RMB_DRAG_THRESHOLD {
+		// Short click → open context menu
+		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
+			hit_idx := PickSphereInManager(ev.scene_mgr, ray)
+			if hit_idx >= 0 {
+				ev.selection_kind = .Sphere
+				ev.selected_idx   = hit_idx
+			}
+			ev.ctx_menu_open    = true
+			ev.ctx_menu_pos     = mouse
+			ev.ctx_menu_hit_idx = hit_idx
+			app.input_consumed  = true
+		}
+	}
+	if !rmb_down {
 		ev.rmb_held = false
 	}
 
