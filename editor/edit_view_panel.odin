@@ -85,6 +85,10 @@ EditViewState :: struct {
 	nudge_active: bool,             // true while any nudge key is held
 	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
 
+	// Camera gizmo toggles (Edit View toolbar)
+	show_frustum_gizmo:  bool,
+	show_focal_indicator: bool,
+
 	initialized: bool,
 }
 
@@ -96,6 +100,8 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.selection_kind = .None
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
+	ev.show_frustum_gizmo  = true
+	ev.show_focal_indicator = true
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
@@ -192,36 +198,27 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 		rl.DrawSphereWires(center, s.radius, 8, 8, rl.Color{30, 30, 30, 180})
 	}
 
-	// Render camera gizmo: bright pink square base + pyramid (lens) fused, camera-shaped
+	// Render camera gizmo (body) and optional frustum / focal indicator
 	cp := &app.c_camera_params
 	cam_pos := rl.Vector3{cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
 	cam_at  := rl.Vector3{cp.lookat[0], cp.lookat[1], cp.lookat[2]}
 	vup     := rl.Vector3{cp.vup[0], cp.vup[1], cp.vup[2]}
-	fwd     := rl.Vector3Normalize(cam_at - cam_pos)
-	right   := rl.Vector3Normalize(rl.Vector3CrossProduct(fwd, vup))
-	up      := rl.Vector3CrossProduct(right, fwd)
-	hw, hh, apex_len := f32(0.14), f32(0.10), f32(0.35)
-	c0 := cam_pos - right*hw - up*hh
-	c1 := cam_pos + right*hw - up*hh
-	c2 := cam_pos + right*hw + up*hh
-	c3 := cam_pos - right*hw + up*hh
-	apex := cam_pos + fwd * apex_len
-	cam_col := ev.selection_kind == .Camera ? rl.YELLOW : rl.Color{255, 105, 180, 255}
-	wire_col := ev.selection_kind == .Camera ? rl.Color{220, 200, 0, 200} : rl.Color{180, 80, 120, 200}
-	rl.DrawTriangle3D(c0, c1, apex, cam_col)
-	rl.DrawTriangle3D(c1, c2, apex, cam_col)
-	rl.DrawTriangle3D(c2, c3, apex, cam_col)
-	rl.DrawTriangle3D(c3, c0, apex, cam_col)
-	rl.DrawTriangle3D(c0, c1, c2, cam_col)
-	rl.DrawTriangle3D(c0, c2, c3, cam_col)
-	rl.DrawLine3D(c0, c1, wire_col)
-	rl.DrawLine3D(c1, c2, wire_col)
-	rl.DrawLine3D(c2, c3, wire_col)
-	rl.DrawLine3D(c3, c0, wire_col)
-	rl.DrawLine3D(c0, apex, wire_col)
-	rl.DrawLine3D(c1, apex, wire_col)
-	rl.DrawLine3D(c2, apex, wire_col)
-	rl.DrawLine3D(c3, apex, wire_col)
+	draw_camera_gizmo(cam_pos, cam_at, vup, ev.selection_kind == .Camera)
+
+	aspect := (app.r_aspect_ratio == 0 ? (4.0 / 3.0) : (16.0 / 9.0))
+	if ev.show_frustum_gizmo {
+		ul, ur, lr, ll := get_camera_viewport_corners(cp, f32(aspect))
+		draw_frustum_wireframe(
+			cam_pos,
+			vec3_from_core(ul), vec3_from_core(ur), vec3_from_core(lr), vec3_from_core(ll),
+			rl.Color{0, 200, 220, 180},
+		)
+	}
+	if ev.show_focal_indicator {
+		fwd := rl.Vector3Normalize(cam_at - cam_pos)
+		focus_point := cam_pos + fwd * cp.focus_dist
+		draw_focal_distance_indicator(cam_pos, focus_point, rl.RED, rl.RED)
+	}
 
 	// Draw a move indicator on the selected sphere during drag
 	if ev.drag_obj_active && ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
@@ -357,6 +354,22 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		draw_ui_text(app, "Delete", i32(btn_del.x) + 8, i32(btn_del.y) + 4, 12, rl.RAYWHITE)
 	}
 
+	// Frustum / Focal toggles (camera gizmo visibility)
+	btn_frustum := rl.Rectangle{content.x + 174, content.y + 5, 56, 22}
+	btn_focal   := rl.Rectangle{content.x + 234, content.y + 5, 40, 22}
+	frustum_hover := rl.CheckCollisionPointRec(mouse, btn_frustum)
+	focal_hover   := rl.CheckCollisionPointRec(mouse, btn_focal)
+	frustum_bg := (ev.show_frustum_gizmo ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
+	if frustum_hover { frustum_bg = ev.show_frustum_gizmo ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
+	rl.DrawRectangleRec(btn_frustum, frustum_bg)
+	rl.DrawRectangleLinesEx(btn_frustum, 1, ev.show_frustum_gizmo ? ACCENT_COLOR : BORDER_COLOR)
+	draw_ui_text(app, "Frustum", i32(btn_frustum.x) + 4, i32(btn_frustum.y) + 4, 11, rl.RAYWHITE)
+	focal_bg := (ev.show_focal_indicator ? rl.Color{130, 70, 70, 255} : rl.Color{45, 55, 70, 255})
+	if focal_hover { focal_bg = ev.show_focal_indicator ? rl.Color{160, 90, 90, 255} : rl.Color{55, 68, 88, 255} }
+	rl.DrawRectangleRec(btn_focal, focal_bg)
+	rl.DrawRectangleLinesEx(btn_focal, 1, ev.show_focal_indicator ? ACCENT_COLOR : BORDER_COLOR)
+	draw_ui_text(app, "Focal", i32(btn_focal.x) + 6, i32(btn_focal.y) + 4, 11, rl.RAYWHITE)
+
 	btn_render   := rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
 	render_busy  := !app.finished
 	render_ready := app.finished && app.r_render_pending
@@ -408,9 +421,11 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	defer update_orbit_camera(ev)
 
 	// Shared rects (mirror draw proc)
-	btn_add    := rl.Rectangle{content.x + 8,                    content.y + 5, 90, 22}
-	btn_del    := rl.Rectangle{content.x + 106,                  content.y + 5, 60, 22}
-	btn_render := rl.Rectangle{content.x + content.width - 90,   content.y + 5, 82, 22}
+	btn_add     := rl.Rectangle{content.x + 8,                    content.y + 5, 90, 22}
+	btn_del     := rl.Rectangle{content.x + 106,                  content.y + 5, 60, 22}
+	btn_frustum := rl.Rectangle{content.x + 174,                  content.y + 5, 56, 22}
+	btn_focal   := rl.Rectangle{content.x + 234,                  content.y + 5, 40, 22}
+	btn_render  := rl.Rectangle{content.x + content.width - 90,   content.y + 5, 82, 22}
 	vp_rect    := rl.Rectangle{
 		content.x,
 		content.y + EDIT_TOOLBAR_H,
@@ -479,6 +494,16 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 
 	// ── Toolbar buttons ─────────────────────────────────────────────────
 	if lmb_pressed {
+		if rl.CheckCollisionPointRec(mouse, btn_frustum) {
+			ev.show_frustum_gizmo = !ev.show_frustum_gizmo
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		if rl.CheckCollisionPointRec(mouse, btn_focal) {
+			ev.show_focal_indicator = !ev.show_focal_indicator
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
 		if rl.CheckCollisionPointRec(mouse, btn_add) {
 AppendDefaultSphere(ev.scene_mgr)
 			new_idx := SceneManagerLen(ev.scene_mgr) - 1
