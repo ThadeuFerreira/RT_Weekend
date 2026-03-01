@@ -76,8 +76,12 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
     }
 
     edit_entries := []MenuEntryDyn{
-        {label = "Undo", cmd_id = CMD_UNDO, shortcut = "Ctrl+Z", disabled = !cmd_is_enabled(app, CMD_UNDO)},
-        {label = "Redo", cmd_id = CMD_REDO, shortcut = "Ctrl+Y", disabled = !cmd_is_enabled(app, CMD_REDO)},
+        {label = "Undo",      cmd_id = CMD_UNDO,             shortcut = "Ctrl+Z", disabled = !cmd_is_enabled(app, CMD_UNDO)},
+        {label = "Redo",      cmd_id = CMD_REDO,             shortcut = "Ctrl+Y", disabled = !cmd_is_enabled(app, CMD_REDO)},
+        {separator = true},
+        {label = "Copy",      cmd_id = CMD_EDIT_COPY,        shortcut = "Ctrl+C", disabled = !cmd_is_enabled(app, CMD_EDIT_COPY)},
+        {label = "Paste",     cmd_id = CMD_EDIT_PASTE,       shortcut = "Ctrl+V", disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE)},
+        {label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE,   shortcut = "Ctrl+D", disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE)},
     }
 
     render_entries := []MenuEntryDyn{

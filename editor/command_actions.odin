@@ -197,6 +197,63 @@ cmd_action_redo :: proc(app: ^App) {
 cmd_enabled_undo :: proc(app: ^App) -> bool { return edit_history_can_undo(&app.edit_history) }
 cmd_enabled_redo :: proc(app: ^App) -> bool { return edit_history_can_redo(&app.edit_history) }
 
+// ── Copy / Paste / Duplicate ─────────────────────────────────────────────────
+
+cmd_action_copy :: proc(app: ^App) {
+    ev := &app.e_edit_view
+    if ev.selection_kind != .Sphere { return }
+    if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+        app.e_clipboard_sphere = sphere
+        app.e_has_clipboard    = true
+        app_push_log(app, strings.clone("Copied sphere"))
+    }
+}
+
+cmd_enabled_copy :: proc(app: ^App) -> bool {
+    return app.e_edit_view.selection_kind == .Sphere
+}
+
+cmd_action_paste :: proc(app: ^App) {
+    if !app.e_has_clipboard { return }
+    ev := &app.e_edit_view
+    n := SceneManagerLen(ev.scene_mgr)
+    insert_idx := n
+    if ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
+        insert_idx = ev.selected_idx + 1
+    }
+    sphere := app.e_clipboard_sphere
+    sphere.center[0] += 0.5
+    sphere.center[2] += 0.5
+    InsertSphereAt(ev.scene_mgr, insert_idx, sphere)
+    ev.selection_kind = .Sphere
+    ev.selected_idx   = insert_idx
+    edit_history_push(&app.edit_history, AddSphereAction{idx = insert_idx, sphere = sphere})
+    app_push_log(app, strings.clone("Pasted sphere"))
+}
+
+cmd_enabled_paste :: proc(app: ^App) -> bool {
+    return app.e_has_clipboard
+}
+
+cmd_action_duplicate :: proc(app: ^App) {
+    ev := &app.e_edit_view
+    if ev.selection_kind != .Sphere { return }
+    sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+    if !ok { return }
+    insert_idx := ev.selected_idx + 1
+    sphere.center[0] += 0.5
+    sphere.center[2] += 0.5
+    InsertSphereAt(ev.scene_mgr, insert_idx, sphere)
+    ev.selection_kind = .Sphere
+    ev.selected_idx   = insert_idx
+    edit_history_push(&app.edit_history, AddSphereAction{idx = insert_idx, sphere = sphere})
+    app_push_log(app, strings.clone("Duplicated sphere"))
+}
+
+cmd_enabled_duplicate :: proc(app: ^App) -> bool {
+    return app.e_edit_view.selection_kind == .Sphere
+}
+
 // ── register_all_commands ────────────────────────────────────────────────────
 
 // register_all_commands populates app.commands. Call once during app init.
@@ -227,8 +284,11 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(r, Command{id = CMD_VIEW_SAVE_PRESET,    label = "Save Layout As…", action = cmd_action_save_preset})
 
     // Edit
-    cmd_register(r, Command{id = CMD_UNDO, label = "Undo", shortcut = "Ctrl+Z", action = cmd_action_undo, enabled_proc = cmd_enabled_undo})
-    cmd_register(r, Command{id = CMD_REDO, label = "Redo", shortcut = "Ctrl+Y", action = cmd_action_redo, enabled_proc = cmd_enabled_redo})
+    cmd_register(r, Command{id = CMD_UNDO,             label = "Undo",      shortcut = "Ctrl+Z", action = cmd_action_undo,       enabled_proc = cmd_enabled_undo})
+    cmd_register(r, Command{id = CMD_REDO,             label = "Redo",      shortcut = "Ctrl+Y", action = cmd_action_redo,       enabled_proc = cmd_enabled_redo})
+    cmd_register(r, Command{id = CMD_EDIT_COPY,        label = "Copy",      shortcut = "Ctrl+C", action = cmd_action_copy,       enabled_proc = cmd_enabled_copy})
+    cmd_register(r, Command{id = CMD_EDIT_PASTE,       label = "Paste",     shortcut = "Ctrl+V", action = cmd_action_paste,      enabled_proc = cmd_enabled_paste})
+    cmd_register(r, Command{id = CMD_EDIT_DUPLICATE,   label = "Duplicate", shortcut = "Ctrl+D", action = cmd_action_duplicate,  enabled_proc = cmd_enabled_duplicate})
 
     // Render
     cmd_register(r, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})
