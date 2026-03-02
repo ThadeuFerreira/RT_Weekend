@@ -87,8 +87,8 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
     render_entries := []MenuEntryDyn{
         {label = "Restart", cmd_id = CMD_RENDER_RESTART, shortcut = "F5", disabled = !cmd_is_enabled(app, CMD_RENDER_RESTART)},
         {separator = true},
-        {label = "Start Visual Benchmark Capture", cmd_id = CMD_BENCHMARK_START, disabled = !cmd_is_enabled(app, CMD_BENCHMARK_START)},
-        {label = "Stop Visual Benchmark Capture",  cmd_id = CMD_BENCHMARK_STOP,  disabled = !cmd_is_enabled(app, CMD_BENCHMARK_STOP)},
+        {label = "Start Benchmark", cmd_id = CMD_BENCHMARK_START, disabled = !cmd_is_enabled(app, CMD_BENCHMARK_START)},
+        {label = "Stop Benchmark",  cmd_id = CMD_BENCHMARK_STOP,  disabled = !cmd_is_enabled(app, CMD_BENCHMARK_STOP)},
     }
 
     menus := make([]MenuDyn, 4, context.temp_allocator)

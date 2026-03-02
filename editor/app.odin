@@ -598,8 +598,8 @@ run_app :: proc(
             r := app.r_session.gpu_renderer
             if r != nil && !rt.gpu_renderer_done(r) {
                 gpu_dispatch_scope := util.trace_scope_begin("Gpu.Dispatch", "render")
+                defer util.trace_scope_end(gpu_dispatch_scope)
                 rt.gpu_renderer_dispatch(r)
-                util.trace_scope_end(gpu_dispatch_scope)
             }
         }
 

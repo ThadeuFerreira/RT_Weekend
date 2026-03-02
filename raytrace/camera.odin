@@ -416,6 +416,7 @@ get_render_progress :: proc(session: ^RenderSession) -> f32 {
 // GPU path: no threads to join. Destroys the GPU renderer and frees BVH memory.
 finish_render :: proc(session: ^RenderSession) {
     if session.use_gpu {
+        util.trace_scope_end(session.trace_render_scope)
         stop_timer(&session.timing.total)
         aggregate_into_summary(&session.timing, nil, &session.last_profile)
         // GPU path: only buffer_creation and bvh_construction were timed in start_render_auto; other phases stay zero.
@@ -586,6 +587,7 @@ start_render_auto :: proc(
     if renderer != nil {
         session.gpu_renderer = renderer
         session.use_gpu      = true
+        session.trace_render_scope = util.trace_scope_begin("Render.Work", "render")
         when VERBOSE_OUTPUT {
             fmt.println("[GPU] Init OK — GPU rendering enabled")
         }

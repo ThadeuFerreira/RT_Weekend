@@ -350,6 +350,6 @@ register_all_commands :: proc(app: ^App) {
 
     // Render
     cmd_register(r, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})
-    cmd_register(r, Command{id = CMD_BENCHMARK_START, label = "Start Visual Benchmark Capture", action = cmd_action_benchmark_start, enabled_proc = cmd_enabled_benchmark_start})
-    cmd_register(r, Command{id = CMD_BENCHMARK_STOP,  label = "Stop Visual Benchmark Capture",  action = cmd_action_benchmark_stop,  enabled_proc = cmd_enabled_benchmark_stop})
+    cmd_register(r, Command{id = CMD_BENCHMARK_START, label = "Start Benchmark", action = cmd_action_benchmark_start, enabled_proc = cmd_enabled_benchmark_start})
+    cmd_register(r, Command{id = CMD_BENCHMARK_STOP,  label = "Stop Benchmark",  action = cmd_action_benchmark_stop,  enabled_proc = cmd_enabled_benchmark_stop})
 }
