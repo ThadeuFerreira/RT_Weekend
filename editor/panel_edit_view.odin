@@ -281,10 +281,10 @@ PROP_FH  :: f32(20)
 PROP_SP  :: f32(10)
 PROP_COL :: PROP_LW + PROP_GAP + PROP_FW + PROP_SP // 88 px per column
 
-// render_cam_spherical returns yaw, pitch, dist describing lookfrom relative to lookat.
-// Matches the orbit camera convention so both cameras share the same coordinate frame.
-render_cam_spherical :: proc(lookfrom, lookat: [3]f32) -> (yaw, pitch, dist: f32) {
-	d := [3]f32{lookfrom[0]-lookat[0], lookfrom[1]-lookat[1], lookfrom[2]-lookat[2]}
+// cam_forward_angles returns yaw, pitch, dist of the camera's forward direction
+// (lookat - lookfrom). Rotation is always relative to the camera's own center.
+cam_forward_angles :: proc(lookfrom, lookat: [3]f32) -> (yaw, pitch, dist: f32) {
+	d := [3]f32{lookat[0]-lookfrom[0], lookat[1]-lookfrom[1], lookat[2]-lookfrom[2]}
 	dist = math.sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2])
 	if dist < 0.001 { dist = 0.001 }
 	pitch = math.asin(clamp(d[1]/dist, f32(-1), f32(1)))
@@ -292,12 +292,12 @@ render_cam_spherical :: proc(lookfrom, lookat: [3]f32) -> (yaw, pitch, dist: f32
 	return
 }
 
-// lookfrom_from_spherical computes a lookfrom position from lookat + spherical angles.
-lookfrom_from_spherical :: proc(lookat: [3]f32, yaw, pitch, dist: f32) -> [3]f32 {
+// lookat_from_forward computes a lookat position from the camera position + forward angles.
+lookat_from_forward :: proc(lookfrom: [3]f32, yaw, pitch, dist: f32) -> [3]f32 {
 	return [3]f32{
-		lookat[0] + dist * math.cos(pitch) * math.sin(yaw),
-		lookat[1] + dist * math.sin(pitch),
-		lookat[2] + dist * math.cos(pitch) * math.cos(yaw),
+		lookfrom[0] + dist * math.cos(pitch) * math.sin(yaw),
+		lookfrom[1] + dist * math.sin(pitch),
+		lookfrom[2] + dist * math.cos(pitch) * math.cos(yaw),
 	}
 }
 
@@ -365,16 +365,16 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 	if ev.selection_kind == .Camera {
 		RAD2DEG :: f32(180.0 / math.PI)
 		cp := &app.c_camera_params
-		yaw, pitch, dist := render_cam_spherical(cp.lookfrom, cp.lookat)
+		yaw, pitch, dist := cam_forward_angles(cp.lookfrom, cp.lookat)
 		fields := cam_orbit_prop_rects(rect)
 		vals := [6]f32{
-			cp.lookat[0], cp.lookat[1], cp.lookat[2],
+			cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2],
 			yaw * RAD2DEG, pitch * RAD2DEG, dist,
 		}
 		labels := [6]cstring{"X", "Y", "Z", "Yaw", "Pit", "Dst"}
 
-		// Row 0 label "Target"
-		draw_ui_text(app, "Target", i32(rect.x) + 8, i32(rect.y) + 8 + 4, 11, CONTENT_TEXT_COLOR)
+		// Row 0 label "Pos"
+		draw_ui_text(app, "Pos", i32(rect.x) + 8, i32(rect.y) + 8 + 4, 11, CONTENT_TEXT_COLOR)
 		draw_drag_field(labels[0], vals[0], fields[0], ev.cam_prop_drag_idx == 0, mouse)
 		draw_drag_field(labels[1], vals[1], fields[1], ev.cam_prop_drag_idx == 1, mouse)
 		draw_drag_field(labels[2], vals[2], fields[2], ev.cam_prop_drag_idx == 2, mouse)
@@ -713,7 +713,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	}
 
 	// ── Priority A: camera rotation ring drag ────────────────────────────
-	// Each ring rotates lookfrom around its world axis through lookat (Rodrigues).
+	// Free-flow: rotation is centered on the camera's own position (lookfrom).
+	// The forward vector (lookat - lookfrom) is rotated; lookfrom stays fixed.
 	//   axis 0 = X ring → rotate around {1,0,0}
 	//   axis 1 = Y ring → rotate around {0,1,0}
 	//   axis 2 = Z ring → rotate around {0,0,1}
@@ -723,23 +724,24 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			rl.SetMouseCursor(.DEFAULT)
 			app.r_render_pending = true
 		} else {
-			dx    := mouse.x - ev.cam_rot_drag_start_x
-			sf    := ev.cam_drag_start_lookfrom
-			sa    := ev.cam_drag_start_lookat
-			// offset = start lookfrom relative to lookat
-			offset := rl.Vector3{sf.x - sa.x, sf.y - sa.y, sf.z - sa.z}
+			dx := mouse.x - ev.cam_rot_drag_start_x
+			sf := ev.cam_drag_start_lookfrom
+			sa := ev.cam_drag_start_lookat
+			// forward = lookat - lookfrom (camera center stays, forward direction rotates)
+			forward := rl.Vector3{sa.x - sf.x, sa.y - sf.y, sa.z - sf.z}
 			axis_vec: rl.Vector3
 			switch ev.cam_rot_drag_axis {
 			case 0: axis_vec = {1, 0, 0}
 			case 1: axis_vec = {0, 1, 0}
 			case 2: axis_vec = {0, 0, 1}
 			}
-			new_offset := rl.Vector3RotateByAxisAngle(offset, axis_vec, dx * 0.005)
-			app.c_camera_params.lookfrom = {
-				sa.x + new_offset.x,
-				sa.y + new_offset.y,
-				sa.z + new_offset.z,
+			new_forward := rl.Vector3RotateByAxisAngle(forward, axis_vec, dx * 0.005)
+			app.c_camera_params.lookat = {
+				sf.x + new_forward.x,
+				sf.y + new_forward.y,
+				sf.z + new_forward.z,
 			}
+			// lookfrom is unchanged — camera rotates around its own center
 		}
 		return
 	}
@@ -775,34 +777,34 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			delta := mouse.x - ev.cam_prop_drag_start_x
 			sf := ev.cam_drag_start_lookfrom
 			sa := ev.cam_drag_start_lookat
-			s_yaw, s_pitch, s_dist := render_cam_spherical(
+			s_yaw, s_pitch, s_dist := cam_forward_angles(
 				{sf.x, sf.y, sf.z}, {sa.x, sa.y, sa.z})
 			switch ev.cam_prop_drag_idx {
-			case 0: // lookat X — translate whole camera
+			case 0: // Pos X — translate whole camera (maintain look direction)
 				d := delta * 0.02
-				app.c_camera_params.lookat[0]   = sa.x + d
 				app.c_camera_params.lookfrom[0] = sf.x + d
-			case 1: // lookat Y
+				app.c_camera_params.lookat[0]   = sa.x + d
+			case 1: // Pos Y
 				d := delta * 0.02
-				app.c_camera_params.lookat[1]   = sa.y + d
 				app.c_camera_params.lookfrom[1] = sf.y + d
-			case 2: // lookat Z
+				app.c_camera_params.lookat[1]   = sa.y + d
+			case 2: // Pos Z
 				d := delta * 0.02
-				app.c_camera_params.lookat[2]   = sa.z + d
 				app.c_camera_params.lookfrom[2] = sf.z + d
-			case 3: // yaw
+				app.c_camera_params.lookat[2]   = sa.z + d
+			case 3: // Yaw — rotate forward direction, camera center fixed
 				new_yaw := s_yaw + delta * 0.5 * DEG2RAD
-				app.c_camera_params.lookfrom = lookfrom_from_spherical(
-					{sa.x, sa.y, sa.z}, new_yaw, s_pitch, s_dist)
-			case 4: // pitch
+				app.c_camera_params.lookat = lookat_from_forward(
+					{sf.x, sf.y, sf.z}, new_yaw, s_pitch, s_dist)
+			case 4: // Pitch
 				new_pitch := clamp(s_pitch + delta * 0.3 * DEG2RAD,
 					f32(-math.PI * 0.45), f32(math.PI * 0.45))
-				app.c_camera_params.lookfrom = lookfrom_from_spherical(
-					{sa.x, sa.y, sa.z}, s_yaw, new_pitch, s_dist)
-			case 5: // distance
+				app.c_camera_params.lookat = lookat_from_forward(
+					{sf.x, sf.y, sf.z}, s_yaw, new_pitch, s_dist)
+			case 5: // Distance
 				new_dist := max(s_dist + delta * 0.05, f32(1.0))
-				app.c_camera_params.lookfrom = lookfrom_from_spherical(
-					{sa.x, sa.y, sa.z}, s_yaw, s_pitch, new_dist)
+				app.c_camera_params.lookat = lookat_from_forward(
+					{sf.x, sf.y, sf.z}, s_yaw, s_pitch, new_dist)
 			}
 		}
 		return
