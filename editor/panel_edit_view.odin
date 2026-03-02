@@ -233,7 +233,7 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 	draw_camera_gizmo(cam_pos, cam_at, vup, ev.selection_kind == .Camera)
 
 	if ev.selection_kind == .Camera {
-		draw_camera_rotation_rings(cam_pos, ev.cam_rot_drag_axis == 1, ev.cam_rot_drag_axis == 0)
+		draw_camera_rotation_rings(cam_pos, ev.cam_rot_drag_axis)
 	}
 
 	aspect := (app.r_aspect_ratio == 0 ? (4.0 / 3.0) : (16.0 / 9.0))
@@ -596,37 +596,44 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 	}
 }
 
-// pick_rotation_ring performs a screen-space annulus hit-test for the two camera rings.
-// Returns 1 (yaw ring, outer), 0 (pitch ring, inner), or -1 (miss).
-// vp_offset is the top-left corner of the viewport in screen space.
+// pick_rotation_ring returns which of the 3 world-axis rings is closest to the mouse,
+// or -1 if none is within the pixel threshold.
+//   0 = X ring (red,   YZ plane)
+//   1 = Y ring (green, XZ plane)
+//   2 = Z ring (blue,  XY plane)
+// Uses sampled world points projected to screen space so the hit zone scales with zoom
+// and handles all viewing angles (rings that are edge-on become narrow, as expected).
 pick_rotation_ring :: proc(mouse, vp_offset: rl.Vector2, cam_pos: rl.Vector3, cam3d: rl.Camera3D) -> int {
-	proj_cam := rl.GetWorldToScreen(cam_pos, cam3d)
-	proj_cam.x += vp_offset.x
-	proj_cam.y += vp_offset.y
+	SAMPLE_N   :: 32
+	HIT_THRESH :: f32(10) // pixels
 
-	// Project a reference point 1.2 units to the right to get screen scale
-	proj_ref := rl.GetWorldToScreen(cam_pos + {CAM_YAW_RING_R, 0, 0}, cam3d)
-	proj_ref.x += vp_offset.x
-	proj_ref.y += vp_offset.y
+	best_axis := -1
+	best_dist := HIT_THRESH
 
-	dx := proj_ref.x - proj_cam.x
-	dy := proj_ref.y - proj_cam.y
-	base_r := math.sqrt(dx*dx + dy*dy)
-	if base_r < 1.0 { return -1 }
-
-	dmx := mouse.x - proj_cam.x
-	dmy := mouse.y - proj_cam.y
-	d := math.sqrt(dmx*dmx + dmy*dmy)
-
-	// Yaw ring band (outer): [0.75, 1.25] * base_r
-	if d >= 0.75*base_r && d <= 1.25*base_r { return 1 }
-
-	// Pitch ring: inner radius is CAM_PITCH_RING_R/CAM_YAW_RING_R * base_r
-	pitch_r := (CAM_PITCH_RING_R / CAM_YAW_RING_R) * base_r
-	// Pitch ring band: [0.65, 1.35] * pitch_r
-	if d >= 0.65*pitch_r && d <= 1.35*pitch_r { return 0 }
-
-	return -1
+	for axis in 0..<3 {
+		for i in 0..<SAMPLE_N {
+			t  := f32(i) * (2.0 * math.PI / SAMPLE_N)
+			ct := math.cos(t) * CAM_RING_R
+			st := math.sin(t) * CAM_RING_R
+			p: rl.Vector3
+			switch axis {
+			case 0: p = cam_pos + {0, ct, st}  // YZ plane — X axis ring
+			case 1: p = cam_pos + {ct, 0, st}  // XZ plane — Y axis ring
+			case 2: p = cam_pos + {ct, st, 0}  // XY plane — Z axis ring
+			}
+			proj := rl.GetWorldToScreen(p, cam3d)
+			proj.x += vp_offset.x
+			proj.y += vp_offset.y
+			dmx := mouse.x - proj.x
+			dmy := mouse.y - proj.y
+			d := math.sqrt(dmx*dmx + dmy*dmy)
+			if d < best_dist {
+				best_dist = d
+				best_axis = axis
+			}
+		}
+	}
+	return best_axis
 }
 
 // ── Panel update ───────────────────────────────────────────────────────────
@@ -706,26 +713,32 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	}
 
 	// ── Priority A: camera rotation ring drag ────────────────────────────
+	// Each ring rotates lookfrom around its world axis through lookat (Rodrigues).
+	//   axis 0 = X ring → rotate around {1,0,0}
+	//   axis 1 = Y ring → rotate around {0,1,0}
+	//   axis 2 = Z ring → rotate around {0,0,1}
 	if ev.cam_rot_drag_axis >= 0 {
 		if !lmb {
 			ev.cam_rot_drag_axis = -1
 			rl.SetMouseCursor(.DEFAULT)
 			app.r_render_pending = true
 		} else {
-			start_from := ev.cam_drag_start_lookfrom
-			start_at   := ev.cam_drag_start_lookat
-			lookat     := [3]f32{start_at.x, start_at.y, start_at.z}
-			start_yaw, start_pitch, dist := render_cam_spherical(
-				{start_from.x, start_from.y, start_from.z}, lookat)
-			dx := mouse.x - ev.cam_rot_drag_start_x
-			dy := mouse.y - ev.cam_rot_drag_start_y
+			dx    := mouse.x - ev.cam_rot_drag_start_x
+			sf    := ev.cam_drag_start_lookfrom
+			sa    := ev.cam_drag_start_lookat
+			// offset = start lookfrom relative to lookat
+			offset := rl.Vector3{sf.x - sa.x, sf.y - sa.y, sf.z - sa.z}
+			axis_vec: rl.Vector3
 			switch ev.cam_rot_drag_axis {
-			case 1: // yaw ring
-				new_yaw := start_yaw + dx * 0.005
-				app.c_camera_params.lookfrom = lookfrom_from_spherical(lookat, new_yaw, start_pitch, dist)
-			case 0: // pitch ring
-				new_pitch := clamp(start_pitch - dy * 0.005, f32(-math.PI * 0.45), f32(math.PI * 0.45))
-				app.c_camera_params.lookfrom = lookfrom_from_spherical(lookat, start_yaw, new_pitch, dist)
+			case 0: axis_vec = {1, 0, 0}
+			case 1: axis_vec = {0, 1, 0}
+			case 2: axis_vec = {0, 0, 1}
+			}
+			new_offset := rl.Vector3RotateByAxisAngle(offset, axis_vec, dx * 0.005)
+			app.c_camera_params.lookfrom = {
+				sa.x + new_offset.x,
+				sa.y + new_offset.y,
+				sa.z + new_offset.z,
 			}
 		}
 		return
