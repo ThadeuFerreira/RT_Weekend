@@ -1,3 +1,5 @@
+// Aggregate timing and phase breakdown for the Stats panel and stdout.
+// For Chrome/Perfetto timeline export, see util/trace.odin (separate capture).
 package raytrace
 
 import "core:encoding/json"

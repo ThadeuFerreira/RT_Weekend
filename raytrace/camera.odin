@@ -97,6 +97,7 @@ RenderSession :: struct {
     gpu_renderer:                ^GpuRenderer,
     use_gpu:                     bool,
     last_profile:                RenderProfileSummary,
+    trace_render_scope:          util.TraceScope,
 }
 
 // Default camera
@@ -297,14 +298,18 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
 
     session.timing = start_parallel_timing()
 
+    buffer_trace := util.trace_scope_begin("Render.Buffer", "render")
     session.timing.buffer_creation = start_timer()
     session.pixel_buffer = create_test_pixel_buffer(r_camera.image_width, r_camera.image_height)
     stop_timer(&session.timing.buffer_creation)
+    util.trace_scope_end(buffer_trace)
 
+    tiles_trace := util.trace_scope_begin("Render.Tiles", "render")
     session.timing.tile_generation = start_timer()
     tile_size := 32
     tiles := generate_tiles(r_camera.image_width, r_camera.image_height, tile_size)
     stop_timer(&session.timing.tile_generation)
+    util.trace_scope_end(tiles_trace)
 
     session.work_queue = TileWorkQueue{
         tiles      = tiles,
@@ -313,6 +318,7 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
         total_tiles = len(tiles),
     }
 
+    bvh_trace := util.trace_scope_begin("Render.BVH", "render")
     session.timing.bvh_construction = start_timer()
     world_slice := world[:]
     session.bvh_root = build_bvh(world_slice)
@@ -320,7 +326,9 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
     // Workers use bvh_hit_linear (iterative) instead of bvh_hit (recursive).
     session.linear_bvh = flatten_bvh(session.bvh_root, world_slice)
     stop_timer(&session.timing.bvh_construction)
+    util.trace_scope_end(bvh_trace)
 
+    ctx_trace := util.trace_scope_begin("Render.ContextSetup", "render")
     session.timing.context_setup = start_timer()
     session.threads       = make([]^thread.Thread, num_threads)
     session.heap_contexts = make([]^ParallelRenderContext, num_threads)
@@ -331,6 +339,7 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
 
     base_seed: u64 = 12345
     for i in 0..<num_threads {
+        util.trace_register_thread(i + 1, fmt.tprintf("Worker %d", i))
         ctx := new(ParallelRenderContext)
         ctx^ = ParallelRenderContext{
             r_camera          = r_camera,
@@ -348,7 +357,9 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
         session.heap_contexts[i] = ctx
     }
     stop_timer(&session.timing.context_setup)
+    util.trace_scope_end(ctx_trace)
 
+    thread_create_trace := util.trace_scope_begin("Render.ThreadCreation", "render")
     session.timing.thread_creation = start_timer()
     session.timing.rendering = start_timer()
     for i in 0..<num_threads {
@@ -358,6 +369,8 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
         thread.start(t)
     }
     stop_timer(&session.timing.thread_creation)
+    util.trace_scope_end(thread_create_trace)
+    session.trace_render_scope = util.trace_scope_begin("Render.Work", "render")
 
     return session
 }
@@ -430,7 +443,9 @@ finish_render :: proc(session: ^RenderSession) {
     }
 
     stop_timer(&session.timing.rendering)
+    util.trace_scope_end(session.trace_render_scope)
 
+    join_trace := util.trace_scope_begin("Render.ThreadJoin", "render")
     session.timing.thread_join = start_timer()
     for i in 0..<session.num_threads {
         thread.join(session.threads[i])
@@ -495,6 +510,7 @@ finish_render :: proc(session: ^RenderSession) {
     delete(session.thread_rendering_breakdowns)
 
     stop_timer(&session.timing.thread_join)
+    util.trace_scope_end(join_trace)
 
     total_tiles := session.work_queue.total_tiles
     when VERBOSE_OUTPUT {
@@ -544,15 +560,19 @@ start_render_auto :: proc(
     session.start_time  = time.now()
     session.timing      = start_parallel_timing()
 
+    buffer_trace := util.trace_scope_begin("Render.Buffer", "render")
     session.timing.buffer_creation = start_timer()
     session.pixel_buffer = create_test_pixel_buffer(r_camera.image_width, r_camera.image_height)
     stop_timer(&session.timing.buffer_creation)
+    util.trace_scope_end(buffer_trace)
 
+    bvh_trace := util.trace_scope_begin("Render.BVH", "render")
     session.timing.bvh_construction = start_timer()
     world_slice       := world[:]
     session.bvh_root   = build_bvh(world_slice)
     session.linear_bvh = flatten_bvh(session.bvh_root, world_slice)
     stop_timer(&session.timing.bvh_construction)
+    util.trace_scope_end(bvh_trace)
 
     // Initialise empty slices so finish_render never dereferences nil.
     session.threads                     = make([]^thread.Thread, 0)

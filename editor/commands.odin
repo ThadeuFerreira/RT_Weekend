@@ -28,6 +28,8 @@ CMD_EDIT_PASTE       :: "edit.paste"
 CMD_EDIT_DUPLICATE   :: "edit.duplicate"
 
 CMD_RENDER_RESTART   :: "render.restart"
+CMD_BENCHMARK_START  :: "render.benchmark.start"
+CMD_BENCHMARK_STOP   :: "render.benchmark.stop"
 
 MAX_COMMANDS :: 64
 

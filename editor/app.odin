@@ -528,6 +528,7 @@ run_app :: proc(
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
+    util.trace_register_thread(0, "MainThread")
     app.r_session      = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
     app.render_start = time.now()
 
@@ -539,6 +540,7 @@ run_app :: proc(
     frame := 0
 
     for !rl.WindowShouldClose() && !app.should_exit {
+        frame_scope := util.trace_scope_begin("Frame", "game")
         frame += 1
 
         app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
@@ -595,7 +597,9 @@ run_app :: proc(
         if app.r_session.use_gpu {
             r := app.r_session.gpu_renderer
             if r != nil && !rt.gpu_renderer_done(r) {
+                gpu_dispatch_scope := util.trace_scope_begin("Gpu.Dispatch", "render")
                 rt.gpu_renderer_dispatch(r)
+                util.trace_scope_end(gpu_dispatch_scope)
             }
         }
 
@@ -640,6 +644,7 @@ run_app :: proc(
 
         rl.EndDrawing()
 
+        util.trace_scope_end(frame_scope)
         free_all(context.temp_allocator)
     }
 

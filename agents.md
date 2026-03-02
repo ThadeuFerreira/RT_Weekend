@@ -30,7 +30,7 @@ make release # Release build → build/release (optimized, quiet stdout)
 odin build . -collection:RT_Weekend=. -debug -out:build/debug
 ```
 
-Release builds use: `-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false`. Run with `./build/release`.
+Release builds use: `-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -define:TRACE_CAPTURE_ENABLED=false`. Run with `./build/release`.
 
 Verify a small, fast render starts (opens a Raylib window, closes when done):
 
@@ -98,6 +98,28 @@ The project is split across five Odin packages (build with `-collection:RT_Weeke
 | `util/rng.odin` | `ThreadRNG`, `create_thread_rng`, `random_float`, `random_float_range` (Xoshiro256++) |
 | `util/config.odin` | `RenderConfig`, `EditorLayout`, `save_config`, `load_config` |
 | `util/layout_preset.odin` | `LayoutPreset` type |
+| `util/trace.odin` | Chrome/Perfetto timeline tracing capture (Chrome JSON traceEvents). Gated by `TRACE_CAPTURE_ENABLED`. |
+
+## Instrumentation pattern (idiomatic Odin)
+
+Odin does not use preprocessor macros for RAII timers. The idiomatic pattern is:
+
+- **Compile-time gating** via `#config` and `when` inside helper procs (or at call sites).
+- **Scope object + `defer`** to ensure the end marker runs on scope exit.
+
+For profiling counters (Stats panel) use `raytrace/profiling.odin`:
+
+```odin
+scope := PROFILE_SCOPE(&some_ns_counter)
+defer PROFILE_SCOPE_END(scope)
+```
+
+For Chrome/Perfetto timeline export use `util/trace.odin`:
+
+```odin
+s := util.trace_scope_begin("Frame", "game")
+defer util.trace_scope_end(s)
+```
 
 ## GPU Acceleration
 
