@@ -104,9 +104,9 @@ Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is
 1. Creates the window and a GPU texture sized to the render output
 2. Calls `start_render()` to kick off background worker threads (non-blocking)
 3. Each frame: uploads partial pixel buffer to GPU, polls progress, calls `finish_render()` when all tiles are done
-4. Draws panels, menu bar, and layout via `editor/ui.odin` and panel-specific modules
+4. Draws panels, menu bar, and layout via `editor/ui_chrome.odin` and panel-specific modules
 
-**`editor/ui.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_LOG`, `PANEL_ID_EDIT_VIEW`, `PANEL_ID_CAMERA`, `PANEL_ID_OBJECT_PROPS`, `PANEL_ID_PREVIEW_PORT`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/font_sdf.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
+**`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_LOG`, `PANEL_ID_EDIT_VIEW`, `PANEL_ID_CAMERA`, `PANEL_ID_OBJECT_PROPS`, `PANEL_ID_PREVIEW_PORT`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
 
 ### Non-blocking Render API (`raytrace/camera.odin`)
 Three procedures replace the old blocking `render_parallel`:

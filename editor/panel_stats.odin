@@ -48,9 +48,9 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     // Progress line: GPU shows sample count; CPU shows tile count.
     progress_frac := f32(0)
     if session.use_gpu {
-        r := session.gpu_renderer
+        gpu_rend := session.gpu_renderer
         cur, tot := 0, 0
-        if r != nil { cur, tot = rt.gpu_renderer_get_samples(r) }
+        if gpu_rend != nil { cur, tot = rt.gpu_renderer_get_samples(gpu_rend) }
         if tot > 0 {
             progress_frac = f32(cur) / f32(tot)
         } else if app.finished {
@@ -132,9 +132,9 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
             y += line_h
             for i in 0..<profile.phase_count {
                 if y >= content_bottom { break }
-                p := profile.phases[i]
-                if p.seconds <= 0 { continue }
-                draw_ui_text(app, fmt.ctprintf("  %s: %.2fs (%.1f%%)", p.name, p.seconds, p.percent), x, y, fs, CONTENT_TEXT_COLOR)
+                phase := profile.phases[i]
+                if phase.seconds <= 0 { continue }
+                draw_ui_text(app, fmt.ctprintf("  %s: %.2fs (%.1f%%)", phase.name, phase.seconds, phase.percent), x, y, fs, CONTENT_TEXT_COLOR)
                 y += line_h
             }
             if profile.has_sample_breakdown {

@@ -54,8 +54,8 @@ draw_camera_panel_drag_field :: proc(app: ^App, label: cstring, value: f32, box:
 }
 
 draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
-	cp := &app.e_camera_panel
-	p  := &app.c_camera_params
+	e_cam    := &app.e_camera_panel
+	c_params := &app.c_camera_params
 	mouse := rl.GetMousePosition()
 
 	rl.DrawRectangleRec(content, rl.Color{25, 28, 40, 240})
@@ -72,52 +72,52 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_ui_text(app, "Max depth", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
 
 	fields := camera_panel_field_rects(content)
-	draw_camera_panel_drag_field(app, "X", p.lookfrom[0], fields[0], cp.drag_idx == 0, mouse)
-	draw_camera_panel_drag_field(app, "Y", p.lookfrom[1], fields[1], cp.drag_idx == 1, mouse)
-	draw_camera_panel_drag_field(app, "Z", p.lookfrom[2], fields[2], cp.drag_idx == 2, mouse)
-	draw_camera_panel_drag_field(app, "X", p.lookat[0], fields[3], cp.drag_idx == 3, mouse)
-	draw_camera_panel_drag_field(app, "Y", p.lookat[1], fields[4], cp.drag_idx == 4, mouse)
-	draw_camera_panel_drag_field(app, "Z", p.lookat[2], fields[5], cp.drag_idx == 5, mouse)
-	draw_camera_panel_drag_field(app, "", p.vfov, fields[6], cp.drag_idx == 6, mouse)
-	draw_camera_panel_drag_field(app, "", p.defocus_angle, fields[7], cp.drag_idx == 7, mouse)
-	draw_camera_panel_drag_field(app, "", p.focus_dist, fields[8], cp.drag_idx == 8, mouse)
-	draw_camera_panel_drag_field(app, "D", f32(p.max_depth), fields[9], cp.drag_idx == 9, mouse)
+	draw_camera_panel_drag_field(app, "X", c_params.lookfrom[0], fields[0], e_cam.drag_idx == 0, mouse)
+	draw_camera_panel_drag_field(app, "Y", c_params.lookfrom[1], fields[1], e_cam.drag_idx == 1, mouse)
+	draw_camera_panel_drag_field(app, "Z", c_params.lookfrom[2], fields[2], e_cam.drag_idx == 2, mouse)
+	draw_camera_panel_drag_field(app, "X", c_params.lookat[0], fields[3], e_cam.drag_idx == 3, mouse)
+	draw_camera_panel_drag_field(app, "Y", c_params.lookat[1], fields[4], e_cam.drag_idx == 4, mouse)
+	draw_camera_panel_drag_field(app, "Z", c_params.lookat[2], fields[5], e_cam.drag_idx == 5, mouse)
+	draw_camera_panel_drag_field(app, "", c_params.vfov, fields[6], e_cam.drag_idx == 6, mouse)
+	draw_camera_panel_drag_field(app, "", c_params.defocus_angle, fields[7], e_cam.drag_idx == 7, mouse)
+	draw_camera_panel_drag_field(app, "", c_params.focus_dist, fields[8], e_cam.drag_idx == 8, mouse)
+	draw_camera_panel_drag_field(app, "D", f32(c_params.max_depth), fields[9], e_cam.drag_idx == 9, mouse)
 
 	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 4*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
-	cp := &app.e_camera_panel
-	p  := &app.c_camera_params
+	e_cam    := &app.e_camera_panel
+	c_params := &app.c_camera_params
 	content := rect
 
-	if cp.drag_idx >= 0 {
+	if e_cam.drag_idx >= 0 {
 		if !lmb {
-			cp.drag_idx = -1
+			e_cam.drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
 		} else {
-			delta := mouse.x - cp.drag_start_x
-			switch cp.drag_idx {
-			case 0: p.lookfrom[0] = cp.drag_start_val + delta * 0.02
-			case 1: p.lookfrom[1] = cp.drag_start_val + delta * 0.02
-			case 2: p.lookfrom[2] = cp.drag_start_val + delta * 0.02
-			case 3: p.lookat[0] = cp.drag_start_val + delta * 0.02
-			case 4: p.lookat[1] = cp.drag_start_val + delta * 0.02
-			case 5: p.lookat[2] = cp.drag_start_val + delta * 0.02
+			delta := mouse.x - e_cam.drag_start_x
+			switch e_cam.drag_idx {
+			case 0: c_params.lookfrom[0] = e_cam.drag_start_val + delta * 0.02
+			case 1: c_params.lookfrom[1] = e_cam.drag_start_val + delta * 0.02
+			case 2: c_params.lookfrom[2] = e_cam.drag_start_val + delta * 0.02
+			case 3: c_params.lookat[0] = e_cam.drag_start_val + delta * 0.02
+			case 4: c_params.lookat[1] = e_cam.drag_start_val + delta * 0.02
+			case 5: c_params.lookat[2] = e_cam.drag_start_val + delta * 0.02
 			case 6:
-				p.vfov = cp.drag_start_val + delta * 0.1
-				if p.vfov < 1 { p.vfov = 1 }
-				if p.vfov > 120 { p.vfov = 120 }
+				c_params.vfov = e_cam.drag_start_val + delta * 0.1
+				if c_params.vfov < 1 { c_params.vfov = 1 }
+				if c_params.vfov > 120 { c_params.vfov = 120 }
 			case 7:
-				p.defocus_angle = cp.drag_start_val + delta * 0.02
-				if p.defocus_angle < 0 { p.defocus_angle = 0 }
+				c_params.defocus_angle = e_cam.drag_start_val + delta * 0.02
+				if c_params.defocus_angle < 0 { c_params.defocus_angle = 0 }
 			case 8:
-				p.focus_dist = cp.drag_start_val + delta * 0.05
-				if p.focus_dist < 0.1 { p.focus_dist = 0.1 }
+				c_params.focus_dist = e_cam.drag_start_val + delta * 0.05
+				if c_params.focus_dist < 0.1 { c_params.focus_dist = 0.1 }
 			case 9:
-				p.max_depth = int(cp.drag_start_val + delta * 0.5)
-				if p.max_depth < 1 { p.max_depth = 1 }
-				if p.max_depth > 100 { p.max_depth = 100 }
+				c_params.max_depth = int(e_cam.drag_start_val + delta * 0.5)
+				if c_params.max_depth < 1 { c_params.max_depth = 1 }
+				if c_params.max_depth > 100 { c_params.max_depth = 100 }
 			}
 		}
 		return
@@ -127,19 +127,19 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		fields := camera_panel_field_rects(content)
 		for i in 0..<10 {
 			if rl.CheckCollisionPointRec(mouse, fields[i]) {
-				cp.drag_idx = i
-				cp.drag_start_x = mouse.x
+				e_cam.drag_idx = i
+				e_cam.drag_start_x = mouse.x
 				switch i {
-				case 0: cp.drag_start_val = p.lookfrom[0]
-				case 1: cp.drag_start_val = p.lookfrom[1]
-				case 2: cp.drag_start_val = p.lookfrom[2]
-				case 3: cp.drag_start_val = p.lookat[0]
-				case 4: cp.drag_start_val = p.lookat[1]
-				case 5: cp.drag_start_val = p.lookat[2]
-				case 6: cp.drag_start_val = p.vfov
-				case 7: cp.drag_start_val = p.defocus_angle
-				case 8: cp.drag_start_val = p.focus_dist
-				case 9: cp.drag_start_val = f32(p.max_depth)
+				case 0: e_cam.drag_start_val = c_params.lookfrom[0]
+				case 1: e_cam.drag_start_val = c_params.lookfrom[1]
+				case 2: e_cam.drag_start_val = c_params.lookfrom[2]
+				case 3: e_cam.drag_start_val = c_params.lookat[0]
+				case 4: e_cam.drag_start_val = c_params.lookat[1]
+				case 5: e_cam.drag_start_val = c_params.lookat[2]
+				case 6: e_cam.drag_start_val = c_params.vfov
+				case 7: e_cam.drag_start_val = c_params.defocus_angle
+				case 8: e_cam.drag_start_val = c_params.focus_dist
+				case 9: e_cam.drag_start_val = f32(c_params.max_depth)
 				}
 				rl.SetMouseCursor(.CROSSHAIR)
 				if g_app != nil { g_app.input_consumed = true }

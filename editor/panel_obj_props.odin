@@ -187,7 +187,7 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	}
 
 	if ev.selection_kind == .Camera {
-		p := &app.c_camera_params
+		c_params := &app.c_camera_params
 		op_section_label(app, "CAMERA (non-deletable)", content.x + 8, content.y + 6)
 		fields := op_camera_field_rects(content)
 		y0 := content.y + 6 + 18
@@ -195,54 +195,54 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 		draw_ui_text(app, "At",   i32(content.x) + 8, i32(y0 + OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
 		draw_ui_text(app, "FOV / Defocus / Focus", i32(content.x) + 8, i32(y0 + 2*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
 		draw_ui_text(app, "Max depth", i32(content.x) + 8, i32(y0 + 3*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
-		op_drag_field(app, "X", p.lookfrom[0], fields[0], st.prop_drag_idx == 0, mouse)
-		op_drag_field(app, "Y", p.lookfrom[1], fields[1], st.prop_drag_idx == 1, mouse)
-		op_drag_field(app, "Z", p.lookfrom[2], fields[2], st.prop_drag_idx == 2, mouse)
-		op_drag_field(app, "X", p.lookat[0], fields[3], st.prop_drag_idx == 3, mouse)
-		op_drag_field(app, "Y", p.lookat[1], fields[4], st.prop_drag_idx == 4, mouse)
-		op_drag_field(app, "Z", p.lookat[2], fields[5], st.prop_drag_idx == 5, mouse)
-		op_drag_field(app, "", p.vfov, fields[6], st.prop_drag_idx == 6, mouse)
-		op_drag_field(app, "", p.defocus_angle, fields[7], st.prop_drag_idx == 7, mouse)
-		op_drag_field(app, "", p.focus_dist, fields[8], st.prop_drag_idx == 8, mouse)
-		op_drag_field(app, "D", f32(p.max_depth), fields[9], st.prop_drag_idx == 9, mouse)
+		op_drag_field(app, "X", c_params.lookfrom[0], fields[0], st.prop_drag_idx == 0, mouse)
+		op_drag_field(app, "Y", c_params.lookfrom[1], fields[1], st.prop_drag_idx == 1, mouse)
+		op_drag_field(app, "Z", c_params.lookfrom[2], fields[2], st.prop_drag_idx == 2, mouse)
+		op_drag_field(app, "X", c_params.lookat[0], fields[3], st.prop_drag_idx == 3, mouse)
+		op_drag_field(app, "Y", c_params.lookat[1], fields[4], st.prop_drag_idx == 4, mouse)
+		op_drag_field(app, "Z", c_params.lookat[2], fields[5], st.prop_drag_idx == 5, mouse)
+		op_drag_field(app, "", c_params.vfov, fields[6], st.prop_drag_idx == 6, mouse)
+		op_drag_field(app, "", c_params.defocus_angle, fields[7], st.prop_drag_idx == 7, mouse)
+		op_drag_field(app, "", c_params.focus_dist, fields[8], st.prop_drag_idx == 8, mouse)
+		op_drag_field(app, "D", f32(c_params.max_depth), fields[9], st.prop_drag_idx == 9, mouse)
 		return
 	}
 
 	// Sphere selected
 	if ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) { return }
-	s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
 	if !ok { return }
-	lo := op_compute_layout(content, s.material_kind)
+	lo := op_compute_layout(content, sphere.material_kind)
 
-	// TRANSFORM 
+	// TRANSFORM
 	op_section_label(app, "TRANSFORM", lo.lx, lo.y_transform)
-	op_drag_field(app, "X", s.center[0], lo.boxes_xyz[0], st.prop_drag_idx == 0, mouse)
-	op_drag_field(app, "Y", s.center[1], lo.boxes_xyz[1], st.prop_drag_idx == 1, mouse)
-	op_drag_field(app, "Z", s.center[2], lo.boxes_xyz[2], st.prop_drag_idx == 2, mouse)
-	op_drag_field(app, "R", s.radius,    lo.box_radius,   st.prop_drag_idx == 3, mouse)
+	op_drag_field(app, "X", sphere.center[0], lo.boxes_xyz[0], st.prop_drag_idx == 0, mouse)
+	op_drag_field(app, "Y", sphere.center[1], lo.boxes_xyz[1], st.prop_drag_idx == 1, mouse)
+	op_drag_field(app, "Z", sphere.center[2], lo.boxes_xyz[2], st.prop_drag_idx == 2, mouse)
+	op_drag_field(app, "R", sphere.radius,    lo.box_radius,   st.prop_drag_idx == 3, mouse)
 
-	// MATERIAL 
+	// MATERIAL
 	op_section_label(app, "MATERIAL", lo.lx, lo.y_material)
-	op_mat_button(app, "Lambertian", lo.mat_rects[0], s.material_kind == .Lambertian, mouse)
-	op_mat_button(app, "Metallic",   lo.mat_rects[1], s.material_kind == .Metallic,   mouse)
-	op_mat_button(app, "Diel.",      lo.mat_rects[2], s.material_kind == .Dielectric, mouse)
-	if s.material_kind == .Metallic {
-		op_drag_field(app, "Fz", s.fuzz,    lo.box_mat_param, st.prop_drag_idx == 7, mouse)
-	} else if s.material_kind == .Dielectric {
-		op_drag_field(app, "Ir", s.ref_idx, lo.box_mat_param, st.prop_drag_idx == 7, mouse)
+	op_mat_button(app, "Lambertian", lo.mat_rects[0], sphere.material_kind == .Lambertian, mouse)
+	op_mat_button(app, "Metallic",   lo.mat_rects[1], sphere.material_kind == .Metallic,   mouse)
+	op_mat_button(app, "Diel.",      lo.mat_rects[2], sphere.material_kind == .Dielectric, mouse)
+	if sphere.material_kind == .Metallic {
+		op_drag_field(app, "Fz", sphere.fuzz,    lo.box_mat_param, st.prop_drag_idx == 7, mouse)
+	} else if sphere.material_kind == .Dielectric {
+		op_drag_field(app, "Ir", sphere.ref_idx, lo.box_mat_param, st.prop_drag_idx == 7, mouse)
 	}
 
-	// COLOR 
+	// COLOR
 	op_section_label(app, "COLOR", lo.lx, lo.y_color)
-	op_drag_field(app, "R", s.albedo[0], lo.boxes_rgb[0], st.prop_drag_idx == 4, mouse)
-	op_drag_field(app, "G", s.albedo[1], lo.boxes_rgb[1], st.prop_drag_idx == 5, mouse)
-	op_drag_field(app, "B", s.albedo[2], lo.boxes_rgb[2], st.prop_drag_idx == 6, mouse)
+	op_drag_field(app, "R", sphere.albedo[0], lo.boxes_rgb[0], st.prop_drag_idx == 4, mouse)
+	op_drag_field(app, "G", sphere.albedo[1], lo.boxes_rgb[1], st.prop_drag_idx == 5, mouse)
+	op_drag_field(app, "B", sphere.albedo[2], lo.boxes_rgb[2], st.prop_drag_idx == 6, mouse)
 
 	// Color swatch
 	swatch_col := rl.Color{
-		u8(clamp(s.albedo[0], f32(0), f32(1)) * 255),
-		u8(clamp(s.albedo[1], f32(0), f32(1)) * 255),
-		u8(clamp(s.albedo[2], f32(0), f32(1)) * 255),
+		u8(clamp(sphere.albedo[0], f32(0), f32(1)) * 255),
+		u8(clamp(sphere.albedo[1], f32(0), f32(1)) * 255),
+		u8(clamp(sphere.albedo[2], f32(0), f32(1)) * 255),
 		255,
 	}
 	rl.DrawRectangleRec(lo.swatch, swatch_col)
@@ -265,7 +265,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 
 	// ── Camera selected: drag 0–9 → app.c_camera_params
 	if ev.selection_kind == .Camera {
-		p := &app.c_camera_params
+		c_params := &app.c_camera_params
 		if st.prop_drag_idx >= 0 {
 			if !lmb {
 				// Commit camera drag to history
@@ -279,26 +279,26 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			} else {
 				delta := mouse.x - st.prop_drag_start_x
 				switch st.prop_drag_idx {
-				case 0: p.lookfrom[0] = st.prop_drag_start_val + delta * 0.02
-				case 1: p.lookfrom[1] = st.prop_drag_start_val + delta * 0.02
-				case 2: p.lookfrom[2] = st.prop_drag_start_val + delta * 0.02
-				case 3: p.lookat[0] = st.prop_drag_start_val + delta * 0.02
-				case 4: p.lookat[1] = st.prop_drag_start_val + delta * 0.02
-				case 5: p.lookat[2] = st.prop_drag_start_val + delta * 0.02
+				case 0: c_params.lookfrom[0] = st.prop_drag_start_val + delta * 0.02
+				case 1: c_params.lookfrom[1] = st.prop_drag_start_val + delta * 0.02
+				case 2: c_params.lookfrom[2] = st.prop_drag_start_val + delta * 0.02
+				case 3: c_params.lookat[0] = st.prop_drag_start_val + delta * 0.02
+				case 4: c_params.lookat[1] = st.prop_drag_start_val + delta * 0.02
+				case 5: c_params.lookat[2] = st.prop_drag_start_val + delta * 0.02
 				case 6:
-					p.vfov = st.prop_drag_start_val + delta * 0.1
-					if p.vfov < 1 { p.vfov = 1 }
-					if p.vfov > 120 { p.vfov = 120 }
+					c_params.vfov = st.prop_drag_start_val + delta * 0.1
+					if c_params.vfov < 1 { c_params.vfov = 1 }
+					if c_params.vfov > 120 { c_params.vfov = 120 }
 				case 7:
-					p.defocus_angle = st.prop_drag_start_val + delta * 0.02
-					if p.defocus_angle < 0 { p.defocus_angle = 0 }
+					c_params.defocus_angle = st.prop_drag_start_val + delta * 0.02
+					if c_params.defocus_angle < 0 { c_params.defocus_angle = 0 }
 				case 8:
-					p.focus_dist = st.prop_drag_start_val + delta * 0.05
-					if p.focus_dist < 0.1 { p.focus_dist = 0.1 }
+					c_params.focus_dist = st.prop_drag_start_val + delta * 0.05
+					if c_params.focus_dist < 0.1 { c_params.focus_dist = 0.1 }
 				case 9:
-					p.max_depth = int(st.prop_drag_start_val + delta * 0.5)
-					if p.max_depth < 1 { p.max_depth = 1 }
-					if p.max_depth > 100 { p.max_depth = 100 }
+					c_params.max_depth = int(st.prop_drag_start_val + delta * 0.5)
+					if c_params.max_depth < 1 { c_params.max_depth = 1 }
+					if c_params.max_depth > 100 { c_params.max_depth = 100 }
 				}
 				rl.SetMouseCursor(.RESIZE_EW)
 			}
@@ -306,9 +306,9 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		}
 		fields := op_camera_field_rects(rect)
 		vals := [10]f32{
-			p.lookfrom[0], p.lookfrom[1], p.lookfrom[2],
-			p.lookat[0], p.lookat[1], p.lookat[2],
-			p.vfov, p.defocus_angle, p.focus_dist, f32(p.max_depth),
+			c_params.lookfrom[0], c_params.lookfrom[1], c_params.lookfrom[2],
+			c_params.lookat[0], c_params.lookat[1], c_params.lookat[2],
+			c_params.vfov, c_params.defocus_angle, c_params.focus_dist, f32(c_params.max_depth),
 		}
 		any_hovered := false
 		for i in 0..<10 {
@@ -333,15 +333,14 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		return
 	}
 	// read-modify-write via scene manager so different object types can be supported
-	s2, ok2 := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	sphere, ok2 := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
 	if !ok2 { return }
-	s := s2
 
 	// ── Priority 1: active drag
 	if st.prop_drag_idx >= 0 {
 		if !lmb {
 			// Commit sphere property drag to history
-			if s_after, ok2 := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok2 {
+			if s_after, ok3 := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok3 {
 				edit_history_push(&app.edit_history, ModifySphereAction{
 					idx    = ev.selected_idx,
 					before = st.drag_before_sphere,
@@ -354,56 +353,56 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		} else {
 			delta := mouse.x - st.prop_drag_start_x
 			switch st.prop_drag_idx {
-			case 0: s.center[0] = st.prop_drag_start_val + delta * 0.01
-			case 1: s.center[1] = st.prop_drag_start_val + delta * 0.01
-			case 2: s.center[2] = st.prop_drag_start_val + delta * 0.01
-			case 3: s.radius    = max(st.prop_drag_start_val + delta * 0.005, f32(0.05))
-			case 4: s.albedo[0] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
-			case 5: s.albedo[1] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
-			case 6: s.albedo[2] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
+			case 0: sphere.center[0] = st.prop_drag_start_val + delta * 0.01
+			case 1: sphere.center[1] = st.prop_drag_start_val + delta * 0.01
+			case 2: sphere.center[2] = st.prop_drag_start_val + delta * 0.01
+			case 3: sphere.radius    = max(st.prop_drag_start_val + delta * 0.005, f32(0.05))
+			case 4: sphere.albedo[0] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
+			case 5: sphere.albedo[1] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
+			case 6: sphere.albedo[2] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
 			case 7:
-				if s.material_kind == .Metallic {
-					s.fuzz    = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
-				} else if s.material_kind == .Dielectric {
-					s.ref_idx = max(st.prop_drag_start_val + delta * 0.005, f32(1.0))
+				if sphere.material_kind == .Metallic {
+					sphere.fuzz    = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
+				} else if sphere.material_kind == .Dielectric {
+					sphere.ref_idx = max(st.prop_drag_start_val + delta * 0.005, f32(1.0))
 				}
 			}
 			rl.SetMouseCursor(.RESIZE_EW)
 			// persist changes back to the scene manager
-SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 		}
 		return
 	}
 
-	lo := op_compute_layout(rect, s.material_kind)
+	lo := op_compute_layout(rect, sphere.material_kind)
 
 	// ── Material toggle clicks
 	if lmb_pressed {
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[0]) {
-			before := s
-			s.material_kind = .Lambertian
-SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
-			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = s})
+			before := sphere
+			sphere.material_kind = .Lambertian
+			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			app_push_log(app, strings.clone("Material: Lambertian"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[1]) {
-			before := s
-			if s.material_kind != .Metallic && s.fuzz <= 0 { s.fuzz = 0.1 }
-			s.material_kind = .Metallic
-SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
-			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = s})
+			before := sphere
+			if sphere.material_kind != .Metallic && sphere.fuzz <= 0 { sphere.fuzz = 0.1 }
+			sphere.material_kind = .Metallic
+			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			app_push_log(app, strings.clone("Material: Metallic"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[2]) {
-			before := s
-			s.material_kind = .Dielectric
-			if s.ref_idx < 1.0 { s.ref_idx = 1.5 }
-SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
-			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = s})
+			before := sphere
+			sphere.material_kind = .Dielectric
+			if sphere.ref_idx < 1.0 { sphere.ref_idx = 1.5 }
+			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			app_push_log(app, strings.clone("Material: Dielectric"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
@@ -412,20 +411,20 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 
 	// ── Drag-field hover / start-drag
 	any_hovered := false
-	if op_try_start_drag(lo.boxes_xyz[0], 0, s.center[0], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_xyz[1], 1, s.center[1], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_xyz[2], 2, s.center[2], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.box_radius,   3, s.radius,    st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_rgb[0], 4, s.albedo[0], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_rgb[1], 5, s.albedo[1], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_rgb[2], 6, s.albedo[2], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_xyz[0], 0, sphere.center[0], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_xyz[1], 1, sphere.center[1], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_xyz[2], 2, sphere.center[2], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.box_radius,   3, sphere.radius,    st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_rgb[0], 4, sphere.albedo[0], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_rgb[1], 5, sphere.albedo[1], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_rgb[2], 6, sphere.albedo[2], st, mouse, lmb_pressed) { any_hovered = true }
 	if lo.has_mat_param {
-		mat_val := s.material_kind == .Metallic ? s.fuzz : s.ref_idx
+		mat_val := sphere.material_kind == .Metallic ? sphere.fuzz : sphere.ref_idx
 		if op_try_start_drag(lo.box_mat_param, 7, mat_val, st, mouse, lmb_pressed) { any_hovered = true }
 	}
 	// Capture before-state when a drag starts
 	if lmb_pressed && any_hovered {
-		st.drag_before_sphere = s
+		st.drag_before_sphere = sphere
 	}
 
 	if any_hovered {

@@ -595,11 +595,11 @@ run_app :: proc(
 
         // GPU path: dispatch one more sample per frame until all samples done.
         if app.r_session.use_gpu {
-            r := app.r_session.gpu_renderer
-            if r != nil && !rt.gpu_renderer_done(r) {
+            gpu_rend := app.r_session.gpu_renderer
+            if gpu_rend != nil && !rt.gpu_renderer_done(gpu_rend) {
                 gpu_dispatch_scope := util.trace_scope_begin("Gpu.Dispatch", "render")
                 defer util.trace_scope_end(gpu_dispatch_scope)
-                rt.gpu_renderer_dispatch(r)
+                rt.gpu_renderer_dispatch(gpu_rend)
             }
         }
 
