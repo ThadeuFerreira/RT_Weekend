@@ -4,7 +4,9 @@
 package util
 
 import "core:encoding/json"
+import "core:slice"
 import "core:strings"
+import "core:sync"
 import "core:time"
 
 TRACE_CAPTURE_ENABLED :: #config(TRACE_CAPTURE_ENABLED, true)
@@ -34,6 +36,7 @@ TraceScope :: struct {
 }
 
 TraceState :: struct {
+	mu:            sync.Mutex,
 	capturing:     bool,
 	pid:           int,
 	capture_start: time.Time,
@@ -129,6 +132,8 @@ append_capture_metadata_events :: proc() {
 
 trace_is_capturing :: proc() -> bool {
 	when TRACE_CAPTURE_ENABLED {
+		sync.mutex_lock(&_trace_state.mu)
+		defer sync.mutex_unlock(&_trace_state.mu)
 		return _trace_state.capturing
 	} else {
 		return false
@@ -137,6 +142,8 @@ trace_is_capturing :: proc() -> bool {
 
 trace_set_metadata :: proc(key, value: string) {
 	when TRACE_CAPTURE_ENABLED {
+		sync.mutex_lock(&_trace_state.mu)
+		defer sync.mutex_unlock(&_trace_state.mu)
 		init_trace_state()
 		if old, ok := _trace_state.metadata[key]; ok {
 			delete(old)
@@ -147,6 +154,8 @@ trace_set_metadata :: proc(key, value: string) {
 
 trace_register_thread :: proc(tid: int, name: string) {
 	when TRACE_CAPTURE_ENABLED {
+		sync.mutex_lock(&_trace_state.mu)
+		defer sync.mutex_unlock(&_trace_state.mu)
 		init_trace_state()
 		if old, ok := _trace_state.thread_names[tid]; ok {
 			delete(old)
@@ -160,6 +169,8 @@ trace_register_thread :: proc(tid: int, name: string) {
 
 trace_scope_begin :: proc(name, cat: string, tid: int = 0) -> TraceScope {
 	when TRACE_CAPTURE_ENABLED {
+		sync.mutex_lock(&_trace_state.mu)
+		defer sync.mutex_unlock(&_trace_state.mu)
 		if !_trace_state.capturing {
 			return TraceScope{}
 		}
@@ -178,6 +189,8 @@ trace_scope_begin :: proc(name, cat: string, tid: int = 0) -> TraceScope {
 
 trace_scope_end :: proc(scope: TraceScope) {
 	when TRACE_CAPTURE_ENABLED {
+		sync.mutex_lock(&_trace_state.mu)
+		defer sync.mutex_unlock(&_trace_state.mu)
 		if !scope.active || !_trace_state.capturing { return }
 		end_ts_us := capture_timestamp_us()
 		dur_us := end_ts_us - scope.ts_us
@@ -197,23 +210,14 @@ trace_scope_end :: proc(scope: TraceScope) {
 }
 
 sort_events_by_ts :: proc(events: ^[dynamic]TraceEvent) {
-	n := len(events^)
-	if n <= 1 { return }
-	for i in 0..<n-1 {
-		min_idx := i
-		for j in i+1..<n {
-			if events^[j].ts < events^[min_idx].ts {
-				min_idx = j
-			}
-		}
-		if min_idx != i {
-			events^[i], events^[min_idx] = events^[min_idx], events^[i]
-		}
-	}
+	if len(events^) <= 1 { return }
+	slice.sort_by(events[:], proc(a, b: TraceEvent) -> bool { return a.ts < b.ts })
 }
 
 trace_start_capture :: proc() {
 	when TRACE_CAPTURE_ENABLED {
+		sync.mutex_lock(&_trace_state.mu)
+		defer sync.mutex_unlock(&_trace_state.mu)
 		init_trace_state()
 		clear_events()
 		_trace_state.capture_start = time.now()
@@ -229,6 +233,8 @@ trace_start_capture :: proc() {
 
 trace_stop_capture :: proc() -> ([]u8, bool) {
 	when TRACE_CAPTURE_ENABLED {
+		sync.mutex_lock(&_trace_state.mu)
+		defer sync.mutex_unlock(&_trace_state.mu)
 		if !_trace_state.capturing {
 			return nil, false
 		}

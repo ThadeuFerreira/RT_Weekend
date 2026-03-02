@@ -138,7 +138,7 @@ cmd_enabled_render_restart :: proc(app: ^App) -> bool {
 
 trace_output_path :: proc() -> string {
     unix_us := i64(time.duration_microseconds(time.diff(time.Time{}, time.now())))
-    return fmt.tprintf("trace_%d.json", unix_us)
+    return fmt.aprintf("trace_%d.json", unix_us)
 }
 
 cmd_action_benchmark_start :: proc(app: ^App) {
