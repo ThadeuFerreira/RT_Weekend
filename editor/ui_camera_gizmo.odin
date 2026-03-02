@@ -49,3 +49,16 @@ draw_focal_distance_indicator :: proc(cam_pos, focus_point: rl.Vector3, ray_colo
 	rl.DrawLine3D(cam_pos, focus_point, ray_color)
 	rl.DrawSphere(focus_point, 0.06, ball_color)
 }
+
+CAM_PITCH_RING_R :: f32(0.8)
+CAM_YAW_RING_R   :: f32(1.2)
+
+// draw_camera_rotation_rings draws two orbit rings around the camera gizmo when it is selected.
+// The pitch ring (red, inner) lies in the XZ plane; the yaw ring (green, outer) also lies in XZ.
+// yaw_active / pitch_active brighten the respective ring while it is being dragged.
+draw_camera_rotation_rings :: proc(cam_pos: rl.Vector3, yaw_active, pitch_active: bool) {
+	pitch_color := pitch_active ? rl.Color{255,  80,  80, 255} : rl.Color{200,  80,  80, 160}
+	yaw_color   := yaw_active   ? rl.Color{ 80, 255,  80, 255} : rl.Color{ 80, 200,  80, 160}
+	rl.DrawCircle3D(cam_pos, CAM_PITCH_RING_R, {1, 0, 0}, 90, pitch_color)
+	rl.DrawCircle3D(cam_pos, CAM_YAW_RING_R,   {1, 0, 0}, 90, yaw_color)
+}

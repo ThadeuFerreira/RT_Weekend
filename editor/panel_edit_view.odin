@@ -92,6 +92,23 @@ EditViewState :: struct {
 	nudge_active: bool,             // true while any nudge key is held
 	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
 
+	// Camera orbit property drag (properties strip when camera is selected)
+	// -1=none; 0=target_x, 1=target_y, 2=target_z, 3=yaw_deg, 4=pitch_deg, 5=dist
+	cam_prop_drag_idx:       int,
+	cam_prop_drag_start_x:   f32,
+	cam_prop_drag_start_val: f32,
+
+	// Camera body drag in viewport (moves orbit_target in XZ plane)
+	cam_drag_active:    bool,
+	cam_drag_plane_y:   f32,
+	cam_drag_offset_xz: [2]f32,
+
+	// Camera rotation ring drag: 1=yaw ring, 0=pitch ring, -1=none
+	cam_rot_drag_axis:      int,
+	cam_rot_drag_start_x:   f32,
+	cam_rot_drag_start_y:   f32,
+	cam_rot_drag_start_val: f32,
+
 	// Camera gizmo toggles (Edit View toolbar)
 	show_frustum_gizmo:  bool,
 	show_focal_indicator: bool,
@@ -107,6 +124,8 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.selection_kind = .None
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
+	ev.cam_prop_drag_idx = -1
+	ev.cam_rot_drag_axis = -1
 	ev.show_frustum_gizmo  = true
 	ev.show_focal_indicator = true
 
@@ -212,6 +231,10 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 	vup     := rl.Vector3{cp.vup[0], cp.vup[1], cp.vup[2]}
 	draw_camera_gizmo(cam_pos, cam_at, vup, ev.selection_kind == .Camera)
 
+	if ev.selection_kind == .Camera {
+		draw_camera_rotation_rings(cam_pos, ev.cam_rot_drag_axis == 1, ev.cam_rot_drag_axis == 0)
+	}
+
 	aspect := (app.r_aspect_ratio == 0 ? (4.0 / 3.0) : (16.0 / 9.0))
 	if ev.show_frustum_gizmo {
 		ul, ur, lr, ll := get_camera_viewport_corners(cp, f32(aspect))
@@ -256,6 +279,22 @@ PROP_FW  :: f32(60)
 PROP_FH  :: f32(20)
 PROP_SP  :: f32(10)
 PROP_COL :: PROP_LW + PROP_GAP + PROP_FW + PROP_SP // 88 px per column
+
+// cam_orbit_prop_rects returns 6 drag-float rects for the camera properties strip.
+// [0,1,2] = target X/Y/Z on row 0; [3,4,5] = yaw°/pitch°/dist on row 1.
+cam_orbit_prop_rects :: proc(r: rl.Rectangle) -> [6]rl.Rectangle {
+	x0  := r.x + 8
+	y0  := r.y + 8
+	off := PROP_LW + PROP_GAP
+	return [6]rl.Rectangle{
+		{x0 + 0*PROP_COL + off, y0,      PROP_FW, PROP_FH},
+		{x0 + 1*PROP_COL + off, y0,      PROP_FW, PROP_FH},
+		{x0 + 2*PROP_COL + off, y0,      PROP_FW, PROP_FH},
+		{x0 + 0*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
+		{x0 + 1*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
+		{x0 + 2*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
+	}
+}
 
 // prop_field_rects returns the four drag-float value boxes in screen space.
 // [0]=cx  [1]=cy  [2]=cz  [3]=radius. Rows: 0-2 on row0, 3 on row1.
@@ -303,10 +342,35 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 	}
 
 	if ev.selection_kind == .Camera {
-		draw_ui_text(app, "Camera selected (non-deletable)",
-			i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Edit position, target, and options in the Object Properties panel.",
-			i32(rect.x) + 8, i32(rect.y) + 30, 11, rl.Color{140, 150, 165, 200})
+		RAD2DEG :: f32(180.0 / math.PI)
+		fields := cam_orbit_prop_rects(rect)
+		vals := [6]f32{
+			ev.orbit_target.x,
+			ev.orbit_target.y,
+			ev.orbit_target.z,
+			ev.orbit_yaw   * RAD2DEG,
+			ev.orbit_pitch * RAD2DEG,
+			ev.orbit_distance,
+		}
+		labels := [6]cstring{"X", "Y", "Z", "Yaw", "Pit", "Dst"}
+
+		// Row 0 label "Target"
+		draw_ui_text(app, "Target", i32(rect.x) + 8, i32(rect.y) + 8 + 4, 11, CONTENT_TEXT_COLOR)
+		draw_drag_field(labels[0], vals[0], fields[0], ev.cam_prop_drag_idx == 0, mouse)
+		draw_drag_field(labels[1], vals[1], fields[1], ev.cam_prop_drag_idx == 1, mouse)
+		draw_drag_field(labels[2], vals[2], fields[2], ev.cam_prop_drag_idx == 2, mouse)
+
+		// Row 1 — yaw / pitch / distance
+		draw_drag_field(labels[3], vals[3], fields[3], ev.cam_prop_drag_idx == 3, mouse)
+		draw_drag_field(labels[4], vals[4], fields[4], ev.cam_prop_drag_idx == 4, mouse)
+		draw_drag_field(labels[5], vals[5], fields[5], ev.cam_prop_drag_idx == 5, mouse)
+
+		// Hint
+		draw_ui_text(app,
+			"Drag field \u2022 Drag gizmo to move \u2022 Drag ring to rotate",
+			i32(rect.x) + 8, i32(rect.y) + i32(EDIT_PROPS_H) - 18, 11,
+			rl.Color{120, 130, 148, 180},
+		)
 		return
 	}
 
@@ -507,6 +571,39 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 	}
 }
 
+// pick_rotation_ring performs a screen-space annulus hit-test for the two camera rings.
+// Returns 1 (yaw ring, outer), 0 (pitch ring, inner), or -1 (miss).
+// vp_offset is the top-left corner of the viewport in screen space.
+pick_rotation_ring :: proc(mouse, vp_offset: rl.Vector2, cam_pos: rl.Vector3, cam3d: rl.Camera3D) -> int {
+	proj_cam := rl.GetWorldToScreen(cam_pos, cam3d)
+	proj_cam.x += vp_offset.x
+	proj_cam.y += vp_offset.y
+
+	// Project a reference point 1.2 units to the right to get screen scale
+	proj_ref := rl.GetWorldToScreen(cam_pos + {CAM_YAW_RING_R, 0, 0}, cam3d)
+	proj_ref.x += vp_offset.x
+	proj_ref.y += vp_offset.y
+
+	dx := proj_ref.x - proj_cam.x
+	dy := proj_ref.y - proj_cam.y
+	base_r := math.sqrt(dx*dx + dy*dy)
+	if base_r < 1.0 { return -1 }
+
+	dmx := mouse.x - proj_cam.x
+	dmy := mouse.y - proj_cam.y
+	d := math.sqrt(dmx*dmx + dmy*dmy)
+
+	// Yaw ring band (outer): [0.75, 1.25] * base_r
+	if d >= 0.75*base_r && d <= 1.25*base_r { return 1 }
+
+	// Pitch ring: inner radius is CAM_PITCH_RING_R/CAM_YAW_RING_R * base_r
+	pitch_r := (CAM_PITCH_RING_R / CAM_YAW_RING_R) * base_r
+	// Pitch ring band: [0.65, 1.35] * pitch_r
+	if d >= 0.65*pitch_r && d <= 1.35*pitch_r { return 0 }
+
+	return -1
+}
+
 // ── Panel update ───────────────────────────────────────────────────────────
 
 update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
@@ -578,6 +675,62 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			ev.ctx_menu_open = false
 		} else if rl.IsKeyPressed(.ESCAPE) {
 			ev.ctx_menu_open = false
+		}
+		return
+	}
+
+	// ── Priority A: camera rotation ring drag ────────────────────────────
+	if ev.cam_rot_drag_axis >= 0 {
+		if !lmb {
+			ev.cam_rot_drag_axis = -1
+			rl.SetMouseCursor(.DEFAULT)
+			app.r_render_pending = true
+		} else {
+			dx := mouse.x - ev.cam_rot_drag_start_x
+			dy := mouse.y - ev.cam_rot_drag_start_y
+			switch ev.cam_rot_drag_axis {
+			case 1: ev.orbit_yaw   = ev.cam_rot_drag_start_val + dx * 0.005
+			case 0: ev.orbit_pitch = ev.cam_rot_drag_start_val - dy * 0.005
+			}
+		}
+		return
+	}
+
+	// ── Priority B: camera body drag in viewport (XZ plane) ──────────────
+	if ev.cam_drag_active {
+		if !lmb {
+			ev.cam_drag_active = false
+			app.r_render_pending = true
+		} else {
+			if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
+				if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
+					ev.orbit_target.x = xz.x - ev.cam_drag_offset_xz[0]
+					ev.orbit_target.z = xz.y - ev.cam_drag_offset_xz[1]
+				}
+			}
+		}
+		return
+	}
+
+	// ── Priority C: camera property-field drag ────────────────────────────
+	if ev.cam_prop_drag_idx >= 0 {
+		if !lmb {
+			ev.cam_prop_drag_idx = -1
+			rl.SetMouseCursor(.DEFAULT)
+			app.r_render_pending = true
+		} else {
+			DEG2RAD :: f32(math.PI / 180.0)
+			delta := mouse.x - ev.cam_prop_drag_start_x
+			switch ev.cam_prop_drag_idx {
+			case 0: ev.orbit_target.x = ev.cam_prop_drag_start_val + delta * 0.02
+			case 1: ev.orbit_target.y = ev.cam_prop_drag_start_val + delta * 0.02
+			case 2: ev.orbit_target.z = ev.cam_prop_drag_start_val + delta * 0.02
+			case 3: ev.orbit_yaw      = (ev.cam_prop_drag_start_val + delta * 0.5) * DEG2RAD
+			case 4: ev.orbit_pitch    = (ev.cam_prop_drag_start_val + delta * 0.3) * DEG2RAD
+			case 5:
+				ev.orbit_distance = ev.cam_prop_drag_start_val + delta * 0.05
+				if ev.orbit_distance < 1.0 { ev.orbit_distance = 1.0 }
+			}
 		}
 		return
 	}
@@ -721,6 +874,34 @@ OrderedRemove(ev.scene_mgr, del_idx)
 	// "From view" copies orbit into camera_params so Render uses current orbit view
 	// Removed - now integrated into render button behavior
 
+	// ── Property drag-field: start drag on click (camera) ────────────────
+	if ev.selection_kind == .Camera && rl.CheckCollisionPointRec(mouse, props_rect) {
+		RAD2DEG :: f32(180.0 / math.PI)
+		fields := cam_orbit_prop_rects(props_rect)
+		vals := [6]f32{
+			ev.orbit_target.x,
+			ev.orbit_target.y,
+			ev.orbit_target.z,
+			ev.orbit_yaw   * RAD2DEG,
+			ev.orbit_pitch * RAD2DEG,
+			ev.orbit_distance,
+		}
+		any_hovered := false
+		for i in 0..<6 {
+			if rl.CheckCollisionPointRec(mouse, fields[i]) {
+				any_hovered = true
+				if lmb_pressed {
+					ev.cam_prop_drag_idx       = i
+					ev.cam_prop_drag_start_x   = mouse.x
+					ev.cam_prop_drag_start_val = vals[i]
+					rl.SetMouseCursor(.RESIZE_EW)
+					return
+				}
+			}
+		}
+		if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else { rl.SetMouseCursor(.DEFAULT) }
+	}
+
 	// ── Property drag-field: start drag on click (sphere only) ───────────
 	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, props_rect) {
 		fields := prop_field_rects(props_rect)
@@ -800,32 +981,81 @@ OrderedRemove(ev.scene_mgr, del_idx)
 		ev.orbit_distance -= rl.GetMouseWheelMove() * 0.8
 	}
 
-	// Left-click: select sphere or camera (sphere first, then camera)
+	// Left-click: select and begin drag (camera rotation ring / body / sphere)
 	if lmb_pressed && mouse_in_vp {
 		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect); ok {
-			picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
-			if picked_sphere >= 0 {
-				ev.selection_kind  = .Sphere
-				ev.selected_idx    = picked_sphere
-				ev.drag_obj_active = true
-				if sphere, ok := GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
-					ev.drag_before     = sphere  // capture before state for history
-					ev.drag_plane_y    = sphere.center[1]
-					if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
-						ev.drag_offset_xz = {
-							xz.x - sphere.center[0],
-							xz.y - sphere.center[2],
+			cam_lookfrom := app.c_camera_params.lookfrom
+			cam_pos_v3   := rl.Vector3{cam_lookfrom[0], cam_lookfrom[1], cam_lookfrom[2]}
+			vp_offset    := rl.Vector2{vp_rect.x, vp_rect.y}
+
+			if ev.selection_kind == .Camera {
+				// Camera already selected: check rings first, then body, then sphere, then deselect
+				ring := pick_rotation_ring(mouse, vp_offset, cam_pos_v3, ev.cam3d)
+				if ring >= 0 {
+					// Start ring drag
+					ev.cam_rot_drag_axis      = ring
+					ev.cam_rot_drag_start_x   = mouse.x
+					ev.cam_rot_drag_start_y   = mouse.y
+					ev.cam_rot_drag_start_val = ring == 1 ? ev.orbit_yaw : ev.orbit_pitch
+					rl.SetMouseCursor(.RESIZE_ALL)
+				} else if pick_camera(ray, cam_lookfrom) {
+					// Start camera body drag (moves orbit_target in XZ)
+					ev.cam_drag_active  = true
+					ev.cam_drag_plane_y = cam_pos_v3.y
+					if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
+						ev.cam_drag_offset_xz = {
+							xz.x - ev.orbit_target.x,
+							xz.y - ev.orbit_target.z,
 						}
 					}
+				} else {
+					// Try sphere
+					picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
+					if picked_sphere >= 0 {
+						ev.selection_kind  = .Sphere
+						ev.selected_idx    = picked_sphere
+						ev.drag_obj_active = true
+						if sphere, ok3 := GetSceneSphere(ev.scene_mgr, picked_sphere); ok3 {
+							ev.drag_before  = sphere
+							ev.drag_plane_y = sphere.center[1]
+							if xz, ok4 := ray_hit_plane_y(ray, ev.drag_plane_y); ok4 {
+								ev.drag_offset_xz = {xz.x - sphere.center[0], xz.y - sphere.center[2]}
+							}
+						}
+					} else {
+						ev.selection_kind = .None
+						ev.selected_idx   = -1
+					}
 				}
-			} else if pick_camera(ray, app.c_camera_params.lookfrom) {
-				ev.selection_kind  = .Camera
-				ev.selected_idx    = -1
-				ev.drag_obj_active = false
 			} else {
-				ev.selection_kind  = .None
-				ev.selected_idx    = -1
-				ev.drag_obj_active = false
+				// Camera not selected: sphere first, then camera body
+				picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
+				if picked_sphere >= 0 {
+					ev.selection_kind  = .Sphere
+					ev.selected_idx    = picked_sphere
+					ev.drag_obj_active = true
+					if sphere, ok3 := GetSceneSphere(ev.scene_mgr, picked_sphere); ok3 {
+						ev.drag_before  = sphere
+						ev.drag_plane_y = sphere.center[1]
+						if xz, ok4 := ray_hit_plane_y(ray, ev.drag_plane_y); ok4 {
+							ev.drag_offset_xz = {xz.x - sphere.center[0], xz.y - sphere.center[2]}
+						}
+					}
+				} else if pick_camera(ray, cam_lookfrom) {
+					ev.selection_kind   = .Camera
+					ev.selected_idx     = -1
+					ev.cam_drag_active  = true
+					ev.cam_drag_plane_y = cam_pos_v3.y
+					if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
+						ev.cam_drag_offset_xz = {
+							xz.x - ev.orbit_target.x,
+							xz.y - ev.orbit_target.z,
+						}
+					}
+				} else {
+					ev.selection_kind = .None
+					ev.selected_idx   = -1
+				}
 			}
 		}
 	}
