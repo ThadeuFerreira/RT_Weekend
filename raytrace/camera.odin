@@ -339,6 +339,7 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
 
     base_seed: u64 = 12345
     for i in 0..<num_threads {
+        // fmt.tprintf uses temp allocator; trace_register_thread clones with context.allocator so the string outlives this call.
         util.trace_register_thread(i + 1, fmt.tprintf("Worker %d", i))
         ctx := new(ParallelRenderContext)
         ctx^ = ParallelRenderContext{

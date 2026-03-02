@@ -11,6 +11,7 @@ import "core:time"
 
 TRACE_CAPTURE_ENABLED :: #config(TRACE_CAPTURE_ENABLED, true)
 
+// dur and args use omitempty; core:encoding/json may not honour omitempty (zero values can still be emitted).
 TraceEvent :: struct {
 	name: string `json:"name"`,
 	cat:  string `json:"cat"`,
@@ -57,6 +58,9 @@ init_trace_state :: proc() {
 	if _trace_state.metadata == nil {
 		_trace_state.metadata = make(map[string]string)
 	}
+	if _trace_state.events == nil {
+		_trace_state.events = make([dynamic]TraceEvent)
+	}
 }
 
 clear_event_args :: proc(args: map[string]string) {
@@ -68,12 +72,14 @@ clear_event_args :: proc(args: map[string]string) {
 }
 
 clear_events :: proc() {
-	for &e in _trace_state.events {
-		delete(e.name)
-		delete(e.cat)
-		clear_event_args(e.args)
+	if _trace_state.events != nil {
+		for &e in _trace_state.events {
+			delete(e.name)
+			delete(e.cat)
+			clear_event_args(e.args)
+		}
+		delete(_trace_state.events)
 	}
-	delete(_trace_state.events)
 	_trace_state.events = make([dynamic]TraceEvent)
 }
 
@@ -130,6 +136,9 @@ append_capture_metadata_events :: proc() {
 	}
 }
 
+// Returns whether a capture is currently in progress (true after Start Benchmark until Stop Benchmark).
+// When TRACE_CAPTURE_ENABLED is false this proc is compiled out and always returns false — use a debug
+// build with -define:TRACE_CAPTURE_ENABLED=true (Makefile and .vscode/tasks.json do this) for tracing.
 trace_is_capturing :: proc() -> bool {
 	when TRACE_CAPTURE_ENABLED {
 		sync.mutex_lock(&_trace_state.mu)
