@@ -193,16 +193,16 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 	rl.DrawGrid(20, 1.0)
 
 	for i in 0..<len(objs) {
-		s      := objs[i]
-		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
+		sphere := objs[i]
+		center := rl.Vector3{sphere.center[0], sphere.center[1], sphere.center[2]}
 		col: rl.Color
 		if ev.selection_kind == .Sphere && i == ev.selected_idx {
 			col = rl.YELLOW
 		} else {
-			col = rl.Color{u8(s.albedo[0]*255), u8(s.albedo[1]*255), u8(s.albedo[2]*255), 255}
+			col = rl.Color{u8(sphere.albedo[0]*255), u8(sphere.albedo[1]*255), u8(sphere.albedo[2]*255), 255}
 		}
-		rl.DrawSphere(center, s.radius, col)
-		rl.DrawSphereWires(center, s.radius, 8, 8, rl.Color{30, 30, 30, 180})
+		rl.DrawSphere(center, sphere.radius, col)
+		rl.DrawSphereWires(center, sphere.radius, 8, 8, rl.Color{30, 30, 30, 180})
 	}
 
 	// Render camera gizmo (body) and optional frustum / focal indicator
@@ -230,9 +230,9 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 	// Draw a move indicator on the selected sphere during drag
 	if ev.drag_obj_active && ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
 		if ev.selected_idx >= 0 && ev.selected_idx < len(objs) {
-			s := objs[ev.selected_idx]
-			c := rl.Vector3{s.center[0], s.center[1], s.center[2]}
-			rl.DrawCircle3D(c, s.radius + 0.08, rl.Vector3{1, 0, 0}, 90, rl.Color{255, 220, 0, 200})
+			sphere := objs[ev.selected_idx]
+			c := rl.Vector3{sphere.center[0], sphere.center[1], sphere.center[2]}
+			rl.DrawCircle3D(c, sphere.radius + 0.08, rl.Vector3{1, 0, 0}, 90, rl.Color{255, 220, 0, 200})
 		}
 	}
 
@@ -312,18 +312,18 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 
 	// Sphere selected
 	if ev.selected_idx < 0 || ev.selected_idx >= len(objs) { return }
-	s      := objs[ev.selected_idx]
+	sphere := objs[ev.selected_idx]
 	fields := prop_field_rects(rect)
 
 	// Row 0 — position X Y Z
-	draw_drag_field("X", s.center[0], fields[0], ev.prop_drag_idx == 0, mouse)
-	draw_drag_field("Y", s.center[1], fields[1], ev.prop_drag_idx == 1, mouse)
-	draw_drag_field("Z", s.center[2], fields[2], ev.prop_drag_idx == 2, mouse)
+	draw_drag_field("X", sphere.center[0], fields[0], ev.prop_drag_idx == 0, mouse)
+	draw_drag_field("Y", sphere.center[1], fields[1], ev.prop_drag_idx == 1, mouse)
+	draw_drag_field("Z", sphere.center[2], fields[2], ev.prop_drag_idx == 2, mouse)
 
 	// Row 1 — radius + material label
-	draw_drag_field("R", s.radius, fields[3], ev.prop_drag_idx == 3, mouse)
+	draw_drag_field("R", sphere.radius, fields[3], ev.prop_drag_idx == 3, mouse)
 
-	mat_name  := material_name(s.material_kind)
+	mat_name  := material_name(sphere.material_kind)
 	mat_x := i32(rect.x) + 8 + i32(PROP_COL)
 	mat_y := i32(rect.y) + 8 + 30 + 4
 	draw_ui_text(app, "Mat:",    mat_x,      mat_y, 12, CONTENT_TEXT_COLOR)
@@ -589,16 +589,16 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			rl.SetMouseCursor(.DEFAULT)
 		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 			delta := mouse.x - ev.prop_drag_start_x
-			if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 				switch ev.prop_drag_idx {
-				case 0: s.center[0] = ev.prop_drag_start_val + delta * 0.01
-				case 1: s.center[1] = ev.prop_drag_start_val + delta * 0.01
-				case 2: s.center[2] = ev.prop_drag_start_val + delta * 0.01
+				case 0: sphere.center[0] = ev.prop_drag_start_val + delta * 0.01
+				case 1: sphere.center[1] = ev.prop_drag_start_val + delta * 0.01
+				case 2: sphere.center[2] = ev.prop_drag_start_val + delta * 0.01
 				case 3:
-					s.radius = ev.prop_drag_start_val + delta * 0.005
-					if s.radius < 0.05 { s.radius = 0.05 }
+					sphere.radius = ev.prop_drag_start_val + delta * 0.005
+					if sphere.radius < 0.05 { sphere.radius = 0.05 }
 				}
-SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+				SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			}
 		}
 		return
@@ -610,11 +610,11 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 			ev.drag_obj_active = false
 			// Commit drag to history
 			if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
-				if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+				if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 					edit_history_push(&app.edit_history, ModifySphereAction{
 						idx    = ev.selected_idx,
 						before = ev.drag_before,
-						after  = s,
+						after  = sphere,
 					})
 					app_push_log(app, strings.clone("Move sphere"))
 					app.r_render_pending = true
@@ -624,10 +624,10 @@ SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
 			// require_inside=false: keep dragging even when mouse leaves viewport
 			if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
 				if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
-					if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-						s.center[0]  = xz.x - ev.drag_offset_xz[0]
-						s.center[2]  = xz.y - ev.drag_offset_xz[1]
-SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+					if sphere, ok3 := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok3 {
+						sphere.center[0] = xz.x - ev.drag_offset_xz[0]
+						sphere.center[2] = xz.y - ev.drag_offset_xz[1]
+						SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 					}
 				}
 			}
@@ -808,13 +808,13 @@ OrderedRemove(ev.scene_mgr, del_idx)
 				ev.selection_kind  = .Sphere
 				ev.selected_idx    = picked_sphere
 				ev.drag_obj_active = true
-				if s, ok := GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
-					ev.drag_before     = s  // capture before state for history
-					ev.drag_plane_y    = s.center[1]
+				if sphere, ok := GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
+					ev.drag_before     = sphere  // capture before state for history
+					ev.drag_plane_y    = sphere.center[1]
 					if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
 						ev.drag_offset_xz = {
-							xz.x - s.center[0],
-							xz.y - s.center[2],
+							xz.x - sphere.center[0],
+							xz.y - sphere.center[2],
 						}
 					}
 				}
@@ -846,36 +846,36 @@ OrderedRemove(ev.scene_mgr, del_idx)
 		// Capture before-state on first keydown of a nudge session
 		if any_nudge && !ev.nudge_active {
 			ev.nudge_active = true
-			if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-				ev.nudge_before = s
+			if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+				ev.nudge_before = sphere
 			}
 		}
 
-		if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-			if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)    { s.center[2] -= MOVE_SPEED }
-			if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)  { s.center[2] += MOVE_SPEED }
-			if rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT)  { s.center[0] -= MOVE_SPEED }
-			if rl.IsKeyDown(.D) || rl.IsKeyDown(.RIGHT) { s.center[0] += MOVE_SPEED }
-			if rl.IsKeyDown(.Q)                         { s.center[1] -= MOVE_SPEED }
-			if rl.IsKeyDown(.E)                         { s.center[1] += MOVE_SPEED }
+		if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)    { sphere.center[2] -= MOVE_SPEED }
+			if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)  { sphere.center[2] += MOVE_SPEED }
+			if rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT)  { sphere.center[0] -= MOVE_SPEED }
+			if rl.IsKeyDown(.D) || rl.IsKeyDown(.RIGHT) { sphere.center[0] += MOVE_SPEED }
+			if rl.IsKeyDown(.Q)                         { sphere.center[1] -= MOVE_SPEED }
+			if rl.IsKeyDown(.E)                         { sphere.center[1] += MOVE_SPEED }
 			if rl.IsKeyDown(.EQUAL) || rl.IsKeyDown(.KP_ADD) {
-				s.radius += RADIUS_SPEED
+				sphere.radius += RADIUS_SPEED
 			}
 			if rl.IsKeyDown(.MINUS) || rl.IsKeyDown(.KP_SUBTRACT) {
-				s.radius -= RADIUS_SPEED
-				if s.radius < 0.05 { s.radius = 0.05 }
+				sphere.radius -= RADIUS_SPEED
+				if sphere.radius < 0.05 { sphere.radius = 0.05 }
 			}
-SetSceneSphere(ev.scene_mgr, ev.selected_idx, s)
+			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 		}
 
 		// Commit nudge to history when all keys released
 		if !any_nudge && ev.nudge_active {
 			ev.nudge_active = false
-			if s, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 				edit_history_push(&app.edit_history, ModifySphereAction{
 					idx    = ev.selected_idx,
 					before = ev.nudge_before,
-					after  = s,
+					after  = sphere,
 				})
 				app_push_log(app, strings.clone("Nudge sphere"))
 				app.r_render_pending = true

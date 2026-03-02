@@ -329,40 +329,40 @@ cmd_enabled_duplicate :: proc(app: ^App) -> bool {
 
 // register_all_commands populates app.commands. Call once during app init.
 register_all_commands :: proc(app: ^App) {
-    r := &app.commands
+    cmd_reg := &app.commands
 
     // File
-    cmd_register(r, Command{id = CMD_FILE_NEW,     label = "New",      shortcut = "Ctrl+N", action = cmd_action_file_new})
-    cmd_register(r, Command{id = CMD_FILE_IMPORT,  label = "Import…",  shortcut = "Ctrl+O", action = cmd_action_file_import})
-    cmd_register(r, Command{id = CMD_FILE_SAVE,    label = "Save",     shortcut = "Ctrl+S", action = cmd_action_file_save, enabled_proc = cmd_action_file_save_enabled})
-    cmd_register(r, Command{id = CMD_FILE_SAVE_AS, label = "Save As…", shortcut = "",       action = cmd_action_file_save_as})
-    cmd_register(r, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
+    cmd_register(cmd_reg, Command{id = CMD_FILE_NEW,     label = "New",      shortcut = "Ctrl+N", action = cmd_action_file_new})
+    cmd_register(cmd_reg, Command{id = CMD_FILE_IMPORT,  label = "Import…",  shortcut = "Ctrl+O", action = cmd_action_file_import})
+    cmd_register(cmd_reg, Command{id = CMD_FILE_SAVE,    label = "Save",     shortcut = "Ctrl+S", action = cmd_action_file_save, enabled_proc = cmd_action_file_save_enabled})
+    cmd_register(cmd_reg, Command{id = CMD_FILE_SAVE_AS, label = "Save As…", shortcut = "",       action = cmd_action_file_save_as})
+    cmd_register(cmd_reg, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
 
     // View — panels
-    cmd_register(r, Command{id = CMD_VIEW_RENDER,  label = "Render Preview", action = cmd_action_view_render,  checked_proc = cmd_checked_view_render})
-    cmd_register(r, Command{id = CMD_VIEW_STATS,   label = "Stats",          action = cmd_action_view_stats,   checked_proc = cmd_checked_view_stats})
-    cmd_register(r, Command{id = CMD_VIEW_LOG,     label = "Log",            action = cmd_action_view_log,     checked_proc = cmd_checked_view_log})
-    cmd_register(r, Command{id = CMD_VIEW_SYSINFO, label = "System Info",    action = cmd_action_view_sysinfo, checked_proc = cmd_checked_view_sysinfo})
-    cmd_register(r, Command{id = CMD_VIEW_EDIT,    label = "Edit View",      action = cmd_action_view_edit,    checked_proc = cmd_checked_view_edit})
-    cmd_register(r, Command{id = CMD_VIEW_CAMERA,  label = "Camera",         action = cmd_action_view_camera,  checked_proc = cmd_checked_view_camera})
-    cmd_register(r, Command{id = CMD_VIEW_PROPS,   label = "Object Props",   action = cmd_action_view_props,   checked_proc = cmd_checked_view_props})
-    cmd_register(r, Command{id = CMD_VIEW_PREVIEW, label = "Preview Port",   action = cmd_action_view_preview, checked_proc = cmd_checked_view_preview})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_RENDER,  label = "Render Preview", action = cmd_action_view_render,  checked_proc = cmd_checked_view_render})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_STATS,   label = "Stats",          action = cmd_action_view_stats,   checked_proc = cmd_checked_view_stats})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_LOG,     label = "Log",            action = cmd_action_view_log,     checked_proc = cmd_checked_view_log})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_SYSINFO, label = "System Info",    action = cmd_action_view_sysinfo, checked_proc = cmd_checked_view_sysinfo})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_EDIT,    label = "Edit View",      action = cmd_action_view_edit,    checked_proc = cmd_checked_view_edit})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_CAMERA,  label = "Camera",         action = cmd_action_view_camera,  checked_proc = cmd_checked_view_camera})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_PROPS,   label = "Object Props",   action = cmd_action_view_props,   checked_proc = cmd_checked_view_props})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_PREVIEW, label = "Preview Port",   action = cmd_action_view_preview, checked_proc = cmd_checked_view_preview})
 
     // View — presets
-    cmd_register(r, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",         action = cmd_action_preset_default})
-    cmd_register(r, Command{id = CMD_VIEW_PRESET_RENDER,  label = "Rendering Focus", action = cmd_action_preset_render})
-    cmd_register(r, Command{id = CMD_VIEW_PRESET_EDIT,    label = "Editing Focus",   action = cmd_action_preset_edit})
-    cmd_register(r, Command{id = CMD_VIEW_SAVE_PRESET,    label = "Save Layout As…", action = cmd_action_save_preset})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",         action = cmd_action_preset_default})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_RENDER,  label = "Rendering Focus", action = cmd_action_preset_render})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_EDIT,    label = "Editing Focus",   action = cmd_action_preset_edit})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_SAVE_PRESET,    label = "Save Layout As…", action = cmd_action_save_preset})
 
     // Edit
-    cmd_register(r, Command{id = CMD_UNDO,             label = "Undo",      shortcut = "Ctrl+Z", action = cmd_action_undo,       enabled_proc = cmd_enabled_undo})
-    cmd_register(r, Command{id = CMD_REDO,             label = "Redo",      shortcut = "Ctrl+Y", action = cmd_action_redo,       enabled_proc = cmd_enabled_redo})
-    cmd_register(r, Command{id = CMD_EDIT_COPY,        label = "Copy",      shortcut = "Ctrl+C", action = cmd_action_copy,       enabled_proc = cmd_enabled_copy})
-    cmd_register(r, Command{id = CMD_EDIT_PASTE,       label = "Paste",     shortcut = "Ctrl+V", action = cmd_action_paste,      enabled_proc = cmd_enabled_paste})
-    cmd_register(r, Command{id = CMD_EDIT_DUPLICATE,   label = "Duplicate", shortcut = "Ctrl+D", action = cmd_action_duplicate,  enabled_proc = cmd_enabled_duplicate})
+    cmd_register(cmd_reg, Command{id = CMD_UNDO,             label = "Undo",      shortcut = "Ctrl+Z", action = cmd_action_undo,       enabled_proc = cmd_enabled_undo})
+    cmd_register(cmd_reg, Command{id = CMD_REDO,             label = "Redo",      shortcut = "Ctrl+Y", action = cmd_action_redo,       enabled_proc = cmd_enabled_redo})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_COPY,        label = "Copy",      shortcut = "Ctrl+C", action = cmd_action_copy,       enabled_proc = cmd_enabled_copy})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_PASTE,       label = "Paste",     shortcut = "Ctrl+V", action = cmd_action_paste,      enabled_proc = cmd_enabled_paste})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_DUPLICATE,   label = "Duplicate", shortcut = "Ctrl+D", action = cmd_action_duplicate,  enabled_proc = cmd_enabled_duplicate})
 
     // Render
-    cmd_register(r, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})
-    cmd_register(r, Command{id = CMD_BENCHMARK_START, label = "Start Benchmark", action = cmd_action_benchmark_start, enabled_proc = cmd_enabled_benchmark_start})
-    cmd_register(r, Command{id = CMD_BENCHMARK_STOP,  label = "Stop Benchmark",  action = cmd_action_benchmark_stop,  enabled_proc = cmd_enabled_benchmark_stop})
+    cmd_register(cmd_reg, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})
+    cmd_register(cmd_reg, Command{id = CMD_BENCHMARK_START, label = "Start Benchmark", action = cmd_action_benchmark_start, enabled_proc = cmd_enabled_benchmark_start})
+    cmd_register(cmd_reg, Command{id = CMD_BENCHMARK_STOP,  label = "Stop Benchmark",  action = cmd_action_benchmark_stop,  enabled_proc = cmd_enabled_benchmark_stop})
 }
