@@ -1,10 +1,13 @@
 package editor
 
 import "core:fmt"
+import "core:os"
 import "core:strings"
+import "core:time"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import rt "RT_Weekend:raytrace"
+import "RT_Weekend:util"
 
 // ── File actions ────────────────────────────────────────────────────────────
 
@@ -131,6 +134,74 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 
 cmd_enabled_render_restart :: proc(app: ^App) -> bool {
     return app.finished
+}
+
+trace_output_path :: proc() -> string {
+    unix_us := i64(time.duration_microseconds(time.diff(time.Time{}, time.now())))
+    trace_file := fmt.tprintf("trace_%d.json", unix_us)
+    env_path, ok := os.lookup_env("TRACE_OUTPUT_FILE")
+    if !ok || len(env_path) == 0 {
+        return fmt.aprintf("%s", trace_file)
+    }
+    // TRACE_OUTPUT_FILE can be a full file path or a directory.
+    if strings.has_suffix(env_path, ".json") {
+        return env_path
+    }
+    sep := "/"
+    if strings.has_suffix(env_path, "/") || strings.has_suffix(env_path, "\\") {
+        sep = ""
+    }
+    out := strings.concatenate({env_path, sep, trace_file})
+    delete(env_path)
+    return out
+}
+
+cmd_action_benchmark_start :: proc(app: ^App) {
+    if util.trace_is_capturing() { return }
+    util.trace_set_metadata("platform", "odin")
+    util.trace_set_metadata("resolution", fmt.tprintf("%dx%d", app.r_camera.image_width, app.r_camera.image_height))
+    util.trace_set_metadata("samples_per_pixel", fmt.tprintf("%d", app.r_camera.samples_per_pixel))
+    path_mode := "cpu"
+    if app.prefer_gpu { path_mode = "gpu" }
+    util.trace_set_metadata("render_path", path_mode)
+    util.trace_start_capture()
+    if util.trace_is_capturing() {
+        app_push_log(app, strings.clone("Visual benchmark capture started"))
+    }
+}
+
+cmd_action_benchmark_stop :: proc(app: ^App) {
+    data, ok := util.trace_stop_capture()
+    if !ok || len(data) == 0 {
+        app_push_log(app, strings.clone("No active visual benchmark capture"))
+        return
+    }
+    defer delete(data)
+
+    path := trace_output_path()
+    defer delete(path)
+    f, open_err := os.open(path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
+    if open_err != os.ERROR_NONE {
+        app_push_log(app, fmt.aprintf("Trace write failed: %s", path))
+        return
+    }
+    defer os.close(f)
+    _, _ = os.write(f, data)
+    app_push_log(app, fmt.aprintf("Trace saved: %s", path))
+}
+
+cmd_enabled_benchmark_start :: proc(app: ^App) -> bool {
+    when util.TRACE_CAPTURE_ENABLED {
+        return !util.trace_is_capturing()
+    }
+    return false
+}
+
+cmd_enabled_benchmark_stop :: proc(app: ^App) -> bool {
+    when util.TRACE_CAPTURE_ENABLED {
+        return util.trace_is_capturing()
+    }
+    return false
 }
 
 // ── Undo / Redo ──────────────────────────────────────────────────────────────
@@ -292,4 +363,6 @@ register_all_commands :: proc(app: ^App) {
 
     // Render
     cmd_register(r, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})
+    cmd_register(r, Command{id = CMD_BENCHMARK_START, label = "Start Benchmark", action = cmd_action_benchmark_start, enabled_proc = cmd_enabled_benchmark_start})
+    cmd_register(r, Command{id = CMD_BENCHMARK_STOP,  label = "Stop Benchmark",  action = cmd_action_benchmark_stop,  enabled_proc = cmd_enabled_benchmark_stop})
 }

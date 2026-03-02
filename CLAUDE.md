@@ -10,7 +10,7 @@ This project is written in the [Odin programming language](https://odin-lang.org
 
 ```bash
 make debug    # Debug build → build/debug
-make release  # Release build → build/release (-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false)
+make release  # Release build → build/release (-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -define:TRACE_CAPTURE_ENABLED=false)
 ```
 
 **Manual build:**
@@ -20,7 +20,7 @@ make release  # Release build → build/release (-o:speed -no-bounds-check -defi
 odin build . -collection:RT_Weekend=. -debug -out:build/debug
 
 # Release (optimized, quiet stdout)
-odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -out:build/release
+odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -define:TRACE_CAPTURE_ENABLED=false -out:build/release
 ```
 
 **Run:**
@@ -39,6 +39,8 @@ odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILIN
 ```
 
 **VERBOSE_OUTPUT:** A compile-time flag (`#config`, default `true`) controls non-essential stdout: startup config, system info, per-thread stats, timing breakdown, and GPU success messages. Error and fallback messages (e.g. GPU init failed) are always printed. Release builds set `VERBOSE_OUTPUT=false`.
+
+**TRACE_CAPTURE_ENABLED:** When `true`, Chrome-trace visual benchmarking (Render → Start/Stop Visual Benchmark Capture) is available; when `false`, trace code is compiled out and the benchmark menu items are disabled. Release builds set `TRACE_CAPTURE_ENABLED=false` so capture and file I/O add no overhead.
 
 **Key flags:**
 - `-w` / `-h`: image width / height in pixels
@@ -155,3 +157,26 @@ Simple `Interval` struct used for ray `t`-range clamping and AABB overlap tests.
 - Worker threads receive their context via `thread.Thread.data` (a `rawptr` cast to `^ParallelRenderContext`).
 - The Raylib trace log callback uses `proc "c"` calling convention; `context = runtime.default_context()` is required at the top to use Odin allocators.
 - **Naming (scope prefixes):** Use idiomatic Odin type/function names. Variables/fields use short scope prefixes where useful: `e_` (editor), `r_` (render), `c_` (core). See each package's AGENTS.md for the convention.
+
+## Instrumentation (idiomatic Odin)
+
+Odin doesn’t use C/C++-style `#define` macros for RAII timers. In this repo we follow the idiomatic pattern:
+
+- **Compile-time flags** via `#config` (e.g. `PROFILING_ENABLED`, `TRACE_CAPTURE_ENABLED`).
+- **Scope object + `defer`** so end markers fire on scope exit.
+
+Profiling counters (for Stats panel / aggregate breakdown) are in `raytrace/profiling.odin`:
+
+```odin
+scope := PROFILE_SCOPE(&thread_breakdown.get_ray_time)
+defer PROFILE_SCOPE_END(scope)
+```
+
+Chrome/Perfetto timeline tracing is in `util/trace.odin`:
+
+```odin
+s := util.trace_scope_begin("Frame", "game")
+defer util.trace_scope_end(s)
+```
+
+If you need *zero* call-site overhead, wrap the whole scope in `when <FLAG> { ... }`.
