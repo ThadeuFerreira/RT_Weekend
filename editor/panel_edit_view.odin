@@ -56,7 +56,6 @@ EditViewState :: struct {
 	// Rotation camera parameters
 	camera_yaw:      f32,
 	camera_pitch:    f32,
-	camera_roll:     f32,
 	rotation_distance: f32,
 	rotation_target:   rl.Vector3,
 
@@ -121,7 +120,6 @@ EditViewState :: struct {
 init_edit_view :: proc(ev: ^EditViewState) {
 	ev.camera_yaw      = 0.5
 	ev.camera_pitch    = 0.3
-	ev.camera_roll     = 0.0
 	ev.rotation_distance = 15.0
 	ev.rotation_target   = rl.Vector3{0, 0, 0}
 	ev.selection_kind = .None
@@ -195,8 +193,9 @@ compute_vup_from_forward_and_roll :: proc(lookfrom, lookat: [3]f32, roll: f32) -
 	return rt.unit_vector(vup)
 }
 
-// get_rotation_camera_pose returns lookfrom, lookat, and vup for the current editor (rotation) camera (for path-tracer camera).
-get_rotation_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat, vup: [3]f32) {
+// get_rotation_camera_pose returns lookfrom and lookat for the current editor (rotation) camera.
+// Used by "From View"; vup is not returned so the handler can leave c_camera_params.vup unchanged and preserve roll.
+get_rotation_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
 	pitch := ev.camera_pitch
 	dist  := ev.rotation_distance
 	t     := ev.rotation_target
@@ -206,7 +205,6 @@ get_rotation_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat, vup: 
 		t.y + dist * math.sin(pitch),
 		t.z + dist * math.cos(pitch) * math.cos(ev.camera_yaw),
 	}
-	vup = [3]f32{0, 1, 0}
 	return
 }
 
@@ -320,6 +318,7 @@ cam_forward_angles :: proc(lookfrom, lookat: [3]f32) -> (yaw, pitch, dist: f32) 
 
 // roll_from_vup returns the roll angle (radians) that would produce the given vup from lookfrom/lookat.
 // vup = cos(roll)*up0 + sin(roll)*right => roll = atan2(dot(vup, right), dot(vup, up0)).
+// Uses the same degenerate (look straight up/down) fallback as compute_vup_from_forward_and_roll so round-trip roll→vup→roll is consistent at the poles.
 roll_from_vup :: proc(lookfrom, lookat, vup: [3]f32) -> f32 {
 	fwd := [3]f32{lookat[0]-lookfrom[0], lookat[1]-lookfrom[1], lookat[2]-lookfrom[2]}
 	len_sq := fwd[0]*fwd[0] + fwd[1]*fwd[1] + fwd[2]*fwd[2]
@@ -328,7 +327,11 @@ roll_from_vup :: proc(lookfrom, lookat, vup: [3]f32) -> f32 {
 	world_up := [3]f32{0, 1, 0}
 	right := rt.cross(fwd, world_up)
 	right_len_sq := right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
-	if right_len_sq < 1e-10 { return 0 }
+	if right_len_sq < 1e-10 {
+		right = rt.cross(fwd, [3]f32{1, 0, 0})
+		right_len_sq = right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
+		if right_len_sq < 1e-10 { return 0 }
+	}
 	right = rt.unit_vector(right)
 	up0 := rt.unit_vector(rt.cross(right, fwd))
 	return math.atan2(
@@ -865,9 +868,9 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 				new_dist := max(s_dist + delta * 0.05, f32(1.0))
 				app.c_camera_params.lookat = lookat_from_angles(
 					{sf.x, sf.y, sf.z}, s_yaw, s_pitch, new_dist)
-			case 6: // Roll — only update vup
+			case 6: // Roll — only update vup; no gimbal lock, so allow full ±π
 				new_roll := clamp(ev.cam_prop_drag_start_val + delta * 0.005,
-					f32(-math.PI * 0.45), f32(math.PI * 0.45))
+					f32(-math.PI), f32(math.PI))
 				app.c_camera_params.vup = compute_vup_from_forward_and_roll(
 					app.c_camera_params.lookfrom, app.c_camera_params.lookat, new_roll)
 			
@@ -969,11 +972,10 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, btn_fromview) {
-			// Sync editor rotation camera → render camera (lookfrom/lookat/vup)
-			lookfrom, lookat, vup := get_rotation_camera_pose(ev)
+			// Sync editor rotation camera → render camera (lookfrom/lookat only; preserve vup/roll)
+			lookfrom, lookat := get_rotation_camera_pose(ev)
 			app.c_camera_params.lookfrom = lookfrom
 			app.c_camera_params.lookat   = lookat
-			app.c_camera_params.vup      = vup
 			app.r_render_pending = true
 			if g_app != nil { g_app.input_consumed = true }
 			return
