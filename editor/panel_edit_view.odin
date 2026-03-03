@@ -36,7 +36,7 @@ calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool)
 }
 
 EDIT_TOOLBAR_H :: f32(32)
-EDIT_PROPS_H   :: f32(90)
+EDIT_PROPS_H   :: f32(120)
 
 // Selection kind: none, a sphere (index in objects), or the render camera (non-deletable).
 EditViewSelectionKind :: enum {
@@ -50,16 +50,17 @@ EditViewState :: struct {
 	viewport_tex: rl.RenderTexture2D,
 	tex_w, tex_h: i32,
 
-	// Raylib 3D camera (recomputed every frame from orbit params)
+	// Raylib 3D camera (recomputed every frame from rotation params)
 	cam3d: rl.Camera3D,
 
-	// Orbit camera parameters
-	orbit_yaw:      f32,
-	orbit_pitch:    f32,
-	orbit_distance: f32,
-	orbit_target:   rl.Vector3,
+	// Rotation camera parameters
+	camera_yaw:      f32,
+	camera_pitch:    f32,
+	camera_roll:     f32,
+	rotation_distance: f32,
+	rotation_target:   rl.Vector3,
 
-	// Right-drag orbit state
+	// Right-drag rotation state
 	rmb_held:     bool,
 	last_mouse:   rl.Vector2,
 	rmb_press_pos: rl.Vector2,
@@ -92,8 +93,8 @@ EditViewState :: struct {
 	nudge_active: bool,             // true while any nudge key is held
 	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
 
-	// Camera orbit property drag (properties strip when camera is selected)
-	// -1=none; 0=target_x, 1=target_y, 2=target_z, 3=yaw_deg, 4=pitch_deg, 5=dist
+	// Camera rotation property drag (properties strip when camera is selected)
+	// -1=none; 0,1,2=Pos X/Y/Z; 3,4,5=yaw°/pitch°/dist; 6=roll°
 	cam_prop_drag_idx:       int,
 	cam_prop_drag_start_x:   f32,
 	cam_prop_drag_start_val: f32,
@@ -118,10 +119,11 @@ EditViewState :: struct {
 }
 
 init_edit_view :: proc(ev: ^EditViewState) {
-	ev.orbit_yaw      = 0.5
-	ev.orbit_pitch    = 0.3
-	ev.orbit_distance = 15.0
-	ev.orbit_target   = rl.Vector3{0, 0, 0}
+	ev.camera_yaw      = 0.5
+	ev.camera_pitch    = 0.3
+	ev.camera_roll     = 0.0
+	ev.rotation_distance = 15.0
+	ev.rotation_target   = rl.Vector3{0, 0, 0}
 	ev.selection_kind = .None
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
@@ -140,27 +142,26 @@ init_edit_view :: proc(ev: ^EditViewState) {
 LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 	delete(initial)
 
-	update_orbit_camera(ev)
+	update_rotation_camera(ev)
 	ev.initialized = true
 }
 
-update_orbit_camera :: proc(ev: ^EditViewState) {
-	pitch := ev.orbit_pitch
+update_rotation_camera :: proc(ev: ^EditViewState) {
+	pitch := ev.camera_pitch
 	if pitch >  math.PI * 0.45 { pitch =  math.PI * 0.45 }
 	if pitch < -math.PI * 0.45 { pitch = -math.PI * 0.45 }
-	ev.orbit_pitch = pitch
+	ev.camera_pitch = pitch
 
-	dist := ev.orbit_distance
+	dist := ev.rotation_distance
 	if dist < 1.0 { dist = 1.0 }
-	ev.orbit_distance = dist
+	ev.rotation_distance = dist
 
-	t := ev.orbit_target
+	t := ev.rotation_target
 	pos := rl.Vector3{
-		t.x + dist * math.cos(pitch) * math.sin(ev.orbit_yaw),
+		t.x + dist * math.cos(pitch) * math.sin(ev.camera_yaw),
 		t.y + dist * math.sin(pitch),
-		t.z + dist * math.cos(pitch) * math.cos(ev.orbit_yaw),
+		t.z + dist * math.cos(pitch) * math.cos(ev.camera_yaw),
 	}
-
 	ev.cam3d = rl.Camera3D{
 		position   = pos,
 		target     = t,
@@ -170,17 +171,42 @@ update_orbit_camera :: proc(ev: ^EditViewState) {
 	}
 }
 
-// get_orbit_camera_pose returns lookfrom and lookat for the current orbit (for translating to path-tracer camera).
-get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
-	pitch := ev.orbit_pitch
-	dist  := ev.orbit_distance
-	t     := ev.orbit_target
+// compute_vup_from_forward_and_roll returns a normalized up vector from view direction and roll (radians).
+// forward = lookat - lookfrom; roll rotates the up vector around the view axis (0 = world up).
+compute_vup_from_forward_and_roll :: proc(lookfrom, lookat: [3]f32, roll: f32) -> (vup: [3]f32) {
+	fwd := [3]f32{lookat[0] - lookfrom[0], lookat[1] - lookfrom[1], lookat[2] - lookfrom[2]}
+	len_sq := fwd[0]*fwd[0] + fwd[1]*fwd[1] + fwd[2]*fwd[2]
+	if len_sq < 1e-10 { return {0, 1, 0} }
+	fwd = rt.unit_vector(fwd)
+	world_up := [3]f32{0, 1, 0}
+	right := rt.cross(fwd, world_up)
+	right_len_sq := right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
+	if right_len_sq < 1e-10 {
+		right = rt.cross(fwd, [3]f32{1, 0, 0})
+	}
+	right = rt.unit_vector(right)
+	up0 := rt.unit_vector(rt.cross(right, fwd))
+	// Roll: rotate up around forward; positive roll = tilt right
+	vup = {
+		math.cos(roll)*up0[0] + math.sin(roll)*right[0],
+		math.cos(roll)*up0[1] + math.sin(roll)*right[1],
+		math.cos(roll)*up0[2] + math.sin(roll)*right[2],
+	}
+	return rt.unit_vector(vup)
+}
+
+// get_rotation_camera_pose returns lookfrom, lookat, and vup for the current editor (rotation) camera (for path-tracer camera).
+get_rotation_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat, vup: [3]f32) {
+	pitch := ev.camera_pitch
+	dist  := ev.rotation_distance
+	t     := ev.rotation_target
 	lookat = {t.x, t.y, t.z}
 	lookfrom = {
-		t.x + dist * math.cos(pitch) * math.sin(ev.orbit_yaw),
+		t.x + dist * math.cos(pitch) * math.sin(ev.camera_yaw),
 		t.y + dist * math.sin(pitch),
-		t.z + dist * math.cos(pitch) * math.cos(ev.orbit_yaw),
+		t.z + dist * math.cos(pitch) * math.cos(ev.camera_yaw),
 	}
+	vup = [3]f32{0, 1, 0}
 	return
 }
 
@@ -292,8 +318,28 @@ cam_forward_angles :: proc(lookfrom, lookat: [3]f32) -> (yaw, pitch, dist: f32) 
 	return
 }
 
-// lookat_from_forward computes a lookat position from the camera position + forward angles.
-lookat_from_forward :: proc(lookfrom: [3]f32, yaw, pitch, dist: f32) -> [3]f32 {
+// roll_from_vup returns the roll angle (radians) that would produce the given vup from lookfrom/lookat.
+// vup = cos(roll)*up0 + sin(roll)*right => roll = atan2(dot(vup, right), dot(vup, up0)).
+roll_from_vup :: proc(lookfrom, lookat, vup: [3]f32) -> f32 {
+	fwd := [3]f32{lookat[0]-lookfrom[0], lookat[1]-lookfrom[1], lookat[2]-lookfrom[2]}
+	len_sq := fwd[0]*fwd[0] + fwd[1]*fwd[1] + fwd[2]*fwd[2]
+	if len_sq < 1e-10 { return 0 }
+	fwd = rt.unit_vector(fwd)
+	world_up := [3]f32{0, 1, 0}
+	right := rt.cross(fwd, world_up)
+	right_len_sq := right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
+	if right_len_sq < 1e-10 { return 0 }
+	right = rt.unit_vector(right)
+	up0 := rt.unit_vector(rt.cross(right, fwd))
+	return math.atan2(
+		right[0]*vup[0] + right[1]*vup[1] + right[2]*vup[2],
+		up0[0]*vup[0] + up0[1]*vup[1] + up0[2]*vup[2],
+	)
+}
+
+// lookat_from_angles computes only the lookat point from position and forward angles (yaw, pitch, dist).
+// Does not touch vup — use when changing yaw/pitch/distance so roll stays independent.
+lookat_from_angles :: proc(lookfrom: [3]f32, yaw, pitch, dist: f32) -> [3]f32 {
 	return [3]f32{
 		lookfrom[0] + dist * math.cos(pitch) * math.sin(yaw),
 		lookfrom[1] + dist * math.sin(pitch),
@@ -301,19 +347,28 @@ lookat_from_forward :: proc(lookfrom: [3]f32, yaw, pitch, dist: f32) -> [3]f32 {
 	}
 }
 
-// cam_orbit_prop_rects returns 6 drag-float rects for the camera properties strip.
-// [0,1,2] = target X/Y/Z on row 0; [3,4,5] = yaw°/pitch°/dist on row 1.
-cam_orbit_prop_rects :: proc(r: rl.Rectangle) -> [6]rl.Rectangle {
+// lookat_from_forward computes lookat and vup from camera position, forward angles, distance, and roll.
+// Use only when roll is being applied; for yaw/pitch/dist changes use lookat_from_angles and leave vup unchanged.
+lookat_from_forward :: proc(lookfrom: [3]f32, yaw, pitch, dist, roll: f32) -> (lookat, vup: [3]f32) {
+	lookat = lookat_from_angles(lookfrom, yaw, pitch, dist)
+	vup = compute_vup_from_forward_and_roll(lookfrom, lookat, roll)
+	return
+}
+
+// cam_rotation_prop_rects returns 7 drag-float rects for the camera properties strip.
+// [0,1,2] = Pos X/Y/Z, [3,4,5] = yaw°/pitch°/dist, [6] = roll° on row 2.
+cam_rotation_prop_rects :: proc(r: rl.Rectangle) -> [7]rl.Rectangle {
 	x0  := r.x + 8
 	y0  := r.y + 8
 	off := PROP_LW + PROP_GAP
-	return [6]rl.Rectangle{
+	return [7]rl.Rectangle{
 		{x0 + 0*PROP_COL + off, y0,      PROP_FW, PROP_FH},
 		{x0 + 1*PROP_COL + off, y0,      PROP_FW, PROP_FH},
 		{x0 + 2*PROP_COL + off, y0,      PROP_FW, PROP_FH},
 		{x0 + 0*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
 		{x0 + 1*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
 		{x0 + 2*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
+		{x0 + 0*PROP_COL + off, y0 + 60, PROP_FW, PROP_FH},
 	}
 }
 
@@ -366,12 +421,14 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 		RAD2DEG :: f32(180.0 / math.PI)
 		cp := &app.c_camera_params
 		yaw, pitch, dist := cam_forward_angles(cp.lookfrom, cp.lookat)
-		fields := cam_orbit_prop_rects(rect)
-		vals := [6]f32{
+		roll := roll_from_vup(cp.lookfrom, cp.lookat, cp.vup)
+		fields := cam_rotation_prop_rects(rect)
+		vals := [7]f32{
 			cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2],
 			yaw * RAD2DEG, pitch * RAD2DEG, dist,
+			roll * RAD2DEG,
 		}
-		labels := [6]cstring{"X", "Y", "Z", "Yaw", "Pit", "Dst"}
+		labels := [7]cstring{"X", "Y", "Z", "Yaw", "Pit", "Dst", "Roll"}
 
 		// Row 0 label "Pos"
 		draw_ui_text(app, "Pos", i32(rect.x) + 8, i32(rect.y) + 8 + 4, 11, CONTENT_TEXT_COLOR)
@@ -383,6 +440,9 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 		draw_drag_field(labels[3], vals[3], fields[3], ev.cam_prop_drag_idx == 3, mouse)
 		draw_drag_field(labels[4], vals[4], fields[4], ev.cam_prop_drag_idx == 4, mouse)
 		draw_drag_field(labels[5], vals[5], fields[5], ev.cam_prop_drag_idx == 5, mouse)
+
+		// Row 2 — roll
+		draw_drag_field(labels[6], vals[6], fields[6], ev.cam_prop_drag_idx == 6, mouse)
 
 		// Hint
 		draw_ui_text(app,
@@ -544,7 +604,7 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.DrawRectangleLinesEx(btn_focal, 1, ev.show_focal_indicator ? ACCENT_COLOR : BORDER_COLOR)
 	draw_ui_text(app, "Focal", i32(btn_focal.x) + 6, i32(btn_focal.y) + 4, 11, rl.RAYWHITE)
 
-	// "From View" — sync orbit (editor) camera → render camera
+	// "From View" — sync rotation (editor) camera → render camera
 	btn_fromview  := rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
 	fv_hover      := rl.CheckCollisionPointRec(mouse, btn_fromview)
 	rl.DrawRectangleRec(btn_fromview, fv_hover ? rl.Color{80, 110, 170, 255} : rl.Color{55, 75, 120, 255})
@@ -642,8 +702,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	ev      := &app.e_edit_view
 	content := rect
 
-	// Orbit camera is always updated at the end, even on early return.
-	defer update_orbit_camera(ev)
+	// Rotation camera is always updated at the end, even on early return.
+	defer update_rotation_camera(ev)
 
 	// Shared rects (mirror draw proc)
 	btn_add      := rl.Rectangle{content.x + 8,                    content.y + 5, 90, 22}
@@ -792,19 +852,25 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 				d := delta * 0.02
 				app.c_camera_params.lookfrom[2] = sf.z + d
 				app.c_camera_params.lookat[2]   = sa.z + d
-			case 3: // Yaw — rotate forward direction, camera center fixed
+			case 3: // Yaw — rotate forward only; vup unchanged (independent gimbal)
 				new_yaw := s_yaw + delta * 0.5 * DEG2RAD
-				app.c_camera_params.lookat = lookat_from_forward(
+				app.c_camera_params.lookat = lookat_from_angles(
 					{sf.x, sf.y, sf.z}, new_yaw, s_pitch, s_dist)
-			case 4: // Pitch
+			case 4: // Pitch — forward only; vup unchanged
 				new_pitch := clamp(s_pitch + delta * 0.3 * DEG2RAD,
 					f32(-math.PI * 0.45), f32(math.PI * 0.45))
-				app.c_camera_params.lookat = lookat_from_forward(
+				app.c_camera_params.lookat = lookat_from_angles(
 					{sf.x, sf.y, sf.z}, s_yaw, new_pitch, s_dist)
-			case 5: // Distance
+			case 5: // Distance — forward only; vup unchanged
 				new_dist := max(s_dist + delta * 0.05, f32(1.0))
-				app.c_camera_params.lookat = lookat_from_forward(
+				app.c_camera_params.lookat = lookat_from_angles(
 					{sf.x, sf.y, sf.z}, s_yaw, s_pitch, new_dist)
+			case 6: // Roll — only update vup
+				new_roll := clamp(ev.cam_prop_drag_start_val + delta * 0.005,
+					f32(-math.PI * 0.45), f32(math.PI * 0.45))
+				app.c_camera_params.vup = compute_vup_from_forward_and_roll(
+					app.c_camera_params.lookfrom, app.c_camera_params.lookat, new_roll)
+			
 			}
 		}
 		return
@@ -903,11 +969,11 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, btn_fromview) {
-			// Sync editor orbit camera → render camera (lookfrom/lookat)
-			lookfrom, lookat := get_orbit_camera_pose(ev)
+			// Sync editor rotation camera → render camera (lookfrom/lookat/vup)
+			lookfrom, lookat, vup := get_rotation_camera_pose(ev)
 			app.c_camera_params.lookfrom = lookfrom
 			app.c_camera_params.lookat   = lookat
-			app.c_camera_params.vup      = [3]f32{0, 1, 0}
+			app.c_camera_params.vup      = vup
 			app.r_render_pending = true
 			if g_app != nil { g_app.input_consumed = true }
 			return
@@ -952,14 +1018,14 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			return
 		}
 	}
-	// "From view" copies orbit into camera_params so Render uses current orbit view
+	// "From view" copies rotation camera into camera_params so Render uses current view
 	// Removed - now integrated into render button behavior
 
 	// ── Property drag-field: start drag on click (camera) ────────────────
 	if ev.selection_kind == .Camera && rl.CheckCollisionPointRec(mouse, props_rect) {
-		fields := cam_orbit_prop_rects(props_rect)
+		fields := cam_rotation_prop_rects(props_rect)
 		any_hovered := false
-		for i in 0..<6 {
+		for i in 0..<7 {
 			if rl.CheckCollisionPointRec(mouse, fields[i]) {
 				any_hovered = true
 				if lmb_pressed {
@@ -968,6 +1034,9 @@ OrderedRemove(ev.scene_mgr, del_idx)
 					ev.cam_prop_drag_start_x   = mouse.x
 					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
 					ev.cam_drag_start_lookat   = {cp.lookat[0],   cp.lookat[1],   cp.lookat[2]}
+					if i == 6 {
+						ev.cam_prop_drag_start_val = roll_from_vup(cp.lookfrom, cp.lookat, cp.vup)
+					}
 					rl.SetMouseCursor(.RESIZE_EW)
 					return
 				}
@@ -1003,10 +1072,10 @@ OrderedRemove(ev.scene_mgr, del_idx)
 		rl.SetMouseCursor(.DEFAULT)
 	}
 
-	// ── Viewport: orbit, zoom, select, drag-start ───────────────────────
+	// ── Viewport: rotation, zoom, select, drag-start ─────────────────────
 	mouse_in_vp := rl.CheckCollisionPointRec(mouse, vp_rect)
 
-	// Right-mouse orbit + context menu disambiguation
+	// Right-mouse rotation + context menu disambiguation
 	RMB_DRAG_THRESHOLD :: f32(5.0)
 	rmb_pressed := rl.IsMouseButtonPressed(.RIGHT)
 	rmb_down    := rl.IsMouseButtonDown(.RIGHT)
@@ -1027,8 +1096,8 @@ OrderedRemove(ev.scene_mgr, del_idx)
 		}
 		if ev.rmb_held {
 			orb_delta      := rl.Vector2{mouse.x - ev.last_mouse.x, mouse.y - ev.last_mouse.y}
-			ev.orbit_yaw   += orb_delta.x * 0.005
-			ev.orbit_pitch += -orb_delta.y * 0.005
+			ev.camera_yaw   += orb_delta.x * 0.005
+			ev.camera_pitch += -orb_delta.y * 0.005
 		}
 		ev.last_mouse = mouse
 	}
@@ -1052,7 +1121,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 
 	// Scroll zoom
 	if mouse_in_vp {
-		ev.orbit_distance -= rl.GetMouseWheelMove() * 0.8
+		ev.rotation_distance -= rl.GetMouseWheelMove() * 0.8
 	}
 
 	// Left-click: select and begin drag (camera rotation ring / body / sphere)
