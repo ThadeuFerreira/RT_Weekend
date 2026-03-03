@@ -46,3 +46,53 @@ Use idiomatic Odin names for editor types/functions. Use scoped variable/field p
 ## Dependency rule
 
 **editor** imports **core**, **util**, **raytrace**, **persistence**. Layout/types for persistence (e.g. `EditorLayout`, `PanelState`) are defined in **persistence**; editor uses them and calls `persistence.load_config` / `save_config` for I/O.
+
+---
+
+## Orbit camera and Yaw / Pitch / Roll
+
+The Edit View has two camera concepts:
+
+1. **Orbit camera** — The 3D viewport camera. It **orbits** a target point using spherical coordinates: **yaw**, **pitch**, **orbit_distance**, **orbit_target**. The view direction is computed from these; the viewport always uses world up `(0, 1, 0)` (no roll). Updated by `update_orbit_camera(ev)`; pose for syncing to the renderer by `get_orbit_camera_pose(ev)` (returns only lookfrom/lookat; vup is left unchanged to preserve roll).
+
+2. **Render camera** — The path-tracer camera (`app.c_camera_params`: lookfrom, lookat, **vup**, vfov, …). **Roll** is stored only here, as **vup** (up vector). Yaw/pitch/distance are implicit in lookfrom/lookat. The property strip (when the camera is selected) edits this camera; roll is edited via the Roll field and is independent of yaw/pitch (each gimbal is independent).
+
+**Yaw** — Horizontal angle (radians) around world Y; 0 = -Z, increasing toward +X.  
+**Pitch** — Vertical angle (radians); clamped to ±π×0.45 to avoid gimbal lock at straight up/down.  
+**Roll** — Tilt of the camera around the view axis (radians); only affects the render camera’s **vup**. Allowed in full range ±π (no gimbal lock).  
+**Orbit** — Editor camera: **orbit_target** (point in world) and **orbit_distance** (distance from target). Camera position = target + spherical offset from yaw/pitch/distance.
+
+**From View** copies the orbit camera’s lookfrom/lookat into `c_camera_params` and does **not** overwrite vup, so the current roll is preserved.
+
+---
+
+## Edit View data structures
+
+**EditViewSelectionKind** — What is selected in the viewport:
+
+- `None` — Nothing selected.
+- `Sphere` — A scene sphere; `selected_idx` is the index into the scene objects.
+- `Camera` — The render camera (gizmo); not deletable.
+
+**EditViewState** — State for the Edit View panel (lives in `app.e_edit_view`):
+
+| Field | Purpose |
+|-------|--------|
+| `viewport_tex`, `tex_w`, `tex_h` | Off-screen 3D viewport texture and size. |
+| `cam3d` | Raylib 3D camera; recomputed each frame from orbit params (no roll). |
+| `camera_yaw`, `camera_pitch` | Orbit angles (radians). |
+| `orbit_distance`, `orbit_target` | Distance from and world position of orbit target. |
+| `rmb_held`, `last_mouse`, `rmb_press_pos`, `rmb_drag_dist` | Right-drag orbit and disambiguation for context menu. |
+| `ctx_menu_open`, `ctx_menu_pos`, `ctx_menu_hit_idx` | Context menu state. |
+| `scene_mgr`, `export_scratch` | Scene manager and scratch buffer for export. |
+| `selection_kind`, `selected_idx` | Current selection (see EditViewSelectionKind). |
+| `prop_drag_idx`, `prop_drag_start_x`, `prop_drag_start_val` | Sphere property strip drag (cx, cy, cz, radius). |
+| `drag_obj_active`, `drag_plane_y`, `drag_offset_xz`, `drag_before` | Viewport drag to move selected sphere. |
+| `nudge_active`, `nudge_before` | Keyboard nudge state. |
+| `cam_prop_drag_idx`, `cam_prop_drag_start_x`, `cam_prop_drag_start_val` | Camera property strip drag (Pos X/Y/Z, Yaw, Pitch, Dst, Roll). |
+| `cam_drag_active`, `cam_drag_plane_y`, `cam_drag_start_hit_xz`, `cam_drag_start_lookfrom`, `cam_drag_start_lookat` | Camera body drag in viewport. |
+| `cam_rot_drag_axis`, `cam_rot_drag_start_x`, `cam_rot_drag_start_y` | Camera rotation ring drag (world-axis rings). |
+| `show_frustum_gizmo`, `show_focal_indicator` | Toolbar toggles for gizmos. |
+| `initialized` | One-time init done. |
+
+Key procedures: `init_edit_view`, `update_orbit_camera`, `get_orbit_camera_pose`, `draw_viewport_3d`, `draw_edit_properties`, `update_edit_view_content`. Camera basis/roll helpers: `_compute_camera_basis`, `compute_vup_from_forward_and_roll`, `roll_from_vup`, `lookat_from_angles`, `lookat_from_forward`, `cam_forward_angles`, `cam_orbit_prop_rects`.

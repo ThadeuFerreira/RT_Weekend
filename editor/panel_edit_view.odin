@@ -50,16 +50,16 @@ EditViewState :: struct {
 	viewport_tex: rl.RenderTexture2D,
 	tex_w, tex_h: i32,
 
-	// Raylib 3D camera (recomputed every frame from rotation params)
+	// Raylib 3D camera (recomputed every frame from orbit params)
 	cam3d: rl.Camera3D,
 
-	// Rotation camera parameters
+	// Orbit camera parameters (spherical coords around target)
 	camera_yaw:      f32,
 	camera_pitch:    f32,
-	rotation_distance: f32,
-	rotation_target:   rl.Vector3,
+	orbit_distance:  f32,
+	orbit_target:    rl.Vector3,
 
-	// Right-drag rotation state
+	// Right-drag orbit state
 	rmb_held:     bool,
 	last_mouse:   rl.Vector2,
 	rmb_press_pos: rl.Vector2,
@@ -92,7 +92,7 @@ EditViewState :: struct {
 	nudge_active: bool,             // true while any nudge key is held
 	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
 
-	// Camera rotation property drag (properties strip when camera is selected)
+	// Camera orbit property drag (properties strip when camera is selected)
 	// -1=none; 0,1,2=Pos X/Y/Z; 3,4,5=yaw°/pitch°/dist; 6=roll°
 	cam_prop_drag_idx:       int,
 	cam_prop_drag_start_x:   f32,
@@ -120,8 +120,8 @@ EditViewState :: struct {
 init_edit_view :: proc(ev: ^EditViewState) {
 	ev.camera_yaw      = 0.5
 	ev.camera_pitch    = 0.3
-	ev.rotation_distance = 15.0
-	ev.rotation_target   = rl.Vector3{0, 0, 0}
+	ev.orbit_distance = 15.0
+	ev.orbit_target   = rl.Vector3{0, 0, 0}
 	ev.selection_kind = .None
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
@@ -140,21 +140,21 @@ init_edit_view :: proc(ev: ^EditViewState) {
 LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 	delete(initial)
 
-	update_rotation_camera(ev)
+	update_orbit_camera(ev)
 	ev.initialized = true
 }
 
-update_rotation_camera :: proc(ev: ^EditViewState) {
+update_orbit_camera :: proc(ev: ^EditViewState) {
 	pitch := ev.camera_pitch
 	if pitch >  math.PI * 0.45 { pitch =  math.PI * 0.45 }
 	if pitch < -math.PI * 0.45 { pitch = -math.PI * 0.45 }
 	ev.camera_pitch = pitch
 
-	dist := ev.rotation_distance
+	dist := ev.orbit_distance
 	if dist < 1.0 { dist = 1.0 }
-	ev.rotation_distance = dist
+	ev.orbit_distance = dist
 
-	t := ev.rotation_target
+	t := ev.orbit_target
 	pos := rl.Vector3{
 		t.x + dist * math.cos(pitch) * math.sin(ev.camera_yaw),
 		t.y + dist * math.sin(pitch),
@@ -169,22 +169,31 @@ update_rotation_camera :: proc(ev: ^EditViewState) {
 	}
 }
 
-// compute_vup_from_forward_and_roll returns a normalized up vector from view direction and roll (radians).
-// forward = lookat - lookfrom; roll rotates the up vector around the view axis (0 = world up).
-compute_vup_from_forward_and_roll :: proc(lookfrom, lookat: [3]f32, roll: f32) -> (vup: [3]f32) {
+// _compute_camera_basis builds the orthonormal right/up0 basis from view direction (singularity handling in one place).
+// ok = false if lookfrom/lookat are degenerate (e.g. coincident or looking straight up/down with fallback also degenerate).
+_compute_camera_basis :: proc(lookfrom, lookat: [3]f32) -> (right, up0: [3]f32, ok: bool) {
 	fwd := [3]f32{lookat[0] - lookfrom[0], lookat[1] - lookfrom[1], lookat[2] - lookfrom[2]}
 	len_sq := fwd[0]*fwd[0] + fwd[1]*fwd[1] + fwd[2]*fwd[2]
-	if len_sq < 1e-10 { return {0, 1, 0} }
+	if len_sq < 1e-10 { return {}, {}, false }
 	fwd = rt.unit_vector(fwd)
 	world_up := [3]f32{0, 1, 0}
-	right := rt.cross(fwd, world_up)
+	right = rt.cross(fwd, world_up)
 	right_len_sq := right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
 	if right_len_sq < 1e-10 {
 		right = rt.cross(fwd, [3]f32{1, 0, 0})
+		right_len_sq = right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
+		if right_len_sq < 1e-10 { return {}, {}, false }
 	}
 	right = rt.unit_vector(right)
-	up0 := rt.unit_vector(rt.cross(right, fwd))
-	// Roll: rotate up around forward; positive roll = tilt right
+	up0 = rt.unit_vector(rt.cross(right, fwd))
+	return right, up0, true
+}
+
+// compute_vup_from_forward_and_roll returns a normalized up vector from view direction and roll (radians).
+// forward = lookat - lookfrom; roll rotates the up vector around the view axis (0 = world up).
+compute_vup_from_forward_and_roll :: proc(lookfrom, lookat: [3]f32, roll: f32) -> (vup: [3]f32) {
+	right, up0, ok := _compute_camera_basis(lookfrom, lookat)
+	if !ok { return {0, 1, 0} }
 	vup = {
 		math.cos(roll)*up0[0] + math.sin(roll)*right[0],
 		math.cos(roll)*up0[1] + math.sin(roll)*right[1],
@@ -193,12 +202,12 @@ compute_vup_from_forward_and_roll :: proc(lookfrom, lookat: [3]f32, roll: f32) -
 	return rt.unit_vector(vup)
 }
 
-// get_rotation_camera_pose returns lookfrom and lookat for the current editor (rotation) camera.
+// get_orbit_camera_pose returns lookfrom and lookat for the current editor orbit camera.
 // Used by "From View"; vup is not returned so the handler can leave c_camera_params.vup unchanged and preserve roll.
-get_rotation_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
+get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
 	pitch := ev.camera_pitch
-	dist  := ev.rotation_distance
-	t     := ev.rotation_target
+	dist  := ev.orbit_distance
+	t     := ev.orbit_target
 	lookat = {t.x, t.y, t.z}
 	lookfrom = {
 		t.x + dist * math.cos(pitch) * math.sin(ev.camera_yaw),
@@ -318,22 +327,9 @@ cam_forward_angles :: proc(lookfrom, lookat: [3]f32) -> (yaw, pitch, dist: f32) 
 
 // roll_from_vup returns the roll angle (radians) that would produce the given vup from lookfrom/lookat.
 // vup = cos(roll)*up0 + sin(roll)*right => roll = atan2(dot(vup, right), dot(vup, up0)).
-// Uses the same degenerate (look straight up/down) fallback as compute_vup_from_forward_and_roll so round-trip roll→vup→roll is consistent at the poles.
 roll_from_vup :: proc(lookfrom, lookat, vup: [3]f32) -> f32 {
-	fwd := [3]f32{lookat[0]-lookfrom[0], lookat[1]-lookfrom[1], lookat[2]-lookfrom[2]}
-	len_sq := fwd[0]*fwd[0] + fwd[1]*fwd[1] + fwd[2]*fwd[2]
-	if len_sq < 1e-10 { return 0 }
-	fwd = rt.unit_vector(fwd)
-	world_up := [3]f32{0, 1, 0}
-	right := rt.cross(fwd, world_up)
-	right_len_sq := right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
-	if right_len_sq < 1e-10 {
-		right = rt.cross(fwd, [3]f32{1, 0, 0})
-		right_len_sq = right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
-		if right_len_sq < 1e-10 { return 0 }
-	}
-	right = rt.unit_vector(right)
-	up0 := rt.unit_vector(rt.cross(right, fwd))
+	right, up0, ok := _compute_camera_basis(lookfrom, lookat)
+	if !ok { return 0 }
 	return math.atan2(
 		right[0]*vup[0] + right[1]*vup[1] + right[2]*vup[2],
 		up0[0]*vup[0] + up0[1]*vup[1] + up0[2]*vup[2],
@@ -358,9 +354,9 @@ lookat_from_forward :: proc(lookfrom: [3]f32, yaw, pitch, dist, roll: f32) -> (l
 	return
 }
 
-// cam_rotation_prop_rects returns 7 drag-float rects for the camera properties strip.
+// cam_orbit_prop_rects returns 7 drag-float rects for the camera properties strip.
 // [0,1,2] = Pos X/Y/Z, [3,4,5] = yaw°/pitch°/dist, [6] = roll° on row 2.
-cam_rotation_prop_rects :: proc(r: rl.Rectangle) -> [7]rl.Rectangle {
+cam_orbit_prop_rects :: proc(r: rl.Rectangle) -> [7]rl.Rectangle {
 	x0  := r.x + 8
 	y0  := r.y + 8
 	off := PROP_LW + PROP_GAP
@@ -425,7 +421,7 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 		cp := &app.c_camera_params
 		yaw, pitch, dist := cam_forward_angles(cp.lookfrom, cp.lookat)
 		roll := roll_from_vup(cp.lookfrom, cp.lookat, cp.vup)
-		fields := cam_rotation_prop_rects(rect)
+		fields := cam_orbit_prop_rects(rect)
 		vals := [7]f32{
 			cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2],
 			yaw * RAD2DEG, pitch * RAD2DEG, dist,
@@ -607,7 +603,7 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.DrawRectangleLinesEx(btn_focal, 1, ev.show_focal_indicator ? ACCENT_COLOR : BORDER_COLOR)
 	draw_ui_text(app, "Focal", i32(btn_focal.x) + 6, i32(btn_focal.y) + 4, 11, rl.RAYWHITE)
 
-	// "From View" — sync rotation (editor) camera → render camera
+	// "From View" — sync orbit (editor) camera → render camera
 	btn_fromview  := rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
 	fv_hover      := rl.CheckCollisionPointRec(mouse, btn_fromview)
 	rl.DrawRectangleRec(btn_fromview, fv_hover ? rl.Color{80, 110, 170, 255} : rl.Color{55, 75, 120, 255})
@@ -705,8 +701,8 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	ev      := &app.e_edit_view
 	content := rect
 
-	// Rotation camera is always updated at the end, even on early return.
-	defer update_rotation_camera(ev)
+	// Orbit camera is always updated at the end, even on early return.
+	defer update_orbit_camera(ev)
 
 	// Shared rects (mirror draw proc)
 	btn_add      := rl.Rectangle{content.x + 8,                    content.y + 5, 90, 22}
@@ -873,7 +869,6 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 					f32(-math.PI), f32(math.PI))
 				app.c_camera_params.vup = compute_vup_from_forward_and_roll(
 					app.c_camera_params.lookfrom, app.c_camera_params.lookat, new_roll)
-			
 			}
 		}
 		return
@@ -972,8 +967,8 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, btn_fromview) {
-			// Sync editor rotation camera → render camera (lookfrom/lookat only; preserve vup/roll)
-			lookfrom, lookat := get_rotation_camera_pose(ev)
+			// Sync editor orbit camera → render camera (lookfrom/lookat only; preserve vup/roll)
+			lookfrom, lookat := get_orbit_camera_pose(ev)
 			app.c_camera_params.lookfrom = lookfrom
 			app.c_camera_params.lookat   = lookat
 			app.r_render_pending = true
@@ -1020,12 +1015,12 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			return
 		}
 	}
-	// "From view" copies rotation camera into camera_params so Render uses current view
+	// "From view" copies orbit camera into camera_params so Render uses current view
 	// Removed - now integrated into render button behavior
 
 	// ── Property drag-field: start drag on click (camera) ────────────────
 	if ev.selection_kind == .Camera && rl.CheckCollisionPointRec(mouse, props_rect) {
-		fields := cam_rotation_prop_rects(props_rect)
+		fields := cam_orbit_prop_rects(props_rect)
 		any_hovered := false
 		for i in 0..<7 {
 			if rl.CheckCollisionPointRec(mouse, fields[i]) {
@@ -1074,10 +1069,10 @@ OrderedRemove(ev.scene_mgr, del_idx)
 		rl.SetMouseCursor(.DEFAULT)
 	}
 
-	// ── Viewport: rotation, zoom, select, drag-start ─────────────────────
+	// ── Viewport: orbit, zoom, select, drag-start ────────────────────────
 	mouse_in_vp := rl.CheckCollisionPointRec(mouse, vp_rect)
 
-	// Right-mouse rotation + context menu disambiguation
+	// Right-mouse orbit + context menu disambiguation
 	RMB_DRAG_THRESHOLD :: f32(5.0)
 	rmb_pressed := rl.IsMouseButtonPressed(.RIGHT)
 	rmb_down    := rl.IsMouseButtonDown(.RIGHT)
@@ -1123,7 +1118,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 
 	// Scroll zoom
 	if mouse_in_vp {
-		ev.rotation_distance -= rl.GetMouseWheelMove() * 0.8
+		ev.orbit_distance -= rl.GetMouseWheelMove() * 0.8
 	}
 
 	// Left-click: select and begin drag (camera rotation ring / body / sphere)

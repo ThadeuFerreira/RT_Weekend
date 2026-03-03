@@ -89,7 +89,7 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 │   ├── app.odin            App struct, FloatingPanel, run_app event loop
 │   ├── ui.odin             Shared draw primitives, panel chrome, colors
 │   ├── stats_panel.odin    Tile/sample progress, elapsed time
-│   ├── edit_view_panel.odin 3D rotation viewport, toolbar, drag-float properties
+│   ├── edit_view_panel.odin 3D orbit viewport, toolbar, drag-float properties
 │   └── …                   Other panels (log, camera, object props, preview port)
 ├── scene/                  Shared scene types (SceneSphere, CameraParams, MaterialKind)
 └── assets/

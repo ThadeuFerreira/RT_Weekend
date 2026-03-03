@@ -85,7 +85,7 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_camera_panel_drag_field(app, "", c_params.focus_dist, fields[8], e_cam.drag_idx == 8, mouse)
 	draw_camera_panel_drag_field(app, "D", f32(c_params.max_depth), fields[9], e_cam.drag_idx == 9, mouse)
 
-	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use rotation camera.", i32(x0), i32(y0 + 6*row + 4), 10, rl.Color{120, 130, 148, 180})
+	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 6*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
