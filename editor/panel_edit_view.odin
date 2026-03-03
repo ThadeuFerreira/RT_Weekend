@@ -92,6 +92,24 @@ EditViewState :: struct {
 	nudge_active: bool,             // true while any nudge key is held
 	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
 
+	// Camera orbit property drag (properties strip when camera is selected)
+	// -1=none; 0=target_x, 1=target_y, 2=target_z, 3=yaw_deg, 4=pitch_deg, 5=dist
+	cam_prop_drag_idx:       int,
+	cam_prop_drag_start_x:   f32,
+	cam_prop_drag_start_val: f32,
+
+	// Camera body drag in viewport (translates render camera in XZ plane)
+	cam_drag_active:       bool,
+	cam_drag_plane_y:      f32,
+	cam_drag_start_hit_xz: [2]f32,   // world XZ under cursor at drag start
+	cam_drag_start_lookfrom: rl.Vector3, // render cam lookfrom captured at drag start
+	cam_drag_start_lookat:   rl.Vector3, // render cam lookat  captured at drag start
+
+	// Camera rotation ring drag: 1=yaw ring, 0=pitch ring, -1=none
+	cam_rot_drag_axis:    int,
+	cam_rot_drag_start_x: f32,
+	cam_rot_drag_start_y: f32,
+
 	// Camera gizmo toggles (Edit View toolbar)
 	show_frustum_gizmo:  bool,
 	show_focal_indicator: bool,
@@ -107,6 +125,8 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.selection_kind = .None
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
+	ev.cam_prop_drag_idx = -1
+	ev.cam_rot_drag_axis = -1
 	ev.show_frustum_gizmo  = true
 	ev.show_focal_indicator = true
 
@@ -212,6 +232,10 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 	vup     := rl.Vector3{cp.vup[0], cp.vup[1], cp.vup[2]}
 	draw_camera_gizmo(cam_pos, cam_at, vup, ev.selection_kind == .Camera)
 
+	if ev.selection_kind == .Camera {
+		draw_camera_rotation_rings(cam_pos, ev.cam_rot_drag_axis)
+	}
+
 	aspect := (app.r_aspect_ratio == 0 ? (4.0 / 3.0) : (16.0 / 9.0))
 	if ev.show_frustum_gizmo {
 		ul, ur, lr, ll := get_camera_viewport_corners(cp, f32(aspect))
@@ -256,6 +280,42 @@ PROP_FW  :: f32(60)
 PROP_FH  :: f32(20)
 PROP_SP  :: f32(10)
 PROP_COL :: PROP_LW + PROP_GAP + PROP_FW + PROP_SP // 88 px per column
+
+// cam_forward_angles returns yaw, pitch, dist of the camera's forward direction
+// (lookat - lookfrom). Rotation is always relative to the camera's own center.
+cam_forward_angles :: proc(lookfrom, lookat: [3]f32) -> (yaw, pitch, dist: f32) {
+	d := [3]f32{lookat[0]-lookfrom[0], lookat[1]-lookfrom[1], lookat[2]-lookfrom[2]}
+	dist = math.sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2])
+	if dist < 0.001 { dist = 0.001 }
+	pitch = math.asin(clamp(d[1]/dist, f32(-1), f32(1)))
+	yaw   = math.atan2(d[0], d[2])
+	return
+}
+
+// lookat_from_forward computes a lookat position from the camera position + forward angles.
+lookat_from_forward :: proc(lookfrom: [3]f32, yaw, pitch, dist: f32) -> [3]f32 {
+	return [3]f32{
+		lookfrom[0] + dist * math.cos(pitch) * math.sin(yaw),
+		lookfrom[1] + dist * math.sin(pitch),
+		lookfrom[2] + dist * math.cos(pitch) * math.cos(yaw),
+	}
+}
+
+// cam_orbit_prop_rects returns 6 drag-float rects for the camera properties strip.
+// [0,1,2] = target X/Y/Z on row 0; [3,4,5] = yaw°/pitch°/dist on row 1.
+cam_orbit_prop_rects :: proc(r: rl.Rectangle) -> [6]rl.Rectangle {
+	x0  := r.x + 8
+	y0  := r.y + 8
+	off := PROP_LW + PROP_GAP
+	return [6]rl.Rectangle{
+		{x0 + 0*PROP_COL + off, y0,      PROP_FW, PROP_FH},
+		{x0 + 1*PROP_COL + off, y0,      PROP_FW, PROP_FH},
+		{x0 + 2*PROP_COL + off, y0,      PROP_FW, PROP_FH},
+		{x0 + 0*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
+		{x0 + 1*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
+		{x0 + 2*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
+	}
+}
 
 // prop_field_rects returns the four drag-float value boxes in screen space.
 // [0]=cx  [1]=cy  [2]=cz  [3]=radius. Rows: 0-2 on row0, 3 on row1.
@@ -303,10 +363,33 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 	}
 
 	if ev.selection_kind == .Camera {
-		draw_ui_text(app, "Camera selected (non-deletable)",
-			i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Edit position, target, and options in the Object Properties panel.",
-			i32(rect.x) + 8, i32(rect.y) + 30, 11, rl.Color{140, 150, 165, 200})
+		RAD2DEG :: f32(180.0 / math.PI)
+		cp := &app.c_camera_params
+		yaw, pitch, dist := cam_forward_angles(cp.lookfrom, cp.lookat)
+		fields := cam_orbit_prop_rects(rect)
+		vals := [6]f32{
+			cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2],
+			yaw * RAD2DEG, pitch * RAD2DEG, dist,
+		}
+		labels := [6]cstring{"X", "Y", "Z", "Yaw", "Pit", "Dst"}
+
+		// Row 0 label "Pos"
+		draw_ui_text(app, "Pos", i32(rect.x) + 8, i32(rect.y) + 8 + 4, 11, CONTENT_TEXT_COLOR)
+		draw_drag_field(labels[0], vals[0], fields[0], ev.cam_prop_drag_idx == 0, mouse)
+		draw_drag_field(labels[1], vals[1], fields[1], ev.cam_prop_drag_idx == 1, mouse)
+		draw_drag_field(labels[2], vals[2], fields[2], ev.cam_prop_drag_idx == 2, mouse)
+
+		// Row 1 — yaw / pitch / distance
+		draw_drag_field(labels[3], vals[3], fields[3], ev.cam_prop_drag_idx == 3, mouse)
+		draw_drag_field(labels[4], vals[4], fields[4], ev.cam_prop_drag_idx == 4, mouse)
+		draw_drag_field(labels[5], vals[5], fields[5], ev.cam_prop_drag_idx == 5, mouse)
+
+		// Hint
+		draw_ui_text(app,
+			"Drag field \u2022 Drag gizmo to move \u2022 Drag ring to rotate",
+			i32(rect.x) + 8, i32(rect.y) + i32(EDIT_PROPS_H) - 18, 11,
+			rl.Color{120, 130, 148, 180},
+		)
 		return
 	}
 
@@ -461,6 +544,12 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.DrawRectangleLinesEx(btn_focal, 1, ev.show_focal_indicator ? ACCENT_COLOR : BORDER_COLOR)
 	draw_ui_text(app, "Focal", i32(btn_focal.x) + 6, i32(btn_focal.y) + 4, 11, rl.RAYWHITE)
 
+	// "From View" — sync orbit (editor) camera → render camera
+	btn_fromview  := rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
+	fv_hover      := rl.CheckCollisionPointRec(mouse, btn_fromview)
+	rl.DrawRectangleRec(btn_fromview, fv_hover ? rl.Color{80, 110, 170, 255} : rl.Color{55, 75, 120, 255})
+	draw_ui_text(app, "From View", i32(btn_fromview.x) + 6, i32(btn_fromview.y) + 4, 12, rl.RAYWHITE)
+
 	btn_render   := rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
 	render_busy  := !app.finished
 	render_ready := app.finished && app.r_render_pending
@@ -507,6 +596,46 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 	}
 }
 
+// pick_rotation_ring returns which of the 3 world-axis rings is closest to the mouse,
+// or -1 if none is within the pixel threshold.
+//   0 = X ring (red,   YZ plane)
+//   1 = Y ring (green, XZ plane)
+//   2 = Z ring (blue,  XY plane)
+// Uses sampled world points projected to screen space so the hit zone scales with zoom
+// and handles all viewing angles (rings that are edge-on become narrow, as expected).
+pick_rotation_ring :: proc(mouse, vp_offset: rl.Vector2, cam_pos: rl.Vector3, cam3d: rl.Camera3D) -> int {
+	SAMPLE_N   :: 32
+	HIT_THRESH :: f32(10) // pixels
+
+	best_axis := -1
+	best_dist := HIT_THRESH
+
+	for axis in 0..<3 {
+		for i in 0..<SAMPLE_N {
+			t  := f32(i) * (2.0 * math.PI / SAMPLE_N)
+			ct := math.cos(t) * CAM_RING_R
+			st := math.sin(t) * CAM_RING_R
+			p: rl.Vector3
+			switch axis {
+			case 0: p = cam_pos + {0, ct, st}  // YZ plane — X axis ring
+			case 1: p = cam_pos + {ct, 0, st}  // XZ plane — Y axis ring
+			case 2: p = cam_pos + {ct, st, 0}  // XY plane — Z axis ring
+			}
+			proj := rl.GetWorldToScreen(p, cam3d)
+			proj.x += vp_offset.x
+			proj.y += vp_offset.y
+			dmx := mouse.x - proj.x
+			dmy := mouse.y - proj.y
+			d := math.sqrt(dmx*dmx + dmy*dmy)
+			if d < best_dist {
+				best_dist = d
+				best_axis = axis
+			}
+		}
+	}
+	return best_axis
+}
+
 // ── Panel update ───────────────────────────────────────────────────────────
 
 update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
@@ -517,11 +646,12 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	defer update_orbit_camera(ev)
 
 	// Shared rects (mirror draw proc)
-	btn_add     := rl.Rectangle{content.x + 8,                    content.y + 5, 90, 22}
-	btn_del     := rl.Rectangle{content.x + 106,                  content.y + 5, 60, 22}
-	btn_frustum := rl.Rectangle{content.x + 174,                  content.y + 5, 56, 22}
-	btn_focal   := rl.Rectangle{content.x + 234,                  content.y + 5, 40, 22}
-	btn_render  := rl.Rectangle{content.x + content.width - 90,   content.y + 5, 82, 22}
+	btn_add      := rl.Rectangle{content.x + 8,                    content.y + 5, 90, 22}
+	btn_del      := rl.Rectangle{content.x + 106,                  content.y + 5, 60, 22}
+	btn_frustum  := rl.Rectangle{content.x + 174,                  content.y + 5, 56, 22}
+	btn_focal    := rl.Rectangle{content.x + 234,                  content.y + 5, 40, 22}
+	btn_fromview := rl.Rectangle{content.x + content.width - 178,  content.y + 5, 82, 22}
+	btn_render   := rl.Rectangle{content.x + content.width - 90,   content.y + 5, 82, 22}
 	vp_rect    := rl.Rectangle{
 		content.x,
 		content.y + EDIT_TOOLBAR_H,
@@ -578,6 +708,104 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			ev.ctx_menu_open = false
 		} else if rl.IsKeyPressed(.ESCAPE) {
 			ev.ctx_menu_open = false
+		}
+		return
+	}
+
+	// ── Priority A: camera rotation ring drag ────────────────────────────
+	// Free-flow: rotation is centered on the camera's own position (lookfrom).
+	// The forward vector (lookat - lookfrom) is rotated; lookfrom stays fixed.
+	//   axis 0 = X ring → rotate around {1,0,0}
+	//   axis 1 = Y ring → rotate around {0,1,0}
+	//   axis 2 = Z ring → rotate around {0,0,1}
+	if ev.cam_rot_drag_axis >= 0 {
+		if !lmb {
+			ev.cam_rot_drag_axis = -1
+			rl.SetMouseCursor(.DEFAULT)
+			app.r_render_pending = true
+		} else {
+			dx := mouse.x - ev.cam_rot_drag_start_x
+			sf := ev.cam_drag_start_lookfrom
+			sa := ev.cam_drag_start_lookat
+			// forward = lookat - lookfrom (camera center stays, forward direction rotates)
+			forward := rl.Vector3{sa.x - sf.x, sa.y - sf.y, sa.z - sf.z}
+			axis_vec: rl.Vector3
+			switch ev.cam_rot_drag_axis {
+			case 0: axis_vec = {1, 0, 0}
+			case 1: axis_vec = {0, 1, 0}
+			case 2: axis_vec = {0, 0, 1}
+			}
+			new_forward := rl.Vector3RotateByAxisAngle(forward, axis_vec, dx * 0.005)
+			app.c_camera_params.lookat = {
+				sf.x + new_forward.x,
+				sf.y + new_forward.y,
+				sf.z + new_forward.z,
+			}
+			// lookfrom is unchanged — camera rotates around its own center
+		}
+		return
+	}
+
+	// ── Priority B: camera body drag in viewport (XZ plane) ──────────────
+	if ev.cam_drag_active {
+		if !lmb {
+			ev.cam_drag_active = false
+			app.r_render_pending = true
+		} else {
+			if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
+				if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
+					dx := xz.x - ev.cam_drag_start_hit_xz[0]
+					dz := xz.y - ev.cam_drag_start_hit_xz[1]
+					app.c_camera_params.lookfrom[0] = ev.cam_drag_start_lookfrom.x + dx
+					app.c_camera_params.lookfrom[2] = ev.cam_drag_start_lookfrom.z + dz
+					app.c_camera_params.lookat[0]   = ev.cam_drag_start_lookat.x + dx
+					app.c_camera_params.lookat[2]   = ev.cam_drag_start_lookat.z + dz
+				}
+			}
+		}
+		return
+	}
+
+	// ── Priority C: camera property-field drag ────────────────────────────
+	if ev.cam_prop_drag_idx >= 0 {
+		if !lmb {
+			ev.cam_prop_drag_idx = -1
+			rl.SetMouseCursor(.DEFAULT)
+			app.r_render_pending = true
+		} else {
+			DEG2RAD :: f32(math.PI / 180.0)
+			delta := mouse.x - ev.cam_prop_drag_start_x
+			sf := ev.cam_drag_start_lookfrom
+			sa := ev.cam_drag_start_lookat
+			s_yaw, s_pitch, s_dist := cam_forward_angles(
+				{sf.x, sf.y, sf.z}, {sa.x, sa.y, sa.z})
+			switch ev.cam_prop_drag_idx {
+			case 0: // Pos X — translate whole camera (maintain look direction)
+				d := delta * 0.02
+				app.c_camera_params.lookfrom[0] = sf.x + d
+				app.c_camera_params.lookat[0]   = sa.x + d
+			case 1: // Pos Y
+				d := delta * 0.02
+				app.c_camera_params.lookfrom[1] = sf.y + d
+				app.c_camera_params.lookat[1]   = sa.y + d
+			case 2: // Pos Z
+				d := delta * 0.02
+				app.c_camera_params.lookfrom[2] = sf.z + d
+				app.c_camera_params.lookat[2]   = sa.z + d
+			case 3: // Yaw — rotate forward direction, camera center fixed
+				new_yaw := s_yaw + delta * 0.5 * DEG2RAD
+				app.c_camera_params.lookat = lookat_from_forward(
+					{sf.x, sf.y, sf.z}, new_yaw, s_pitch, s_dist)
+			case 4: // Pitch
+				new_pitch := clamp(s_pitch + delta * 0.3 * DEG2RAD,
+					f32(-math.PI * 0.45), f32(math.PI * 0.45))
+				app.c_camera_params.lookat = lookat_from_forward(
+					{sf.x, sf.y, sf.z}, s_yaw, new_pitch, s_dist)
+			case 5: // Distance
+				new_dist := max(s_dist + delta * 0.05, f32(1.0))
+				app.c_camera_params.lookat = lookat_from_forward(
+					{sf.x, sf.y, sf.z}, s_yaw, s_pitch, new_dist)
+			}
 		}
 		return
 	}
@@ -674,12 +902,18 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			app.r_render_pending = true
 			return
 		}
-		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
-			// Copy orbit view to camera params
+		if rl.CheckCollisionPointRec(mouse, btn_fromview) {
+			// Sync editor orbit camera → render camera (lookfrom/lookat)
 			lookfrom, lookat := get_orbit_camera_pose(ev)
 			app.c_camera_params.lookfrom = lookfrom
 			app.c_camera_params.lookat   = lookat
 			app.c_camera_params.vup      = [3]f32{0, 1, 0}
+			app.r_render_pending = true
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		if app.finished && rl.CheckCollisionPointRec(mouse, btn_render) {
+			// Use render camera params as-is (modified via gizmo or From View)
 
 			// Export scene
 			ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
@@ -720,6 +954,27 @@ OrderedRemove(ev.scene_mgr, del_idx)
 	}
 	// "From view" copies orbit into camera_params so Render uses current orbit view
 	// Removed - now integrated into render button behavior
+
+	// ── Property drag-field: start drag on click (camera) ────────────────
+	if ev.selection_kind == .Camera && rl.CheckCollisionPointRec(mouse, props_rect) {
+		fields := cam_orbit_prop_rects(props_rect)
+		any_hovered := false
+		for i in 0..<6 {
+			if rl.CheckCollisionPointRec(mouse, fields[i]) {
+				any_hovered = true
+				if lmb_pressed {
+					cp := &app.c_camera_params
+					ev.cam_prop_drag_idx       = i
+					ev.cam_prop_drag_start_x   = mouse.x
+					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
+					ev.cam_drag_start_lookat   = {cp.lookat[0],   cp.lookat[1],   cp.lookat[2]}
+					rl.SetMouseCursor(.RESIZE_EW)
+					return
+				}
+			}
+		}
+		if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else { rl.SetMouseCursor(.DEFAULT) }
+	}
 
 	// ── Property drag-field: start drag on click (sphere only) ───────────
 	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, props_rect) {
@@ -800,32 +1055,83 @@ OrderedRemove(ev.scene_mgr, del_idx)
 		ev.orbit_distance -= rl.GetMouseWheelMove() * 0.8
 	}
 
-	// Left-click: select sphere or camera (sphere first, then camera)
+	// Left-click: select and begin drag (camera rotation ring / body / sphere)
 	if lmb_pressed && mouse_in_vp {
 		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect); ok {
-			picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
-			if picked_sphere >= 0 {
-				ev.selection_kind  = .Sphere
-				ev.selected_idx    = picked_sphere
-				ev.drag_obj_active = true
-				if sphere, ok := GetSceneSphere(ev.scene_mgr, picked_sphere); ok {
-					ev.drag_before     = sphere  // capture before state for history
-					ev.drag_plane_y    = sphere.center[1]
-					if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
-						ev.drag_offset_xz = {
-							xz.x - sphere.center[0],
-							xz.y - sphere.center[2],
+			cam_lookfrom := app.c_camera_params.lookfrom
+			cam_pos_v3   := rl.Vector3{cam_lookfrom[0], cam_lookfrom[1], cam_lookfrom[2]}
+			vp_offset    := rl.Vector2{vp_rect.x, vp_rect.y}
+
+			if ev.selection_kind == .Camera {
+				// Camera already selected: check rings first, then body, then sphere, then deselect
+				ring := pick_rotation_ring(mouse, vp_offset, cam_pos_v3, ev.cam3d)
+				if ring >= 0 {
+					// Start ring drag — record render cam start pose
+					ev.cam_rot_drag_axis      = ring
+					ev.cam_rot_drag_start_x   = mouse.x
+					ev.cam_rot_drag_start_y   = mouse.y
+					cp := &app.c_camera_params
+					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
+					ev.cam_drag_start_lookat   = {cp.lookat[0],   cp.lookat[1],   cp.lookat[2]}
+					rl.SetMouseCursor(.RESIZE_ALL)
+				} else if pick_camera(ray, cam_lookfrom) {
+					// Start camera body drag — translate render camera in XZ
+					cp := &app.c_camera_params
+					ev.cam_drag_active         = true
+					ev.cam_drag_plane_y        = cam_pos_v3.y
+					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
+					ev.cam_drag_start_lookat   = {cp.lookat[0],   cp.lookat[1],   cp.lookat[2]}
+					if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
+						ev.cam_drag_start_hit_xz = {xz.x, xz.y}
+					}
+				} else {
+					// Try sphere
+					picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
+					if picked_sphere >= 0 {
+						ev.selection_kind  = .Sphere
+						ev.selected_idx    = picked_sphere
+						ev.drag_obj_active = true
+						if sphere, ok3 := GetSceneSphere(ev.scene_mgr, picked_sphere); ok3 {
+							ev.drag_before  = sphere
+							ev.drag_plane_y = sphere.center[1]
+							if xz, ok4 := ray_hit_plane_y(ray, ev.drag_plane_y); ok4 {
+								ev.drag_offset_xz = {xz.x - sphere.center[0], xz.y - sphere.center[2]}
+							}
 						}
+					} else {
+						ev.selection_kind = .None
+						ev.selected_idx   = -1
 					}
 				}
-			} else if pick_camera(ray, app.c_camera_params.lookfrom) {
-				ev.selection_kind  = .Camera
-				ev.selected_idx    = -1
-				ev.drag_obj_active = false
 			} else {
-				ev.selection_kind  = .None
-				ev.selected_idx    = -1
-				ev.drag_obj_active = false
+				// Camera not selected: sphere first, then camera body
+				picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
+				if picked_sphere >= 0 {
+					ev.selection_kind  = .Sphere
+					ev.selected_idx    = picked_sphere
+					ev.drag_obj_active = true
+					if sphere, ok3 := GetSceneSphere(ev.scene_mgr, picked_sphere); ok3 {
+						ev.drag_before  = sphere
+						ev.drag_plane_y = sphere.center[1]
+						if xz, ok4 := ray_hit_plane_y(ray, ev.drag_plane_y); ok4 {
+							ev.drag_offset_xz = {xz.x - sphere.center[0], xz.y - sphere.center[2]}
+						}
+					}
+				} else if pick_camera(ray, cam_lookfrom) {
+					cp := &app.c_camera_params
+					ev.selection_kind          = .Camera
+					ev.selected_idx            = -1
+					ev.cam_drag_active         = true
+					ev.cam_drag_plane_y        = cam_pos_v3.y
+					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
+					ev.cam_drag_start_lookat   = {cp.lookat[0],   cp.lookat[1],   cp.lookat[2]}
+					if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
+						ev.cam_drag_start_hit_xz = {xz.x, xz.y}
+					}
+				} else {
+					ev.selection_kind = .None
+					ev.selected_idx   = -1
+				}
 			}
 		}
 	}

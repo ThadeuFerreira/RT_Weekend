@@ -22,7 +22,7 @@ CAMERA_PROP_FH  :: f32(18)
 camera_panel_field_rects :: proc(r: rl.Rectangle) -> [10]rl.Rectangle {
 	x0 := r.x + 8
 	y0 := r.y + 8
-	off := CAMERA_PROP_LW + CAMERA_PROP_GAP
+	off := CAMERA_PROP_LW + CAMERA_PROP_GAP + 25
 	row := CAMERA_PANEL_LINE_H
 	return [10]rl.Rectangle{
 		{x0 + off, y0 + 0*row,      CAMERA_PROP_FW, CAMERA_PROP_FH}, // from x
@@ -32,9 +32,9 @@ camera_panel_field_rects :: proc(r: rl.Rectangle) -> [10]rl.Rectangle {
 		{x0 + off + 70, y0 + 1*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // at y
 		{x0 + off + 140, y0 + 1*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // at z
 		{x0 + off, y0 + 2*row,      CAMERA_PROP_FW, CAMERA_PROP_FH}, // vfov
-		{x0 + off + 70, y0 + 2*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // defocus
-		{x0 + off + 140, y0 + 2*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // focus_dist
-		{x0 + off, y0 + 3*row,      CAMERA_PROP_FW, CAMERA_PROP_FH}, // max_depth
+		{x0 + off, y0 + 3*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // defocus
+		{x0 + off, y0 + 4*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // focus_dist
+		{x0 + off, y0 + 5*row,      CAMERA_PROP_FW, CAMERA_PROP_FH}, // max_depth
 	}
 }
 
@@ -68,8 +68,10 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 
 	draw_ui_text(app, "From", i32(x0), i32(y0 + 0*row), fs, CONTENT_TEXT_COLOR)
 	draw_ui_text(app, "At",   i32(x0), i32(y0 + 1*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "FOV / Defocus / Focus", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Max depth", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "FOV", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "Defocus", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "Focus dist", i32(x0), i32(y0 + 4*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "Max depth", i32(x0), i32(y0 + 5*row), fs, CONTENT_TEXT_COLOR)
 
 	fields := camera_panel_field_rects(content)
 	draw_camera_panel_drag_field(app, "X", c_params.lookfrom[0], fields[0], e_cam.drag_idx == 0, mouse)
@@ -83,7 +85,7 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_camera_panel_drag_field(app, "", c_params.focus_dist, fields[8], e_cam.drag_idx == 8, mouse)
 	draw_camera_panel_drag_field(app, "D", f32(c_params.max_depth), fields[9], e_cam.drag_idx == 9, mouse)
 
-	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 4*row + 4), 10, rl.Color{120, 130, 148, 180})
+	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 6*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {

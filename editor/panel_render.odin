@@ -131,26 +131,11 @@ restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     delete(app.pixel_staging)
     app.pixel_staging = make([]rl.Color, width * height)
 
-    // Create new camera with new settings
+    // Create new camera with new settings and apply current camera params (Edit View / Camera panel state).
     old_cam := app.r_camera
     app.r_camera = rt.make_camera(width, height, samples)
-
-    // Copy over camera position/orientation params from old camera
-    app.r_camera.lookfrom = old_cam.lookfrom
-    app.r_camera.lookat = old_cam.lookat
-    app.r_camera.vup = old_cam.vup
-    app.r_camera.vfov = old_cam.vfov
-    app.r_camera.defocus_angle = old_cam.defocus_angle
-    app.r_camera.focus_dist = old_cam.focus_dist
-    app.r_camera.max_depth = old_cam.max_depth
-
-    // Initialize camera with new dimensions
+    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
-
-    // Update scene params to match
-    rt.copy_camera_to_scene_params(&app.c_camera_params, app.r_camera)
-
-    // Free old camera
     free(old_cam)
 
     // Reset render state

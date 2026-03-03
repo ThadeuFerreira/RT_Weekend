@@ -405,7 +405,8 @@ run_app :: proc(
     // Build the startup world from the edit view (always).
     ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
     app.r_world = rt.build_world_from_scene(app.e_edit_view.export_scratch[:])
-    app.e_object_props = ObjectPropsPanelState{prop_drag_idx = -1}
+    app.e_object_props  = ObjectPropsPanelState{prop_drag_idx = -1}
+    app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer delete(app.e_edit_view.export_scratch)
