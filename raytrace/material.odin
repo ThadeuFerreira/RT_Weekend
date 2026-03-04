@@ -23,8 +23,6 @@ dielectric :: struct{
 }
 
 scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3]f32, scattered : ^ray, rng: ^util.ThreadRNG) -> bool {
-    scattered := scattered
-    attenuation := attenuation
     switch m in mat {
     case lambertian:
         scatter_dir := rec.normal + vector_random_unit(rng)

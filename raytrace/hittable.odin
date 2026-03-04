@@ -25,7 +25,7 @@ create_moving_sphere :: proc(center1: [3]f32, center2: [3]f32, radius: f32, mate
 }
 
 Cube :: struct {
-    center : [3]f32,
+    center : ray,
     radius : f32,
     material : material,
 }
