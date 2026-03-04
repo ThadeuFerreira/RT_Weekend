@@ -168,6 +168,7 @@ vec2 rand_in_unit_disk(inout uint seed) {
 struct Ray {
     vec3 origin;
     vec3 dir;
+    float ray_time;
 };
 
 vec3 ray_at(Ray r, float t) {
@@ -182,6 +183,7 @@ struct HitRecord {
     int   mat_type;
     vec3  albedo;
     float fuzz_or_ior;
+    float ray_time;
 };
 
 // set_face_normal ensures the stored normal always points against the ray.
@@ -325,7 +327,7 @@ bool scatter_lambertian(vec3 albedo, HitRecord rec, inout uint seed,
     vec3 scatter_dir = rec.normal + rand_unit_vec3(seed);
     // Degenerate case: direction nearly zero — use normal instead.
     if (dot(scatter_dir, scatter_dir) < 1e-12) scatter_dir = rec.normal;
-    scattered   = Ray(rec.p, scatter_dir);
+    scattered   = Ray(rec.p, scatter_dir, rec.ray_time);
     attenuation = albedo;
     return true;
 }
@@ -336,7 +338,7 @@ bool scatter_metallic(vec3 albedo, float fuzz, Ray r_in, HitRecord rec,
                       inout uint seed, out vec3 attenuation, out Ray scattered) {
     vec3 reflected = reflect(normalize(r_in.dir), rec.normal);
     reflected = normalize(reflected) + fuzz * rand_unit_vec3(seed);
-    scattered   = Ray(rec.p, reflected);
+    scattered   = Ray(rec.p, reflected, rec.ray_time);
     attenuation = albedo;
     // Ray scattered below the surface means no contribution.
     return dot(scattered.dir, rec.normal) > 0.0;
@@ -370,7 +372,7 @@ bool scatter_dielectric(float ior, Ray r_in, HitRecord rec,
         direction = refract(unit_dir, rec.normal, ri);
     }
 
-    scattered = Ray(rec.p, direction);
+    scattered = Ray(rec.p, direction, rec.ray_time);
     return true;
 }
 
@@ -486,7 +488,7 @@ void main() {
                    + disk.y * defocus_disk_v.xyz;
     }
 
-    Ray primary = Ray(ray_origin, pixel_sample - ray_origin);
+    Ray primary = Ray(ray_origin, pixel_sample - ray_origin, rand(seed));
 
     // ── Trace the path ──────────────────────────────────────
     vec3 colour = path_trace(primary, seed);
