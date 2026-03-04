@@ -206,6 +206,12 @@ App :: struct {
     // Current scene file path (empty until a file has been imported or saved-as)
     current_scene_path: string,
 
+    // Tracks whether the scene has unsaved changes
+    e_scene_dirty: bool,
+
+    // Confirm-load modal for example scene loading
+    e_confirm_load: ConfirmLoadModalState,
+
     // Named layout presets (built-ins + user-saved)
     layout_presets: [dynamic]persistence.LayoutPreset,
 }
@@ -559,6 +565,9 @@ run_app :: proc(
         // Priority 2: file modal (blocks all other input when active)
         file_modal_update(&app)
 
+        // Priority 2b: confirm-load modal
+        confirm_load_modal_update(&app)
+
         // Priority 3: keyboard shortcuts (only when not consumed by menu/modal)
         if !app.input_consumed {
             ctrl_held  := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
@@ -642,6 +651,7 @@ run_app :: proc(
         layout_update_and_draw(&app, &app.dock_layout, mouse, lmb, effective_lmb_pressed)
         menu_bar_draw(&app, &app.e_menu_bar)
         file_modal_draw(&app)
+        confirm_load_modal_draw(&app)
 
         rl.EndDrawing()
 
