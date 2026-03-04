@@ -289,7 +289,7 @@ screen_to_render_ray :: proc(app: ^App, pos: rl.Vector2) -> (r: rl.Ray, ok: bool
 
     dir := rt.unit_vector(internal_ray.dir)
     return rl.Ray{
-        position  = rl.Vector3{internal_ray.orig[0], internal_ray.orig[1], internal_ray.orig[2]},
+        position  = rl.Vector3{internal_ray.origin[0], internal_ray.origin[1], internal_ray.origin[2]},
         direction = rl.Vector3{dir[0], dir[1], dir[2]},
     }, true
 }

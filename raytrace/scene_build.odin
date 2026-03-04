@@ -58,7 +58,7 @@ build_world_from_scene :: proc(scene_objects: []core.SceneSphere) -> [dynamic]Ob
 			mat = material(lambertian{albedo = s.albedo})
 		}
 		append(&world, Object(Sphere{
-			center   = s.center,
+			center   = ray{origin = s.center.origin, dir = s.center.dir, time = s.ray_time},
 			radius   = s.radius,
 			material = mat,
 		}))

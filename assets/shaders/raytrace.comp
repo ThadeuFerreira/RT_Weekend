@@ -59,8 +59,18 @@ const int MAT_LAMBERTIAN = 0;
 const int MAT_METALLIC   = 1;
 const int MAT_DIELECTRIC = 2;
 
+// =============================================================
+// Ray / intersection helpers
+// =============================================================
+
+struct Ray {
+    vec3 origin;
+    vec3 dir;
+    float time;
+};
+
 struct Sphere {
-    vec3  center;
+    Ray  center;
     float radius;
     vec3  albedo;
     int   mat_type;
@@ -161,16 +171,6 @@ vec2 rand_in_unit_disk(inout uint seed) {
     return vec2(0); // fallback
 }
 
-// =============================================================
-// Ray / intersection helpers
-// =============================================================
-
-struct Ray {
-    vec3 origin;
-    vec3 dir;
-    float ray_time;
-};
-
 vec3 ray_at(Ray r, float t) {
     return r.origin + t * r.dir;
 }
@@ -195,7 +195,7 @@ void set_face_normal(inout HitRecord rec, Ray r, vec3 outward_normal) {
 // hit_sphere tests a ray against a sphere using the quadratic formula.
 // Returns true and fills rec if the ray hits in [t_min, t_max].
 bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
-    vec3  oc = s.center - r.origin;
+    vec3  oc = s.center.origin - r.origin;
     float a  = dot(r.dir, r.dir);
     float h  = dot(r.dir, oc);
     float c  = dot(oc, oc) - s.radius * s.radius;
@@ -232,17 +232,17 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
 bool aabb_hit(vec3 aabb_min, vec3 aabb_max, Ray r, float t_min, float t_max) {
     for (int axis = 0; axis < 3; axis++) {
         float dir  = r.dir[axis];
-        float orig = r.origin[axis];
+        float origin = r.origin[axis];
         float lo   = aabb_min[axis];
         float hi   = aabb_max[axis];
 
         if (abs(dir) < 1e-8) {
             // Ray is nearly parallel to this slab.
-            if (orig < lo || orig > hi) return false;
+            if (origin < lo || origin > hi) return false;
         } else {
             float invD = 1.0 / dir;
-            float t0 = (lo - orig) * invD;
-            float t1 = (hi - orig) * invD;
+            float t0 = (lo - origin) * invD;
+            float t1 = (hi - origin) * invD;
             if (t0 > t1) { float tmp = t0; t0 = t1; t1 = tmp; }
             t_min = max(t_min, t0);
             t_max = min(t_max, t1);

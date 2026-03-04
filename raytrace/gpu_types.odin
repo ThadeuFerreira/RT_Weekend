@@ -75,6 +75,13 @@ MAT_METALLIC   :: i32(1)   // Specular: reflect + fuzz perturbation
 MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
 // Future: MAT_EMISSIVE :: i32(3), MAT_PBR_GLOSSY :: i32(4), …
 
+
+GPURay :: struct #packed {
+    origin: [3]f32,
+    dir: [3]f32,
+    time: f32,
+}
+
 // GPUSphere packs a sphere and its material into 48 bytes.
 //
 // albedo stores reflectance for Lambertian and Metallic.
@@ -87,7 +94,7 @@ MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
 //     _pad[1] = emission_strength for emissive materials
 //   No GLSL changes required when adding fields within the existing 48 bytes.
 GPUSphere :: struct #packed {
-    center:      [3]f32,
+    center:      GPURay,
     radius:      f32,
     albedo:      [3]f32,
     mat_type:    i32,
