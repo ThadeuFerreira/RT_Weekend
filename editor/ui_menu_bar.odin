@@ -17,13 +17,15 @@ MenuBarState :: struct {
 
 // MenuEntryDyn is a single item in a dynamic dropdown.
 MenuEntryDyn :: struct {
-    label:            string,
-    cmd_id:           string, // CommandID constant; used to look up enabled/checked
-    user_preset_name: string, // non-empty = call layout_apply_named_preset with this name
-    disabled:         bool,
-    checked:          bool,
-    shortcut:         string, // display only
-    separator:        bool,   // when true, draw a horizontal rule (label/cmd_id ignored)
+    label:             string,
+    cmd_id:            string, // CommandID constant; used to look up enabled/checked
+    user_preset_name:  string, // non-empty = call layout_apply_named_preset with this name
+    is_example:        bool,   // true = example scene entry
+    example_scene_idx: int,    // index into EXAMPLE_SCENES when is_example is true
+    disabled:          bool,
+    checked:           bool,
+    shortcut:          string, // display only
+    separator:         bool,   // when true, draw a horizontal rule (label/cmd_id ignored)
 }
 
 // MenuDyn is a top-level menu entry with its dynamic dropdown entries.
@@ -91,18 +93,33 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
         {label = "Stop Benchmark",  cmd_id = CMD_BENCHMARK_STOP,  disabled = !cmd_is_enabled(app, CMD_BENCHMARK_STOP)},
     }
 
-    menus := make([]MenuDyn, 4, context.temp_allocator)
-    menus[0] = MenuDyn{title = "File",   entries = file_entries}
-    menus[1] = MenuDyn{title = "Edit",   entries = edit_entries}
-    menus[2] = MenuDyn{title = "View",   entries = view_entries[:]}
-    menus[3] = MenuDyn{title = "Render", entries = render_entries}
+    examples_entries := make([dynamic]MenuEntryDyn, context.temp_allocator)
+    for scene, i in EXAMPLE_SCENES {
+        append(&examples_entries, MenuEntryDyn{
+            label             = scene.label,
+            is_example        = true,
+            example_scene_idx = i,
+        })
+    }
+
+    menus := make([]MenuDyn, 5, context.temp_allocator)
+    menus[0] = MenuDyn{title = "File",     entries = file_entries}
+    menus[1] = MenuDyn{title = "Edit",     entries = edit_entries}
+    menus[2] = MenuDyn{title = "View",     entries = view_entries[:]}
+    menus[3] = MenuDyn{title = "Examples", entries = examples_entries[:]}
+    menus[4] = MenuDyn{title = "Render",   entries = render_entries}
     return menus
 }
 
-// menu_entry_execute runs the action for an entry (cmd_id or user_preset_name).
+// menu_entry_execute runs the action for an entry (cmd_id, user_preset_name, or example scene).
 @(private="file")
 menu_entry_execute :: proc(app: ^App, entry: ^MenuEntryDyn) {
     if entry.separator || entry.disabled { return }
+    if entry.is_example {
+        app.e_confirm_load.scene_idx = entry.example_scene_idx
+        cmd_execute(app, CMD_SCENE_LOAD_EXAMPLE)
+        return
+    }
     if len(entry.user_preset_name) > 0 {
         layout_apply_named_preset(app, entry.user_preset_name)
         return

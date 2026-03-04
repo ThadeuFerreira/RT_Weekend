@@ -31,6 +31,8 @@ CMD_RENDER_RESTART   :: "render.restart"
 CMD_BENCHMARK_START  :: "render.benchmark.start"
 CMD_BENCHMARK_STOP   :: "render.benchmark.stop"
 
+CMD_SCENE_LOAD_EXAMPLE :: "scene.example.load"
+
 MAX_COMMANDS :: 64
 
 // Command holds a single registered action with optional enable/check predicates.

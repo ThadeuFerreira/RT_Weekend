@@ -325,6 +325,12 @@ cmd_enabled_duplicate :: proc(app: ^App) -> bool {
     return app.e_edit_view.selection_kind == .Sphere
 }
 
+// ── Example scene actions ────────────────────────────────────────────────────
+
+cmd_action_scene_load_example :: proc(app: ^App) {
+    confirm_load_modal_open(&app.e_confirm_load, app.e_confirm_load.scene_idx)
+}
+
 // ── register_all_commands ────────────────────────────────────────────────────
 
 // register_all_commands populates app.commands. Call once during app init.
@@ -365,4 +371,7 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_RENDER_RESTART, label = "Restart", shortcut = "F5", action = cmd_action_render_restart, enabled_proc = cmd_enabled_render_restart})
     cmd_register(cmd_reg, Command{id = CMD_BENCHMARK_START, label = "Start Benchmark", action = cmd_action_benchmark_start, enabled_proc = cmd_enabled_benchmark_start})
     cmd_register(cmd_reg, Command{id = CMD_BENCHMARK_STOP,  label = "Stop Benchmark",  action = cmd_action_benchmark_stop,  enabled_proc = cmd_enabled_benchmark_stop})
+
+    // Examples
+    cmd_register(cmd_reg, Command{id = CMD_SCENE_LOAD_EXAMPLE, label = "Load Example Scene", action = cmd_action_scene_load_example})
 }
