@@ -45,6 +45,7 @@ OpLayout :: struct {
 	swatch:        rl.Rectangle,
 }
 
+// Sphere drag index assignments (prop_drag_idx): 0–3 = TRANSFORM (xyz, radius), 8–10 = MOTION (dX dY dZ), 4–6 = COLOR (rgb), 7 = MATERIAL param (fuzz/ior). Layout order in UI is TRANSFORM → MOTION → MATERIAL → COLOR.
 op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) -> OpLayout {
 	lo: OpLayout
 	lo.lx = content.x + 8
@@ -409,6 +410,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				}
 			case 8:
 				sphere.center1[0] = sphere.center[0] + (st.prop_drag_start_val + delta * 0.01)
+				// Direct f32 comparison is safe here (same stored values, no extra math). Dragging offset to zero correctly clears is_moving.
 				sphere.is_moving = (sphere.center1[0] != sphere.center[0] || sphere.center1[1] != sphere.center[1] || sphere.center1[2] != sphere.center[2])
 			case 9:
 				sphere.center1[1] = sphere.center[1] + (st.prop_drag_start_val + delta * 0.01)
@@ -463,20 +465,20 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	}
 
 	// ── Drag-field hover / start-drag
-	motion_off: [3]f32 = {0, 0, 0}
+	motion_offset: [3]f32 = {0, 0, 0}
 	if sphere.is_moving {
-		motion_off[0] = sphere.center1[0] - sphere.center[0]
-		motion_off[1] = sphere.center1[1] - sphere.center[1]
-		motion_off[2] = sphere.center1[2] - sphere.center[2]
+		motion_offset[0] = sphere.center1[0] - sphere.center[0]
+		motion_offset[1] = sphere.center1[1] - sphere.center[1]
+		motion_offset[2] = sphere.center1[2] - sphere.center[2]
 	}
 	any_hovered := false
 	if op_try_start_drag(lo.boxes_xyz[0], 0, sphere.center[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_xyz[1], 1, sphere.center[1], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_xyz[2], 2, sphere.center[2], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.box_radius,   3, sphere.radius,    st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_motion[0], 8, motion_off[0], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_motion[1], 9, motion_off[1], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_motion[2], 10, motion_off[2], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_motion[0], 8, motion_offset[0], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_motion[1], 9, motion_offset[1], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_motion[2], 10, motion_offset[2], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_rgb[0], 4, sphere.albedo[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_rgb[1], 5, sphere.albedo[1], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_rgb[2], 6, sphere.albedo[2], st, mouse, lmb_pressed) { any_hovered = true }

@@ -143,7 +143,7 @@ Union-based dispatch over `Lambertian`, `Metallic`, and `Dielectric`. Each imple
 `Sphere` and `Cube` primitives. BVH nodes are also `Hittable` variants (recursive union tree). Spheres support **motion blur** via `center` → `center1` over the shutter interval when `is_moving` is true.
 
 ### Motion blur (editor + core + persistence)
-- **Camera shutter** — `core.CameraParams` and `rt.Camera` have `shutter_open` and `shutter_close` (normalized 0..1). The Camera panel and Object Properties (camera selected) expose drag fields; values are copied via `apply_scene_camera` / `copy_camera_to_scene_params`. Ray sampling in `get_ray` does not yet use the shutter interval (deferred).
+- **Camera shutter** — `core.CameraParams` and `rt.Camera` have `shutter_open` and `shutter_close` (normalized 0..1). The Camera panel and Object Properties (camera selected) expose drag fields; values are copied via `apply_scene_camera` / `copy_camera_to_scene_params`. `get_ray` samples ray time with `util.random_float_range(rng, shutter_open, shutter_close)` so the shutter window affects motion blur.
 - **Per-sphere movement** — In Object Properties, when a sphere is selected, a **MOTION** section shows **dX/dY/dZ** (offset = `center1 − center`). Editing updates `center1` and sets `is_moving` when the offset is non-zero. Undo/dirty and scene export use existing `ModifySphereAction` and `SetSceneSphere`.
 - **Persistence** — Scene JSON saves/loads `shutter_open`, `shutter_close` on the camera and `center1`, `is_moving` on spheres. Older files without these fields load with default shutter [0,1] and static spheres.
 

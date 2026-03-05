@@ -156,7 +156,8 @@ copy_camera_to_scene_params :: proc(params: ^core.CameraParams, cam: ^Camera) {
     params.shutter_close  = cam.shutter_close
 }
 
-// normalize_shutter clamps open/close to [0,1] and ensures open <= close. For future get_ray use.
+// TODO: Use in get_ray or UI validation to clamp/normalize shutter before sampling.
+// normalize_shutter clamps open/close to [0,1] and ensures open <= close.
 normalize_shutter :: proc(open, close: f32) -> (norm_open, norm_close: f32) {
     norm_open  = open  if 0 <= open && open <= 1 else (0.0 if open < 0 else 1.0)
     norm_close = close if 0 <= close && close <= 1 else (0.0 if close < 0 else 1.0)
@@ -199,7 +200,7 @@ get_ray :: proc(r_camera: ^Camera, u : f32, v : f32, rng: ^util.ThreadRNG) -> ra
 
     ray_origin := (r_camera.defocus_angle <= 0)? r_camera.center : defocus_disk_sample(r_camera, rng)
     ray_direction := pixel_sample - ray_origin
-    ray_time := util.random_float(rng)
+    ray_time := util.random_float_range(rng, r_camera.shutter_open, r_camera.shutter_close)
 
     return ray{origin = ray_origin, dir = ray_direction, time = ray_time}
 }

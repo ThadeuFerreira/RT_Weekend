@@ -4,7 +4,7 @@ This package is the **path tracer only**: camera, BVH, materials, ray math, tile
 
 ## Purpose
 
-- **Camera** — `Camera`, `make_camera`, `init_camera`, `apply_scene_camera`, `copy_camera_to_scene_params`; non-blocking render API: `start_render`, `get_render_progress`, `finish_render`, `RenderSession` (field `r_camera`). Camera includes **shutter_open**, **shutter_close** (normalized [0..1]); `normalize_shutter` is a helper for future `get_ray` sampling (not yet used).
+- **Camera** — `Camera`, `make_camera`, `init_camera`, `apply_scene_camera`, `copy_camera_to_scene_params`; non-blocking render API: `start_render`, `get_render_progress`, `finish_render`, `RenderSession` (field `r_camera`). Camera includes **shutter_open**, **shutter_close** (normalized [0..1]); `get_ray` samples ray time in that interval for motion blur. `normalize_shutter` is optional validation (see TODO at definition).
 - **Scene build** — `convert_world_to_edit_spheres`, `build_world_from_scene` (core.SceneSphere ↔ Object).
 
 ## Naming / scope
