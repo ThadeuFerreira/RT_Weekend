@@ -60,11 +60,11 @@ save_changes_modal_update :: proc(app: ^App) {
         return
     }
     if rl.IsKeyPressed(.ENTER) {
-        // Enter = Save if path exists, else Continue
+        // Enter = Save if path exists, else Save As (never silently discard — avoid Continue as default)
         if len(app.current_scene_path) > 0 {
             save_changes_modal_apply(app, .Save)
         } else {
-            save_changes_modal_apply(app, .Continue)
+            save_changes_modal_apply(app, .Save_As)
         }
         return
     }
