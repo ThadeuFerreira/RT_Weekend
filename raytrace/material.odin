@@ -29,13 +29,13 @@ scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3
         if vector_length_squared(scatter_dir) < 1e-16 {
             scatter_dir = rec.normal
         }
-        scattered^ = ray{orig = rec.p, dir = scatter_dir, time = r_in.time}
+        scattered^ = ray{origin = rec.p, dir = scatter_dir, time = r_in.time}
         attenuation^ = m.albedo
         return true
     case metallic:
         reflected := vector_reflect(r_in.dir, rec.normal)
         reflected = unit_vector(reflected) + m.fuzz * vector_random_unit(rng)
-        scattered^ = ray{orig = rec.p, dir = reflected, time = r_in.time}
+        scattered^ = ray{origin = rec.p, dir = reflected, time = r_in.time}
         attenuation^ = m.albedo
         return dot(scattered.dir, rec.normal) > 0
     case dielectric:
@@ -58,7 +58,7 @@ scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3
             direction = vector_refract(unit_direction, rec.normal, ri)
         }
 
-        scattered^ = ray{orig = rec.p, dir = direction, time = r_in.time}
+        scattered^ = ray{origin = rec.p, dir = direction, time = r_in.time}
         return true
     }
     return false
