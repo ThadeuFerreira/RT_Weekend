@@ -95,25 +95,35 @@ save_changes_modal_update :: proc(app: ^App) {
 save_changes_modal_apply :: proc(app: ^App, choice: SaveChangesChoice) {
     modal := &app.e_save_changes
     reason := modal.reason
-    modal.active = false
-    modal.reason = .None
 
     switch choice {
     case .Cancel:
+        modal.active = false
+        modal.reason = .None
         return
     case .Save:
         if len(app.current_scene_path) > 0 {
-            cmd_action_file_save(app)
+            if !cmd_action_file_save(app) {
+                return // save failed (e.g. disk full, permissions); keep modal open
+            }
         }
+        modal.active = false
+        modal.reason = .None
         save_changes_do_action(app, reason)
     case .Save_As:
         default_dir := util.dialog_default_dir(app.current_scene_path)
         path, ok := util.save_file_dialog(default_dir, "scene.json", util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
         delete(default_dir)
-        if !ok { return } // user cancelled; modal already closed
-        file_save_as_path(app, path)
+        if !ok { return } // user cancelled; modal stays open
+        if !file_save_as_path(app, path) {
+            return // save failed; keep modal open
+        }
+        modal.active = false
+        modal.reason = .None
         save_changes_do_action(app, reason)
     case .Continue:
+        modal.active = false
+        modal.reason = .None
         save_changes_do_action(app, reason)
     }
 }
@@ -213,8 +223,8 @@ confirm_load_modal_update :: proc(app: ^App) {
 
         btn_save_load, btn_load, btn_cancel := confirm_button_rects(dx, dy, dialog_w, dialog_h)
         mouse := rl.GetMousePosition()
-        // Save & Load always enabled when modal is shown (dirty); use Save As if no path yet
-        save_enabled := true
+        // Save & Load only when dirty (so user can save before replacing); disabled when scene is clean
+        save_enabled := app.e_scene_dirty
 
         if save_enabled && rl.CheckCollisionPointRec(mouse, btn_save_load) {
             confirm_load_execute(app, true)
@@ -265,9 +275,9 @@ confirm_load_modal_draw :: proc(app: ^App) {
     draw_ui_text(app, line1, i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
     draw_ui_text(app, "This cannot be undone.", i32(dx) + 12, i32(dy) + 54, 12, CONTENT_TEXT_COLOR)
 
-    // Buttons (Save & Load always enabled when modal shown — user can save with custom name via Save As)
+    // Buttons: Save & Load enabled only when dirty; Load and Cancel always available
     mouse := rl.GetMousePosition()
-    save_enabled := true
+    save_enabled := app.e_scene_dirty
     btn_save_load, btn_load, btn_cancel := confirm_button_rects(dx, dy, dialog_w, dialog_h)
 
     // [Save & Load]
@@ -312,14 +322,14 @@ load_example_scene_direct :: proc(app: ^App, scene_idx: int) {
 _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     if save_first {
         if len(app.current_scene_path) > 0 {
-            cmd_action_file_save(app)
+            if !cmd_action_file_save(app) { return false } // save failed, don't load
         } else {
             // No path yet (e.g. modified example): open Save As so user can save with custom name
             default_dir := util.dialog_default_dir(app.current_scene_path)
             path, ok := util.save_file_dialog(default_dir, "scene.json", util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
             delete(default_dir)
             if !ok { return false } // user cancelled save dialog, don't load
-            file_save_as_path(app, path)
+            if !file_save_as_path(app, path) { return false } // save failed, don't load
         }
     }
     spheres, cam := EXAMPLE_SCENES[scene_idx].build()

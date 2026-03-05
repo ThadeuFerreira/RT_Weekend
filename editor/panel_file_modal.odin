@@ -117,6 +117,9 @@ file_import_from_path :: proc(app: ^App, path: string) {
     ev.selection_kind = .None
     ev.selected_idx   = -1
 
+    edit_history_free(&app.edit_history)
+    app.edit_history = EditHistory{}
+
     delete(app.current_scene_path)
     app.current_scene_path = path
     app.e_scene_dirty = false
@@ -142,8 +145,9 @@ file_import_from_path :: proc(app: ^App, path: string) {
 }
 
 // file_save_as_path saves the current scene to path. Takes ownership of path (caller must not delete).
-file_save_as_path :: proc(app: ^App, path: string) {
-    if len(path) == 0 { return }
+// Returns true on success, false on empty path or write failure.
+file_save_as_path :: proc(app: ^App, path: string) -> bool {
+    if len(path) == 0 { return false }
     ev := &app.e_edit_view
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := rt.build_world_from_scene(ev.export_scratch[:])
@@ -154,10 +158,11 @@ file_save_as_path :: proc(app: ^App, path: string) {
         app.current_scene_path = path
         app.e_scene_dirty = false
         app_push_log(app, fmt.aprintf("Saved as: %s", path))
-    } else {
-        app_push_log(app, fmt.aprintf("Save failed: %s", path))
-        delete(path)
+        return true
     }
+    app_push_log(app, fmt.aprintf("Save failed: %s", path))
+    delete(path)
+    return false
 }
 
 // file_modal_confirm processes the modal result based on its mode.

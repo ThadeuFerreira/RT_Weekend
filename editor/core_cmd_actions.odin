@@ -63,19 +63,26 @@ cmd_action_file_import :: proc(app: ^App) {
     }
 }
 
-cmd_action_file_save :: proc(app: ^App) {
-    if len(app.current_scene_path) == 0 { return }
+// cmd_action_file_save saves to current_scene_path. Returns true on success, false if no path or save failed.
+cmd_action_file_save :: proc(app: ^App) -> bool {
+    if len(app.current_scene_path) == 0 { return false }
     ev := &app.e_edit_view
-ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := rt.build_world_from_scene(ev.export_scratch[:])
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(app.current_scene_path, app.r_camera, world) {
         app.e_scene_dirty = false
         app_push_log(app, fmt.aprintf("Saved: %s", app.current_scene_path))
-    } else {
-        app_push_log(app, fmt.aprintf("Save failed: %s", app.current_scene_path))
+        return true
     }
+    app_push_log(app, fmt.aprintf("Save failed: %s", app.current_scene_path))
+    return false
+}
+
+// Wrapper for menu binding (Command.action is proc(app: ^App)); discards return.
+cmd_action_file_save_menu :: proc(app: ^App) {
+    cmd_action_file_save(app)
 }
 
 cmd_action_file_save_enabled :: proc(app: ^App) -> bool {
@@ -360,11 +367,8 @@ cmd_enabled_duplicate :: proc(app: ^App) -> bool {
 // ── Example scene actions ────────────────────────────────────────────────────
 
 cmd_action_scene_load_example :: proc(app: ^App) {
-    if app.e_scene_dirty {
-        confirm_load_modal_open(&app.e_confirm_load, app.e_confirm_load.scene_idx)
-    } else {
-        load_example_scene_direct(app, app.e_confirm_load.scene_idx)
-    }
+    // Always show confirm modal ("Load Example?" / "This cannot be undone"); Save & Load only enabled when dirty
+    confirm_load_modal_open(&app.e_confirm_load, app.e_confirm_load.scene_idx)
 }
 
 // ── register_all_commands ────────────────────────────────────────────────────
@@ -376,7 +380,7 @@ register_all_commands :: proc(app: ^App) {
     // File
     cmd_register(cmd_reg, Command{id = CMD_FILE_NEW,     label = "New",      shortcut = "Ctrl+N", action = cmd_action_file_new})
     cmd_register(cmd_reg, Command{id = CMD_FILE_IMPORT,  label = "Import…",  shortcut = "Ctrl+O", action = cmd_action_file_import})
-    cmd_register(cmd_reg, Command{id = CMD_FILE_SAVE,    label = "Save",     shortcut = "Ctrl+S", action = cmd_action_file_save, enabled_proc = cmd_action_file_save_enabled})
+    cmd_register(cmd_reg, Command{id = CMD_FILE_SAVE,    label = "Save",     shortcut = "Ctrl+S", action = cmd_action_file_save_menu, enabled_proc = cmd_action_file_save_enabled})
     cmd_register(cmd_reg, Command{id = CMD_FILE_SAVE_AS, label = "Save As…", shortcut = "",       action = cmd_action_file_save_as})
     cmd_register(cmd_reg, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
 
