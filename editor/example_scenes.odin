@@ -12,7 +12,8 @@ ExampleScene :: struct {
 
 // EXAMPLE_SCENES is the static registry of built-in example scenes.
 EXAMPLE_SCENES := []ExampleScene{
-    {label = "Weekend Final Scene", build = build_weekend_final_scene},
+    {label = "Weekend Final Scene",       build = build_weekend_final_scene},
+    {label = "Next Week: Bouncing Balls", build = build_next_week_bouncing_scene},
 }
 
 WEEKEND_CAMERA :: core.CameraParams{
@@ -84,6 +85,86 @@ build_weekend_final_scene :: proc() -> (spheres: []core.SceneSphere, camera: cor
     }
 
     // Three large spheres
+    append(&result, core.SceneSphere{
+        center        = {0, 1, 0},
+        radius        = 1.0,
+        material_kind = .Dielectric,
+        ref_idx       = 1.5,
+    })
+    append(&result, core.SceneSphere{
+        center        = {-4, 1, 0},
+        radius        = 1.0,
+        material_kind = .Lambertian,
+        albedo        = {0.4, 0.2, 0.1},
+    })
+    append(&result, core.SceneSphere{
+        center        = {4, 1, 0},
+        radius        = 1.0,
+        material_kind = .Metallic,
+        albedo        = {0.7, 0.6, 0.5},
+        fuzz          = 0.0,
+    })
+
+    return result[:], WEEKEND_CAMERA
+}
+
+// build_next_week_bouncing_scene returns the bouncing balls scene from "Ray Tracing: The Next Week" Chapter 2.
+// Lambertian small spheres are moving (motion blur); metallic and dielectric are static.
+// Uses the same fixed seed (42) and grid as build_weekend_final_scene. Caller must delete the returned slice.
+build_next_week_bouncing_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams) {
+    rng := util.create_thread_rng(42)
+
+    result := make([dynamic]core.SceneSphere)
+
+    for a in -11..<11 {
+        for b in -11..<11 {
+            choose_mat := util.random_float(&rng)
+            cx := f32(a) + 0.9 * util.random_float(&rng)
+            cz := f32(b) + 0.9 * util.random_float(&rng)
+
+            // Skip spheres too close to the big center sphere position
+            dx2 := cx - 4
+            dy2 := f32(0.2) - 0.2
+            dz2 := cz - 0
+            dist2 := math.sqrt(dx2*dx2 + dy2*dy2 + dz2*dz2)
+            if dist2 <= 0.9 { continue }
+
+            sphere: core.SceneSphere
+            sphere.center = {cx, 0.2, cz}
+            sphere.radius = 0.2
+
+            if choose_mat < 0.8 {
+                // Lambertian — moving sphere
+                r1 := util.random_float(&rng)
+                r2 := util.random_float(&rng)
+                g1 := util.random_float(&rng)
+                g2 := util.random_float(&rng)
+                b1 := util.random_float(&rng)
+                b2 := util.random_float(&rng)
+                sphere.material_kind = .Lambertian
+                sphere.albedo = {r1 * r2, g1 * g2, b1 * b2}
+                sphere.is_moving = true
+                sphere.center1 = sphere.center + [3]f32{0, util.random_float_range(&rng, 0, 0.5), 0}
+            } else if choose_mat < 0.95 {
+                // Metallic — static
+                sphere.material_kind = .Metallic
+                sphere.albedo = {
+                    util.random_float_range(&rng, 0.5, 1),
+                    util.random_float_range(&rng, 0.5, 1),
+                    util.random_float_range(&rng, 0.5, 1),
+                }
+                sphere.fuzz = util.random_float_range(&rng, 0, 0.5)
+            } else {
+                // Dielectric — static
+                sphere.material_kind = .Dielectric
+                sphere.ref_idx = 1.5
+            }
+
+            append(&result, sphere)
+        }
+    }
+
+    // Three large spheres (non-moving)
     append(&result, core.SceneSphere{
         center        = {0, 1, 0},
         radius        = 1.0,
