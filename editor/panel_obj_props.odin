@@ -16,7 +16,7 @@ OP_COL :: OP_LW + OP_GAP + OP_FW + OP_SP  // = 68 px per column
 
 // ObjectPropsPanelState holds per-frame drag state for the Object Properties panel.
 // For sphere: data in app.e_edit_view.objects[selected_idx]. For camera: app.c_camera_params.
-// Drag indices: sphere 0–7 (xyz, radius, rgb, mat_param); camera 0–9 (from xyz, at xyz, vfov, defocus, focus, max_depth).
+// Drag indices: sphere 0–10 (xyz, radius, motion dX dY dZ, rgb, mat_param); camera 0–11 (from xyz, at xyz, vfov, defocus, focus, max_depth, shutter).
 ObjectPropsPanelState :: struct {
 	prop_drag_idx:       int,
 	prop_drag_start_x:   f32,
@@ -30,19 +30,22 @@ ObjectPropsPanelState :: struct {
 // OpLayout holds every interactive rectangle for a single frame, computed once
 // by op_compute_layout and consumed by both the draw and update procs.
 OpLayout :: struct {
-	lx, x0:       f32,           // left edge for labels/buttons; left edge for field boxes
-	y_transform:  f32,           // y of TRANSFORM section header
-	y_material:   f32,           // y of MATERIAL section header
-	y_color:      f32,           // y of COLOR section header
-	boxes_xyz:    [3]rl.Rectangle,
-	box_radius:   rl.Rectangle,
-	mat_rects:    [3]rl.Rectangle,
+	lx, x0:        f32,           // left edge for labels/buttons; left edge for field boxes
+	y_transform:   f32,           // y of TRANSFORM section header
+	y_motion:      f32,           // y of MOTION section header (dX dY dZ)
+	y_material:    f32,           // y of MATERIAL section header
+	y_color:       f32,           // y of COLOR section header
+	boxes_xyz:     [3]rl.Rectangle,
+	box_radius:    rl.Rectangle,
+	boxes_motion:  [3]rl.Rectangle, // dX dY dZ (center1 - center)
+	mat_rects:     [3]rl.Rectangle,
 	has_mat_param: bool,
-	box_mat_param: rl.Rectangle, // fuzz (metallic) or IOR (dielectric)
-	boxes_rgb:    [3]rl.Rectangle,
-	swatch:       rl.Rectangle,
+	box_mat_param: rl.Rectangle,   // fuzz (metallic) or IOR (dielectric)
+	boxes_rgb:     [3]rl.Rectangle,
+	swatch:        rl.Rectangle,
 }
 
+// Sphere drag index assignments (prop_drag_idx): 0–3 = TRANSFORM (xyz, radius), 8–10 = MOTION (dX dY dZ), 4–6 = COLOR (rgb), 7 = MATERIAL param (fuzz/ior). Layout order in UI is TRANSFORM → MOTION → MATERIAL → COLOR.
 op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) -> OpLayout {
 	lo: OpLayout
 	lo.lx = content.x + 8
@@ -62,6 +65,16 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) ->
 	cy += OP_FH + 6
 
 	lo.box_radius = rl.Rectangle{lo.x0, cy, OP_FW, OP_FH}
+	cy += OP_FH + 6
+
+	// MOTION (dX dY dZ = center1 - center)
+	lo.y_motion = cy
+	cy += 18
+	lo.boxes_motion = [3]rl.Rectangle{
+		{lo.x0,             cy, OP_FW, OP_FH},
+		{lo.x0 + OP_COL,   cy, OP_FW, OP_FH},
+		{lo.x0 + 2*OP_COL, cy, OP_FW, OP_FH},
+	}
 	cy += OP_FH + 10
 
 	// MATERIAL 
@@ -96,14 +109,14 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) ->
 	return lo
 }
 
-// Camera layout in Object Properties: same 10 fields as camera panel, using OP_* for consistency.
+// Camera layout in Object Properties: same 12 fields as camera panel (incl. shutter open/close), using OP_* for consistency.
 OP_CAM_ROW :: f32(20)
-op_camera_field_rects :: proc(content: rl.Rectangle) -> [10]rl.Rectangle {
+op_camera_field_rects :: proc(content: rl.Rectangle) -> [12]rl.Rectangle {
 	x0 := content.x + 8
 	y0 := content.y + 6
 	off := OP_LW + OP_GAP
 	row := OP_CAM_ROW
-	return [10]rl.Rectangle{
+	return [12]rl.Rectangle{
 		{x0 + off,             y0 + 0*row, OP_FW, OP_FH},
 		{x0 + off + OP_COL,   y0 + 0*row, OP_FW, OP_FH},
 		{x0 + off + 2*OP_COL, y0 + 0*row, OP_FW, OP_FH},
@@ -114,6 +127,8 @@ op_camera_field_rects :: proc(content: rl.Rectangle) -> [10]rl.Rectangle {
 		{x0 + off + OP_COL,   y0 + 2*row, OP_FW, OP_FH},
 		{x0 + off + 2*OP_COL, y0 + 2*row, OP_FW, OP_FH},
 		{x0 + off,             y0 + 3*row, OP_FW, OP_FH},
+		{x0 + off + OP_COL,   y0 + 3*row, OP_FW, OP_FH},
+		{x0 + off + 2*OP_COL, y0 + 3*row, OP_FW, OP_FH},
 	}
 }
 
@@ -194,7 +209,7 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 		draw_ui_text(app, "From", i32(content.x) + 8, i32(y0), 10, CONTENT_TEXT_COLOR)
 		draw_ui_text(app, "At",   i32(content.x) + 8, i32(y0 + OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
 		draw_ui_text(app, "FOV / Defocus / Focus", i32(content.x) + 8, i32(y0 + 2*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Max depth", i32(content.x) + 8, i32(y0 + 3*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		draw_ui_text(app, "Max D / Shutter", i32(content.x) + 8, i32(y0 + 3*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
 		op_drag_field(app, "X", c_params.lookfrom[0], fields[0], st.prop_drag_idx == 0, mouse)
 		op_drag_field(app, "Y", c_params.lookfrom[1], fields[1], st.prop_drag_idx == 1, mouse)
 		op_drag_field(app, "Z", c_params.lookfrom[2], fields[2], st.prop_drag_idx == 2, mouse)
@@ -205,6 +220,8 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 		op_drag_field(app, "", c_params.defocus_angle, fields[7], st.prop_drag_idx == 7, mouse)
 		op_drag_field(app, "", c_params.focus_dist, fields[8], st.prop_drag_idx == 8, mouse)
 		op_drag_field(app, "D", f32(c_params.max_depth), fields[9], st.prop_drag_idx == 9, mouse)
+		op_drag_field(app, "Op", c_params.shutter_open, fields[10], st.prop_drag_idx == 10, mouse)
+		op_drag_field(app, "Cl", c_params.shutter_close, fields[11], st.prop_drag_idx == 11, mouse)
 		return
 	}
 
@@ -220,6 +237,18 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	op_drag_field(app, "Y", sphere.center[1], lo.boxes_xyz[1], st.prop_drag_idx == 1, mouse)
 	op_drag_field(app, "Z", sphere.center[2], lo.boxes_xyz[2], st.prop_drag_idx == 2, mouse)
 	op_drag_field(app, "R", sphere.radius,    lo.box_radius,   st.prop_drag_idx == 3, mouse)
+
+	// MOTION (offset = center1 - center)
+	motion_offset: [3]f32 = {0, 0, 0}
+	if sphere.is_moving {
+		motion_offset[0] = sphere.center1[0] - sphere.center[0]
+		motion_offset[1] = sphere.center1[1] - sphere.center[1]
+		motion_offset[2] = sphere.center1[2] - sphere.center[2]
+	}
+	op_section_label(app, "MOTION", lo.lx, lo.y_motion)
+	op_drag_field(app, "dX", motion_offset[0], lo.boxes_motion[0], st.prop_drag_idx == 8, mouse)
+	op_drag_field(app, "dY", motion_offset[1], lo.boxes_motion[1], st.prop_drag_idx == 9, mouse)
+	op_drag_field(app, "dZ", motion_offset[2], lo.boxes_motion[2], st.prop_drag_idx == 10, mouse)
 
 	// MATERIAL
 	op_section_label(app, "MATERIAL", lo.lx, lo.y_material)
@@ -263,7 +292,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		return
 	}
 
-	// ── Camera selected: drag 0–9 → app.c_camera_params
+	// ── Camera selected: drag 0–11 → app.c_camera_params
 	if ev.selection_kind == .Camera {
 		c_params := &app.c_camera_params
 		if st.prop_drag_idx >= 0 {
@@ -300,19 +329,30 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 					c_params.max_depth = int(st.prop_drag_start_val + delta * 0.5)
 					if c_params.max_depth < 1 { c_params.max_depth = 1 }
 					if c_params.max_depth > 100 { c_params.max_depth = 100 }
+				case 10:
+					c_params.shutter_open = st.prop_drag_start_val + delta * 0.005
+					if c_params.shutter_open < 0 { c_params.shutter_open = 0 }
+					if c_params.shutter_open > 1 { c_params.shutter_open = 1 }
+					if c_params.shutter_open > c_params.shutter_close { c_params.shutter_close = c_params.shutter_open }
+				case 11:
+					c_params.shutter_close = st.prop_drag_start_val + delta * 0.005
+					if c_params.shutter_close < 0 { c_params.shutter_close = 0 }
+					if c_params.shutter_close > 1 { c_params.shutter_close = 1 }
+					if c_params.shutter_close < c_params.shutter_open { c_params.shutter_open = c_params.shutter_close }
 				}
 				rl.SetMouseCursor(.RESIZE_EW)
 			}
 			return
 		}
 		fields := op_camera_field_rects(rect)
-		vals := [10]f32{
+		vals := [12]f32{
 			c_params.lookfrom[0], c_params.lookfrom[1], c_params.lookfrom[2],
 			c_params.lookat[0], c_params.lookat[1], c_params.lookat[2],
 			c_params.vfov, c_params.defocus_angle, c_params.focus_dist, f32(c_params.max_depth),
+			c_params.shutter_open, c_params.shutter_close,
 		}
 		any_hovered := false
-		for i in 0..<10 {
+		for i in 0..<12 {
 			if op_try_start_drag(fields[i], i, vals[i], st, mouse, lmb_pressed) {
 				any_hovered = true
 				if lmb_pressed {
@@ -368,6 +408,16 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				} else if sphere.material_kind == .Dielectric {
 					sphere.ref_idx = max(st.prop_drag_start_val + delta * 0.005, f32(1.0))
 				}
+			case 8:
+				sphere.center1[0] = sphere.center[0] + (st.prop_drag_start_val + delta * 0.01)
+				// Direct f32 comparison is safe here (same stored values, no extra math). Dragging offset to zero correctly clears is_moving.
+				sphere.is_moving = (sphere.center1[0] != sphere.center[0] || sphere.center1[1] != sphere.center[1] || sphere.center1[2] != sphere.center[2])
+			case 9:
+				sphere.center1[1] = sphere.center[1] + (st.prop_drag_start_val + delta * 0.01)
+				sphere.is_moving = (sphere.center1[0] != sphere.center[0] || sphere.center1[1] != sphere.center[1] || sphere.center1[2] != sphere.center[2])
+			case 10:
+				sphere.center1[2] = sphere.center[2] + (st.prop_drag_start_val + delta * 0.01)
+				sphere.is_moving = (sphere.center1[0] != sphere.center[0] || sphere.center1[1] != sphere.center[1] || sphere.center1[2] != sphere.center[2])
 			}
 			rl.SetMouseCursor(.RESIZE_EW)
 			// persist changes back to the scene manager
@@ -415,11 +465,20 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	}
 
 	// ── Drag-field hover / start-drag
+	motion_offset: [3]f32 = {0, 0, 0}
+	if sphere.is_moving {
+		motion_offset[0] = sphere.center1[0] - sphere.center[0]
+		motion_offset[1] = sphere.center1[1] - sphere.center[1]
+		motion_offset[2] = sphere.center1[2] - sphere.center[2]
+	}
 	any_hovered := false
 	if op_try_start_drag(lo.boxes_xyz[0], 0, sphere.center[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_xyz[1], 1, sphere.center[1], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_xyz[2], 2, sphere.center[2], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.box_radius,   3, sphere.radius,    st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_motion[0], 8, motion_offset[0], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_motion[1], 9, motion_offset[1], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_motion[2], 10, motion_offset[2], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_rgb[0], 4, sphere.albedo[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_rgb[1], 5, sphere.albedo[1], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_rgb[2], 6, sphere.albedo[2], st, mouse, lmb_pressed) { any_hovered = true }

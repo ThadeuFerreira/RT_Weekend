@@ -11,7 +11,6 @@ hit_record :: struct {
     front_face : bool,
 }
 
-
 Sphere :: struct {
     center:    [3]f32,
     center1:   [3]f32, // end position (t=1); only used when is_moving
@@ -96,31 +95,31 @@ aabb_hit :: proc(box: AABB, r: ray, ray_t: Interval) -> bool {
     for axis in 0..<3 {
         ax: Interval
         dir: f32
-        orig: f32
+        origin: f32
 
         switch axis {
         case 0:
             ax = box.x
             dir = r.dir[0]
-            orig = r.orig[0]
+            origin = r.origin[0]
         case 1:
             ax = box.y
             dir = r.dir[1]
-            orig = r.orig[1]
+            origin = r.origin[1]
         case 2:
             ax = box.z
             dir = r.dir[2]
-            orig = r.orig[2]
+            origin = r.origin[2]
         }
 
         if math.abs(dir) < 1e-8 {
-            if orig < ax.min || orig > ax.max {
+            if origin < ax.min || origin > ax.max {
                 return false
             }
         } else {
             invD := 1.0 / dir
-            t0 := (ax.min - orig) * invD
-            t1 := (ax.max - orig) * invD
+            t0 := (ax.min - origin) * invD
+            t1 := (ax.max - origin) * invD
 
             if t0 > t1 {
                 t0, t1 = t1, t0

@@ -46,7 +46,14 @@ ExportToSceneSpheres :: proc(sm: ^SceneManager, out: ^[dynamic]core.SceneSphere)
 
 AppendDefaultSphere :: proc(sm: ^SceneManager) {
 	if sm == nil { return }
-	sphere := core.SceneSphere{center = {0, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.7, 0.7, 0.7}}
+	sphere := core.SceneSphere{
+		center = {0, 0.5, 0},
+		center1 = {0, 0.5, 0},
+		radius = 0.5,
+		material_kind = .Lambertian,
+		albedo = {0.7, 0.7, 0.7},
+		is_moving = false,
+	}
 	append(&sm.objects, sphere)
 }
 
