@@ -22,7 +22,10 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 - **Widgets** — **ui_chrome.odin**: `PanelStyle`, `update_panel`, `draw_panel_chrome`, `upload_render_texture`.
 - **Fonts** — **ui_font.odin**: SDF font loading; `draw_ui_text` / `measure_ui_text` in app.odin.
 - **Commands** — **core_commands.odin**: `Command`, `CommandRegistry`, `cmd_register`, `cmd_execute`, CMD_* constants. **core_cmd_actions.odin**: file new/import/save/save as/exit, view toggles, layout presets, render restart.
-- **File modal** — **panel_file_modal.odin**: Import / Save As / Preset Name dialog; uses **persistence** for load_scene/save_scene.
+- **File dialogs** — **Import** and **Save As** use native OS dialogs via **util** (`open_file_dialog`, `save_file_dialog`, `dialog_default_dir`). Default directory when no file is open is `<cwd>/scenes`. **panel_file_modal.odin** is used only for **Preset Name** (and for Import/Save As when `FILE_MODAL_FALLBACK` is true). `file_import_from_path` / `file_save_as_path` perform load/save; both reset `e_scene_dirty` and `file_import_from_path` resets edit history.
+- **Save Changes modal** — **panel_confirm_modal.odin**: when exiting or importing with unsaved changes, a “Save Changes?” dialog offers **Save** (overwrite), **Save As** (pick path), **Cancel**, **Continue** (discard). Proceeds only if save succeeds (or user chose Continue/Cancel). `cmd_action_file_save` and `file_save_as_path` return `bool` so callers can avoid proceeding on failure.
+- **Confirm-load modal** — Same file: “Load Example Scene?” with **Save & Load** (enabled only when `e_scene_dirty`; uses Save As if no path), **Load**, **Cancel**. Always shown when loading an example; load is performed by `_load_example_at`.
+- **Unsaved state** — `app.e_scene_dirty` is set by `mark_scene_dirty(app)` on any edit (sphere/camera/material, undo/redo); cleared on save, load, or new. Used to gate Save Changes and to enable “Save & Load” in the example-load dialog.
 - **Viewport / picking** — **ui_viewport.odin**: `EditorObject`, `compute_viewport_ray`, `ray_hit_plane_y`, `pick_camera`. **core_scene.odin**: `SceneManager`, `LoadFromSceneSpheres`, `ExportToSceneSpheres`, `GetSceneSphere`, `SetSceneSphere`, etc. **core_materials.odin**: `material_name(k: core.MaterialKind)`.
 
 ## Panel content files
@@ -37,7 +40,8 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 | `panel_camera.odin` | Camera |
 | `panel_preview.odin` | Camera Preview Port |
 | `panel_obj_props.odin` | Object Properties |
-| `panel_file_modal.odin` | File / Import / Save As dialog |
+| `panel_file_modal.odin` | File modal (Preset Name; Import/Save As only with FILE_MODAL_FALLBACK). `file_import_from_path`, `file_save_as_path`. |
+| `panel_confirm_modal.odin` | Save Changes? (exit/import when dirty); Load Example confirmation. |
 
 ## Naming / scope
 
@@ -90,7 +94,7 @@ The Edit View has two camera concepts:
 | `drag_obj_active`, `drag_plane_y`, `drag_offset_xz`, `drag_before` | Viewport drag to move selected sphere. |
 | `nudge_active`, `nudge_before` | Keyboard nudge state. |
 | `cam_prop_drag_idx`, `cam_prop_drag_start_x`, `cam_prop_drag_start_val` | Camera property strip drag (Pos X/Y/Z, Yaw, Pitch, Dst, Roll). |
-| `cam_drag_active`, `cam_drag_plane_y`, `cam_drag_start_hit_xz`, `cam_drag_start_lookfrom`, `cam_drag_start_lookat` | Camera body drag in viewport. |
+| `cam_drag_active`, `cam_drag_plane_y`, `cam_drag_start_hit_xz`, `cam_drag_start_lookfrom`, `cam_drag_start_lookat`, `cam_drag_before_params` | Camera body drag in viewport; full camera params at drag start for undo. |
 | `cam_rot_drag_axis`, `cam_rot_drag_start_x`, `cam_rot_drag_start_y` | Camera rotation ring drag (world-axis rings). |
 | `show_frustum_gizmo`, `show_focal_indicator` | Toolbar toggles for gizmos. |
 | `initialized` | One-time init done. |

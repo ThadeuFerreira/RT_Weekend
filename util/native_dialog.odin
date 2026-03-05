@@ -154,12 +154,13 @@ if ($d.ShowDialog() -eq 'OK') { $d.FileName }`,
 	}
 }
 
-// dialog_default_dir returns a sensible starting directory for the dialog (e.g. directory of current file, or cwd).
+// dialog_default_dir returns a sensible starting directory for the dialog (directory of current file, or "scenes" under cwd when no file).
 dialog_default_dir :: proc(current_file_path: string, allocator := context.allocator) -> string {
 	if len(current_file_path) > 0 {
 		if dir := filepath.dir(current_file_path, allocator); len(dir) > 0 {
 			return dir
 		}
 	}
-	return filepath.clean(os.get_current_directory(), allocator)
+	cwd := filepath.clean(os.get_current_directory(), context.temp_allocator)
+	return strings.concatenate({cwd, "/scenes"}, allocator)
 }
