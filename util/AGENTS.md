@@ -13,6 +13,7 @@ This package provides **command-line parsing**, **per-thread RNG**, and **system
 - **cli.odin** — Args and parsing.
 - **rng.odin** — ThreadRNG and helpers.
 - **system_info.odin** — System/OS/CPU/RAM/GPU info.
+- **native_dialog.odin** — Cross-platform native open/save file dialogs via CLI (zenity, osascript, PowerShell); no C/C++ libs. `open_file_dialog`, `save_file_dialog`, `dialog_default_dir`.
 
 ## Dependency rule
 

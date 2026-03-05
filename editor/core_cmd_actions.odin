@@ -43,8 +43,19 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     app_push_log(app, strings.clone("New scene (3 default spheres)"))
 }
 
+FILE_MODAL_FALLBACK :: #config(FILE_MODAL_FALLBACK, false) // When true, show text path modal if native dialog unavailable
+
 cmd_action_file_import :: proc(app: ^App) {
-    file_modal_open(&app.file_modal, .Import, "Import Scene (.json)")
+    default_dir := util.dialog_default_dir(app.current_scene_path)
+    path, ok := util.open_file_dialog(default_dir, util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+    delete(default_dir)
+    if ok {
+        file_import_from_path(app, path)
+    } else {
+        when FILE_MODAL_FALLBACK {
+            file_modal_open(&app.file_modal, .Import, "Import Scene (.json)")
+        }
+    }
 }
 
 cmd_action_file_save :: proc(app: ^App) {
@@ -66,7 +77,16 @@ cmd_action_file_save_enabled :: proc(app: ^App) -> bool {
 }
 
 cmd_action_file_save_as :: proc(app: ^App) {
-    file_modal_open(&app.file_modal, .SaveAs, "Save Scene As (.json)")
+    default_dir := util.dialog_default_dir(app.current_scene_path)
+    path, ok := util.save_file_dialog(default_dir, "scene.json", util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+    delete(default_dir)
+    if ok {
+        file_save_as_path(app, path)
+    } else {
+        when FILE_MODAL_FALLBACK {
+            file_modal_open(&app.file_modal, .SaveAs, "Save Scene As (.json)")
+        }
+    }
 }
 
 cmd_action_file_exit :: proc(app: ^App) {
