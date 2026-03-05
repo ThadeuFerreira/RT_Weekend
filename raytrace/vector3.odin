@@ -73,7 +73,8 @@ vector_random_in_unit_disk :: proc(rng: ^util.ThreadRNG) -> [3]f32 {
 
 
 hit_sphere :: proc (sphere : Sphere, r : ray,  ray_t : Interval, rec : ^hit_record) -> bool {
-    oc := sphere.center - r.orig
+    center := sphere_center_at(sphere, r.time)
+    oc := center - r.orig
     a := vector_length_squared(r.dir)
     h := dot(r.dir, oc)
     c := vector_length_squared(oc) - sphere.radius*sphere.radius
@@ -95,7 +96,7 @@ hit_sphere :: proc (sphere : Sphere, r : ray,  ray_t : Interval, rec : ^hit_reco
 
     rec.t = root
     rec.p = ray_at(r, rec.t)
-    outward_normal := (rec.p - sphere.center) / sphere.radius
+    outward_normal := (rec.p - center) / sphere.radius
 
     set_face_normal(rec, r, outward_normal)
 
@@ -106,6 +107,7 @@ hit_sphere :: proc (sphere : Sphere, r : ray,  ray_t : Interval, rec : ^hit_reco
 ray :: struct {
     orig : [3]f32,
     dir : [3]f32,
+    time : f32,
 }
 
 ray_at :: proc(r : ray, t : f32) -> [3]f32 {

@@ -98,7 +98,7 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
     scene_rng := util.create_thread_rng(54321)
 
     ground_material := material(lambertian{[3]f32{0.5, 0.5, 0.5}})
-    append(&world, Sphere{[3]f32{0, -1000, 0}, 1000, ground_material})
+    append(&world, Sphere{center = {0, -1000, 0}, radius = 1000, material = ground_material})
 
     num_spheres := 0
     for a in -11..<11 {
@@ -110,15 +110,15 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
                 if choose_mat < 0.8 {
                     albedo   := vector_random(&scene_rng) * vector_random(&scene_rng)
                     mat      := material(lambertian{albedo})
-                    append(&world, Sphere{center, 0.2, mat})
+                    append(&world, Sphere{center = center, radius = 0.2, material = mat})
                 } else if choose_mat < 0.95 {
                     albedo   := vector_random_range(&scene_rng, 0.5, 1)
                     fuzz     := util.random_float_range(&scene_rng, 0, 0.5)
                     mat      := material(metallic{albedo, fuzz})
-                    append(&world, Sphere{center, 0.2, mat})
+                    append(&world, Sphere{center = center, radius = 0.2, material = mat})
                 } else {
                     mat := material(dielectric{1.5})
-                    append(&world, Sphere{center, 0.2, mat})
+                    append(&world, Sphere{center = center, radius = 0.2, material = mat})
                 }
                 num_spheres += 1
             }
@@ -129,13 +129,13 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
     }
 
     material1 := material(dielectric{1.5})
-    append(&world, Sphere{[3]f32{0, 1, 0}, 1.0, material1})
+    append(&world, Sphere{center = {0, 1, 0}, radius = 1.0, material = material1})
 
     material2 := material(lambertian{[3]f32{0.4, 0.2, 0.1}})
-    append(&world, Sphere{[3]f32{-4, 1, 0}, 1.0, material2})
+    append(&world, Sphere{center = {-4, 1, 0}, radius = 1.0, material = material2})
 
     material3 := material(metallic{[3]f32{0.7, 0.6, 0.5}, 0.0})
-    append(&world, Sphere{[3]f32{4, 1, 0}, 1.0, material3})
+    append(&world, Sphere{center = {4, 1, 0}, radius = 1.0, material = material3})
 
     cam := make_camera(image_width, image_height, samples_per_pixel)
     init_camera(cam)
