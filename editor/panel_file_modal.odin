@@ -99,6 +99,79 @@ file_modal_update :: proc(app: ^App) {
     }
 }
 
+// file_import_from_path loads a scene from path and restarts the render. Takes ownership of path (caller must not delete).
+// Used by native open dialog and by file_modal_confirm when FILE_MODAL_FALLBACK is used for Import.
+file_import_from_path :: proc(app: ^App, path: string) {
+    if len(path) == 0 { return }
+    ev := &app.e_edit_view
+    cam, world, ok := persistence.load_scene(path, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel)
+    if !ok {
+        app_push_log(app, fmt.aprintf("Import failed: %s", path))
+        delete(path)
+        return
+    }
+    rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
+    converted := rt.convert_world_to_edit_spheres(world)
+    LoadFromSceneSpheres(ev.scene_mgr, converted[:])
+    delete(converted)
+    ev.selection_kind = .None
+    ev.selected_idx   = -1
+
+    edit_history_free(&app.edit_history)
+    app.edit_history = EditHistory{}
+
+    delete(app.current_scene_path)
+    app.current_scene_path = path
+    app.e_scene_dirty = false
+
+    if !app.finished {
+        rt.finish_render(app.r_session)
+        app.finished = true
+    }
+    rt.free_session(app.r_session)
+    app.r_session = nil
+    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    delete(app.r_world)
+    app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
+    app.finished     = false
+    app.elapsed_secs = 0
+    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+    rt.init_camera(app.r_camera)
+    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", path, SceneManagerLen(ev.scene_mgr)))
+
+    free(cam)
+    delete(world)
+}
+
+// file_save_as_path saves the current scene to path. Takes ownership of path (caller must not delete).
+// Appends ".json" if the path lacks that extension. Returns true on success, false on empty path or write failure.
+file_save_as_path :: proc(app: ^App, path: string) -> bool {
+    if len(path) == 0 { return false }
+    // Ensure .json extension — dialogs on Linux/macOS don't auto-append.
+    path := path
+    if !strings.has_suffix(path, ".json") {
+        new_path := strings.concatenate({path, ".json"})
+        delete(path)
+        path = new_path
+    }
+    ev := &app.e_edit_view
+    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    world := rt.build_world_from_scene(ev.export_scratch[:])
+    defer delete(world)
+    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+    if persistence.save_scene(path, app.r_camera, world) {
+        delete(app.current_scene_path)
+        app.current_scene_path = path
+        app.e_scene_dirty = false
+        app_push_log(app, fmt.aprintf("Saved as: %s", path))
+        return true
+    }
+    app_push_log(app, fmt.aprintf("Save failed: %s", path))
+    delete(path)
+    return false
+}
+
 // file_modal_confirm processes the modal result based on its mode.
 file_modal_confirm :: proc(app: ^App) {
     modal := &app.file_modal
@@ -107,71 +180,17 @@ file_modal_confirm :: proc(app: ^App) {
     text := strings.clone(file_modal_input_string(modal))
     modal.active = false
 
-    ev := &app.e_edit_view
-
     switch modal.mode {
     case .Import:
         if len(text) == 0 { delete(text); return }
-        cam, world, ok := persistence.load_scene(text, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel)
-        if !ok {
-            app_push_log(app, fmt.aprintf("Import failed: %s", text))
-            delete(text)
-            return
-        }
-        // Apply loaded camera to params
-        rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
-        // Load converted spheres into scene manager
-        converted := rt.convert_world_to_edit_spheres(world)
-LoadFromSceneSpheres(ev.scene_mgr, converted[:])
-        delete(converted)
-        ev.selection_kind = .None
-        ev.selected_idx   = -1
-
-        // Store path
-        delete(app.current_scene_path)
-        app.current_scene_path = text
-
-        // Restart render
-        if !app.finished {
-            rt.finish_render(app.r_session)
-            app.finished = true
-        }
-        rt.free_session(app.r_session)
-        app.r_session = nil
-ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-        delete(app.r_world)
-        app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
-        app.finished     = false
-        app.elapsed_secs = 0
-        rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-        rt.init_camera(app.r_camera)
-        app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
-        app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", text, SceneManagerLen(ev.scene_mgr)))
-
-        // Free the camera returned by load_scene (values already copied into app.r_camera + params)
-        free(cam)
-        delete(world)
-
+        file_import_from_path(app, text)
     case .SaveAs:
         if len(text) == 0 { delete(text); return }
-ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-        world := rt.build_world_from_scene(ev.export_scratch[:])
-        defer delete(world)
-        rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-        if persistence.save_scene(text, app.r_camera, world) {
-            delete(app.current_scene_path)
-            app.current_scene_path = text
-            app_push_log(app, fmt.aprintf("Saved as: %s", text))
-        } else {
-            app_push_log(app, fmt.aprintf("Save failed: %s", text))
-            delete(text)
-        }
-
+        file_save_as_path(app, text)
     case .PresetName:
         if len(text) == 0 { delete(text); return }
         layout_save_named_preset(app, text)
         app_push_log(app, fmt.aprintf("Preset saved: %s", text))
-        // text ownership transferred to the preset
     }
 }
 

@@ -206,8 +206,11 @@ App :: struct {
     // Current scene file path (empty until a file has been imported or saved-as)
     current_scene_path: string,
 
-    // Tracks whether the scene has unsaved changes
+    // Tracks whether the scene has unsaved changes (set on edit, cleared on save/load/new)
     e_scene_dirty: bool,
+
+    // Save-changes modal (exit or import when dirty): Save / Don't Save / Cancel
+    e_save_changes: SaveChangesModalState,
 
     // Confirm-load modal for example scene loading
     e_confirm_load: ConfirmLoadModalState,
@@ -217,6 +220,11 @@ App :: struct {
 }
 
 g_app: ^App = nil
+
+// mark_scene_dirty sets the scene as having unsaved changes. Call after any edit (add/delete/modify sphere or camera).
+mark_scene_dirty :: proc(app: ^App) {
+    if app != nil { app.e_scene_dirty = true }
+}
 
 // has_custom_ui_font returns true when a custom font (SDF or LoadFontEx) is loaded for UI text.
 has_custom_ui_font :: proc(app: ^App) -> bool {
@@ -565,7 +573,10 @@ run_app :: proc(
         // Priority 2: file modal (blocks all other input when active)
         file_modal_update(&app)
 
-        // Priority 2b: confirm-load modal
+        // Priority 2b: save-changes modal (exit / import when dirty)
+        save_changes_modal_update(&app)
+
+        // Priority 2c: confirm-load modal (example scene when dirty)
         confirm_load_modal_update(&app)
 
         // Priority 3: keyboard shortcuts (only when not consumed by menu/modal)
@@ -651,6 +662,7 @@ run_app :: proc(
         layout_update_and_draw(&app, &app.dock_layout, mouse, lmb, effective_lmb_pressed)
         menu_bar_draw(&app, &app.e_menu_bar)
         file_modal_draw(&app)
+        save_changes_modal_draw(&app)
         confirm_load_modal_draw(&app)
 
         rl.EndDrawing()

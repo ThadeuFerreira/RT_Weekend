@@ -42,6 +42,8 @@ odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILIN
 
 **TRACE_CAPTURE_ENABLED:** When `true`, Chrome-trace visual benchmarking (Render → Start/Stop Visual Benchmark Capture) is available; when `false`, trace code is compiled out and the benchmark menu items are disabled. Release builds set `TRACE_CAPTURE_ENABLED=false` so capture and file I/O add no overhead.
 
+**FILE_MODAL_FALLBACK:** When `true`, if the native file dialog is unavailable (e.g. zenity not installed), the editor falls back to the text path modal for Import and Save As. Default is `false`. Defined in `editor/core_cmd_actions.odin`.
+
 **Key flags:**
 - `-w` / `-h`: image width / height in pixels
 - `-s`: samples per pixel (default 10)
@@ -77,7 +79,7 @@ The GPU compute-shader backend is **Linux-only**: it uses `glXGetProcAddressARB`
 
 **Feature flag:** SDF/custom font loading is **off by default** (`USE_SDF_FONT = false`). With it disabled, the UI uses Raylib’s default font only. To enable SDF and custom font loading, build with `-define:USE_SDF_FONT=true`.
 
-Paths are resolved **relative to the current working directory** at launch. Run the binary from the repository root (e.g. `./build/debug`) so `assets/fonts/`, `assets/shaders/sdf.fs`, and `assets/shaders/raytrace.comp` are found. If the GPU shader is not found, the app falls back to CPU; if the SDF assets are missing with the flag enabled, the UI falls back to Raylib’s default font.
+Paths are resolved **relative to the current working directory** at launch. Run the binary from the repository root (e.g. `./build/debug`) so `assets/fonts/`, `assets/shaders/sdf.fs`, and `assets/shaders/raytrace.comp` are found; the default directory for Open/Save scene dialogs when no file is open is then `./scenes`. The `scenes/` folder is in the repo (with `.gitkeep`); user scene files are ignored via `.gitignore` (`scenes/*`, `!scenes/.gitkeep`). If the GPU shader is not found, the app falls back to CPU; if the SDF assets are missing with the flag enabled, the UI falls back to Raylib’s default font.
 
 ## Project layout (packages)
 
@@ -107,6 +109,8 @@ Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is
 4. Draws panels, menu bar, and layout via `editor/ui_chrome.odin` and panel-specific modules
 
 **`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_LOG`, `PANEL_ID_EDIT_VIEW`, `PANEL_ID_CAMERA`, `PANEL_ID_OBJECT_PROPS`, `PANEL_ID_PREVIEW_PORT`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
+
+**File dialogs and unsaved state:** Open/Save use **native OS dialogs** (no C/C++ libs) via `util.open_file_dialog`, `util.save_file_dialog`, and `util.dialog_default_dir`. When no scene file is open, the default directory is **`<cwd>/scenes`**; the `scenes/` folder exists in the repo (see `.gitignore`: `scenes/*` ignored, `!scenes/.gitkeep` keeps the folder). If the native dialog is unavailable, build with `-define:FILE_MODAL_FALLBACK=true` to fall back to the text path modal. **Save Changes?** appears when exiting or importing with unsaved changes; options are Save (overwrite), Save As (pick path), Cancel, Continue (discard). The editor only proceeds (exit/import) after a successful save or when the user chooses Continue/Cancel. **Load Example** always shows a confirmation; “Save & Load” is enabled only when the scene is dirty and uses Save As when there is no current path. Unsaved state is tracked in `e_scene_dirty`; any edit (including undo/redo) and all camera/material changes call `mark_scene_dirty`. `file_import_from_path` resets edit history; `cmd_action_file_save` and `file_save_as_path` return `bool` so callers can avoid proceeding on save failure.
 
 ### Non-blocking Render API (`raytrace/camera.odin`)
 Three procedures replace the old blocking `render_parallel`:
@@ -144,6 +148,7 @@ Zero-cost profiling gated by `PROFILING_ENABLED` compile flag. Records nanosecon
 ### Utilities (`util/`)
 - `util/cli.odin`: CLI argument parsing (`Args`, `parse_args_with_short_flags`), system info (`get_number_of_physical_cores`, `print_system_info` via `core:sys/info`).
 - `util/rng.odin`: Xoshiro256++ PRNG (`ThreadRNG`, `create_thread_rng`, `random_float`, `random_float_range`). Config/file I/O lives in **persistence**, not util.
+- `util/native_dialog.odin`: Cross-platform native open/save file dialogs via CLI (Linux: zenity, macOS: osascript, Windows: PowerShell). `open_file_dialog`, `save_file_dialog`, `dialog_default_dir` (returns directory of current file, or `<cwd>/scenes` when no file). No C/C++ libraries. Returned path is owned by the caller (must `delete`). Filter constants `SCENE_FILTER_DESC` / `SCENE_FILTER_EXT` for scene JSON.
 
 ### Interval Math (`raytrace/interval.odin`)
 Simple `Interval` struct used for ray `t`-range clamping and AABB overlap tests.
