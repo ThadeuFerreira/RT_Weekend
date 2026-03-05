@@ -76,30 +76,40 @@ MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
 // Future: MAT_EMISSIVE :: i32(3), MAT_PBR_GLOSSY :: i32(4), …
 
 
+// GPURay mirrors the GLSL `Ray` struct under std430 layout (32 bytes).
+// GLSL vec3 has base alignment 16, so a 4-byte pad is required between
+// origin and dir.  Without it the CPU (packed, 28 bytes) and the GPU
+// (std430, 32 bytes) would be misaligned for dir and time.
 GPURay :: struct #packed {
     origin: [3]f32,
-    dir: [3]f32,
-    time: f32,
+    _pad0:  f32,        // 4 bytes: matches GLSL implicit padding after vec3 origin
+    dir:    [3]f32,
+    time:   f32,        // 32 bytes total — matches GLSL Ray in std430
 }
 
-// GPUSphere packs a sphere and its material into 48 bytes.
+// GPUSphere mirrors the GLSL `Sphere` struct under std430 layout (80 bytes).
 //
-// albedo stores reflectance for Lambertian and Metallic.
-// For Dielectric albedo is {1,1,1} (fully white, no colour absorption).
-// fuzz_or_ior carries fuzz radius for Metallic, IOR for Dielectric.
+// GLSL vec3 albedo requires 16-byte alignment, so 12 bytes of padding are
+// needed after radius (which ends at offset 36) to advance to offset 48.
+// Without _pad_r the CPU layout (64 bytes) diverges from the GPU (80 bytes),
+// corrupting albedo, mat_type, fuzz_or_ior, and _pad reads on the GPU.
 //
-// Extensibility note:
-//   _pad[3] reserves space for three future f32 fields, e.g.
-//     _pad[0] = texture_id (cast to f32 or add a second i32 field)
-//     _pad[1] = emission_strength for emissive materials
-//   No GLSL changes required when adding fields within the existing 48 bytes.
+// Field offsets (must match raytrace.comp Sphere struct exactly):
+//   center (GPURay)  : 0  – 31  (32 bytes)
+//   radius           : 32 – 35  (4 bytes)
+//   _pad_r[3]        : 36 – 47  (12 bytes, padding before vec3 albedo)
+//   albedo           : 48 – 59  (12 bytes)
+//   mat_type         : 60 – 63  (4 bytes)
+//   fuzz_or_ior      : 64 – 67  (4 bytes)
+//   _pad[3]          : 68 – 79  (12 bytes; _pad[0] = is_moving flag)
 GPUSphere :: struct #packed {
     center:      GPURay,
     radius:      f32,
+    _pad_r:      [3]f32,   // padding: align albedo (vec3) to 16-byte boundary
     albedo:      [3]f32,
     mat_type:    i32,
     fuzz_or_ior: f32,
-    _pad:        [3]f32,   // reserved for future material params / texture_id
+    _pad:        [3]f32,   // _pad[0] = is_moving flag (1.0=moving, 0.0=static)
 }
 
 // GPUCameraUniforms is uploaded as a UBO (std140).
