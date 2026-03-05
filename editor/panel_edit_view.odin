@@ -104,6 +104,7 @@ EditViewState :: struct {
 	cam_drag_start_hit_xz: [2]f32,   // world XZ under cursor at drag start
 	cam_drag_start_lookfrom: rl.Vector3, // render cam lookfrom captured at drag start
 	cam_drag_start_lookat:   rl.Vector3, // render cam lookat  captured at drag start
+	cam_drag_before_params: core.CameraParams, // full camera at drag start (for undo)
 
 	// Camera rotation ring drag: 1=yaw ring, 0=pitch ring, -1=none
 	cam_rot_drag_axis:    int,
@@ -781,6 +782,11 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	//   axis 2 = Z ring → rotate around {0,0,1}
 	if ev.cam_rot_drag_axis >= 0 {
 		if !lmb {
+			edit_history_push(&app.edit_history, ModifyCameraAction{
+				before = ev.cam_drag_before_params,
+				after  = app.c_camera_params,
+			})
+			mark_scene_dirty(app)
 			ev.cam_rot_drag_axis = -1
 			rl.SetMouseCursor(.DEFAULT)
 			app.r_render_pending = true
@@ -810,6 +816,11 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// ── Priority B: camera body drag in viewport (XZ plane) ──────────────
 	if ev.cam_drag_active {
 		if !lmb {
+			edit_history_push(&app.edit_history, ModifyCameraAction{
+				before = ev.cam_drag_before_params,
+				after  = app.c_camera_params,
+			})
+			mark_scene_dirty(app)
 			ev.cam_drag_active = false
 			app.r_render_pending = true
 		} else {
@@ -830,6 +841,11 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	// ── Priority C: camera property-field drag ────────────────────────────
 	if ev.cam_prop_drag_idx >= 0 {
 		if !lmb {
+			edit_history_push(&app.edit_history, ModifyCameraAction{
+				before = ev.cam_drag_before_params,
+				after  = app.c_camera_params,
+			})
+			mark_scene_dirty(app)
 			ev.cam_prop_drag_idx = -1
 			rl.SetMouseCursor(.DEFAULT)
 			app.r_render_pending = true
@@ -973,9 +989,15 @@ OrderedRemove(ev.scene_mgr, del_idx)
 		}
 		if rl.CheckCollisionPointRec(mouse, btn_fromview) {
 			// Sync editor orbit camera → render camera (lookfrom/lookat only; preserve vup/roll)
+			before := app.c_camera_params
 			lookfrom, lookat := get_orbit_camera_pose(ev)
 			app.c_camera_params.lookfrom = lookfrom
 			app.c_camera_params.lookat   = lookat
+			edit_history_push(&app.edit_history, ModifyCameraAction{
+				before = before,
+				after  = app.c_camera_params,
+			})
+			mark_scene_dirty(app)
 			app.r_render_pending = true
 			if g_app != nil { g_app.input_consumed = true }
 			return
@@ -1032,6 +1054,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 				any_hovered = true
 				if lmb_pressed {
 					cp := &app.c_camera_params
+					ev.cam_drag_before_params   = app.c_camera_params
 					ev.cam_prop_drag_idx       = i
 					ev.cam_prop_drag_start_x   = mouse.x
 					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
@@ -1138,9 +1161,10 @@ OrderedRemove(ev.scene_mgr, del_idx)
 				ring := pick_rotation_ring(mouse, vp_offset, cam_pos_v3, ev.cam3d)
 				if ring >= 0 {
 					// Start ring drag — record render cam start pose
-					ev.cam_rot_drag_axis      = ring
-					ev.cam_rot_drag_start_x   = mouse.x
-					ev.cam_rot_drag_start_y   = mouse.y
+					ev.cam_drag_before_params  = app.c_camera_params
+					ev.cam_rot_drag_axis       = ring
+					ev.cam_rot_drag_start_x     = mouse.x
+					ev.cam_rot_drag_start_y     = mouse.y
 					cp := &app.c_camera_params
 					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
 					ev.cam_drag_start_lookat   = {cp.lookat[0],   cp.lookat[1],   cp.lookat[2]}
@@ -1148,6 +1172,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 				} else if pick_camera(ray, cam_lookfrom) {
 					// Start camera body drag — translate render camera in XZ
 					cp := &app.c_camera_params
+					ev.cam_drag_before_params  = app.c_camera_params
 					ev.cam_drag_active         = true
 					ev.cam_drag_plane_y        = cam_pos_v3.y
 					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
@@ -1190,6 +1215,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 					}
 				} else if pick_camera(ray, cam_lookfrom) {
 					cp := &app.c_camera_params
+					ev.cam_drag_before_params  = app.c_camera_params
 					ev.selection_kind          = .Camera
 					ev.selected_idx            = -1
 					ev.cam_drag_active         = true

@@ -44,6 +44,7 @@ save_file_dialog :: proc(default_dir: string, default_name: string, filter_desc:
 }
 
 // _trim_output strips trailing newline and whitespace from process stdout.
+// Returns a string view into buf's backing memory (not owned); valid only while buf is valid. Callers that need to keep the result must clone it.
 @(private)
 _trim_output :: proc(buf: []u8) -> string {
 	s := string(buf)
@@ -61,12 +62,18 @@ when ODIN_OS == .Linux {
 		append(&args, "zenity", "--file-selection", fmt.tprintf("--title=%s", title))
 		if save {
 			append(&args, "--save")
-			if len(default_name) > 0 {
-				append(&args, fmt.tprintf("--filename=%s", default_name))
-			}
 		}
-		if len(default_dir) > 0 {
-			append(&args, fmt.tprintf("--filename=%s/", default_dir))
+		// Single --filename: combine default_dir and default_name so both initial folder and suggested name apply
+		if len(default_dir) > 0 || len(default_name) > 0 {
+			initial: string
+			if len(default_dir) > 0 && len(default_name) > 0 {
+				initial = fmt.tprintf("%s/%s", default_dir, default_name)
+			} else if len(default_dir) > 0 {
+				initial = fmt.tprintf("%s/", default_dir)
+			} else {
+				initial = default_name
+			}
+			append(&args, fmt.tprintf("--filename=%s", initial))
 		}
 		filter := strings.concatenate({filter_desc, " | *.", filter_ext}, context.temp_allocator)
 		append(&args, fmt.tprintf("--file-filter=%s", filter))

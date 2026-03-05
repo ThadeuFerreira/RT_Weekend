@@ -44,7 +44,8 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     app_push_log(app, strings.clone("New scene (3 default spheres)"))
 }
 
-FILE_MODAL_FALLBACK :: #config(FILE_MODAL_FALLBACK, false) // When true, show text path modal if native dialog unavailable
+// Single definition for fallback to text path modal when native dialog is unavailable. All when FILE_MODAL_FALLBACK branches live in this file. If another module needs this flag, move it to a shared build/config module.
+FILE_MODAL_FALLBACK :: #config(FILE_MODAL_FALLBACK, false)
 
 cmd_action_file_import :: proc(app: ^App) {
     if app.e_scene_dirty {
@@ -293,12 +294,14 @@ apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
 cmd_action_undo :: proc(app: ^App) {
     if action, ok := edit_history_undo(&app.edit_history); ok {
         apply_edit_action(app, action, true)
+        mark_scene_dirty(app)
     }
 }
 
 cmd_action_redo :: proc(app: ^App) {
     if action, ok := edit_history_redo(&app.edit_history); ok {
         apply_edit_action(app, action, false)
+        mark_scene_dirty(app)
     }
 }
 
