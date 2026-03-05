@@ -147,6 +147,19 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
                     profile.sample_background_pct, profile.sample_pixel_setup_pct), x, y, fs, CONTENT_TEXT_COLOR)
                 y += line_h
             }
+            // GPU dispatch / readback timing (only shown in GPU mode).
+            if session != nil && session.use_gpu {
+                if profile.gpu_dispatch_seconds > 0 {
+                    if y >= content_bottom { return }
+                    draw_ui_text(app, fmt.ctprintf("  GPU Dispatch: %.2fs", profile.gpu_dispatch_seconds), x, y, fs, CONTENT_TEXT_COLOR)
+                    y += line_h
+                }
+                if profile.gpu_readback_seconds > 0 {
+                    if y >= content_bottom { return }
+                    draw_ui_text(app, fmt.ctprintf("  GPU Readback: %.2fs", profile.gpu_readback_seconds), x, y, fs, CONTENT_TEXT_COLOR)
+                    y += line_h
+                }
+            }
         }
     }
 }

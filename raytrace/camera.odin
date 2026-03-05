@@ -344,7 +344,11 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
     bvh_trace := util.trace_scope_begin("Render.BVH", "render")
     session.timing.bvh_construction = start_timer()
     world_slice := world[:]
-    session.bvh_root = build_bvh(world_slice)
+    when USE_SAH_BVH {
+        session.bvh_root = build_bvh_sah(world_slice)
+    } else {
+        session.bvh_root = build_bvh(world_slice)
+    }
     // Build the flat linear BVH from the recursive tree.
     // Workers use bvh_hit_linear (iterative) instead of bvh_hit (recursive).
     session.linear_bvh = flatten_bvh(session.bvh_root, world_slice)
@@ -445,6 +449,10 @@ finish_render :: proc(session: ^RenderSession) {
         aggregate_into_summary(&session.timing, nil, &session.last_profile)
         // GPU path: only buffer_creation and bvh_construction were timed in start_render_auto; other phases stay zero.
         if session.gpu_renderer != nil {
+            // Extract accumulated dispatch/readback timing before destroying.
+            disp_ns, read_ns := gpu_renderer_get_timings(session.gpu_renderer)
+            session.last_profile.gpu_dispatch_seconds = f64(disp_ns) / 1e9
+            session.last_profile.gpu_readback_seconds = f64(read_ns) / 1e9
             gpu_renderer_destroy(session.gpu_renderer)
             session.gpu_renderer = nil
         }
@@ -593,8 +601,12 @@ start_render_auto :: proc(
 
     bvh_trace := util.trace_scope_begin("Render.BVH", "render")
     session.timing.bvh_construction = start_timer()
-    world_slice       := world[:]
-    session.bvh_root   = build_bvh(world_slice)
+    world_slice := world[:]
+    when USE_SAH_BVH {
+        session.bvh_root = build_bvh_sah(world_slice)
+    } else {
+        session.bvh_root = build_bvh(world_slice)
+    }
     session.linear_bvh = flatten_bvh(session.bvh_root, world_slice)
     stop_timer(&session.timing.bvh_construction)
     util.trace_scope_end(bvh_trace)

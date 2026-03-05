@@ -13,6 +13,7 @@ GpuRendererApi :: struct {
     readback:    proc "odin" (state: rawptr, out: [][4]u8),
     destroy:     proc "odin" (state: rawptr),
     get_samples: proc "odin" (state: rawptr) -> (int, int),
+    get_timings: proc "odin" (state: rawptr) -> (i64, i64),  // dispatch_ns, readback_ns
 }
 
 GpuRenderer :: struct {
@@ -26,6 +27,10 @@ gpu_renderer_readback    :: proc(r: ^GpuRenderer, out: [][4]u8) { r.api.readback
 gpu_renderer_destroy     :: proc(r: ^GpuRenderer) { r.api.destroy(r.state); free(r) }
 gpu_renderer_get_samples :: proc(r: ^GpuRenderer) -> (cur: int, tot: int) {
     return r.api.get_samples(r.state)
+}
+gpu_renderer_get_timings :: proc(r: ^GpuRenderer) -> (disp_ns: i64, read_ns: i64) {
+    if r.api.get_timings != nil { return r.api.get_timings(r.state) }
+    return 0, 0
 }
 gpu_renderer_done :: proc(r: ^GpuRenderer) -> bool {
     cur, tot := r.api.get_samples(r.state)
