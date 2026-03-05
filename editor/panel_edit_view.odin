@@ -104,7 +104,9 @@ EditViewState :: struct {
 	cam_drag_start_hit_xz: [2]f32,   // world XZ under cursor at drag start
 	cam_drag_start_lookfrom: rl.Vector3, // render cam lookfrom captured at drag start
 	cam_drag_start_lookat:   rl.Vector3, // render cam lookat  captured at drag start
-	cam_drag_before_params: core.CameraParams, // full camera at drag start (for undo)
+	// Shared across all three mutually exclusive camera drag types (body, rot ring, prop strip):
+	// captures the full camera state at drag start so the undo action has a valid "before".
+	cam_drag_before_params: core.CameraParams,
 
 	// Camera rotation ring drag: 1=yaw ring, 0=pitch ring, -1=none
 	cam_rot_drag_axis:    int,

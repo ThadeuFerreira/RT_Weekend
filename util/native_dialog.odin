@@ -161,6 +161,8 @@ dialog_default_dir :: proc(current_file_path: string, allocator := context.alloc
 			return dir
 		}
 	}
-	cwd := filepath.clean(os.get_current_directory(), context.temp_allocator)
+	cwd_raw := os.get_current_directory()
+	defer delete(cwd_raw)
+	cwd := filepath.clean(cwd_raw, context.temp_allocator)
 	return strings.concatenate({cwd, "/scenes"}, allocator)
 }

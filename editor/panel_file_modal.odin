@@ -145,9 +145,16 @@ file_import_from_path :: proc(app: ^App, path: string) {
 }
 
 // file_save_as_path saves the current scene to path. Takes ownership of path (caller must not delete).
-// Returns true on success, false on empty path or write failure.
+// Appends ".json" if the path lacks that extension. Returns true on success, false on empty path or write failure.
 file_save_as_path :: proc(app: ^App, path: string) -> bool {
     if len(path) == 0 { return false }
+    // Ensure .json extension — dialogs on Linux/macOS don't auto-append.
+    path := path
+    if !strings.has_suffix(path, ".json") {
+        new_path := strings.concatenate({path, ".json"})
+        delete(path)
+        path = new_path
+    }
     ev := &app.e_edit_view
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := rt.build_world_from_scene(ev.export_scratch[:])
@@ -175,9 +182,11 @@ file_modal_confirm :: proc(app: ^App) {
 
     switch modal.mode {
     case .Import:
-        if len(text) > 0 { file_import_from_path(app, text) }
+        if len(text) == 0 { delete(text); return }
+        file_import_from_path(app, text)
     case .SaveAs:
-        if len(text) > 0 { file_save_as_path(app, text) }
+        if len(text) == 0 { delete(text); return }
+        file_save_as_path(app, text)
     case .PresetName:
         if len(text) == 0 { delete(text); return }
         layout_save_named_preset(app, text)
