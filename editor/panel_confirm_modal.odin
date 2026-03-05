@@ -310,14 +310,6 @@ confirm_load_modal_draw :: proc(app: ^App) {
     draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 6, i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
 }
 
-// load_example_scene_direct loads the example scene at scene_idx without showing a dialog. Call when scene is not dirty.
-load_example_scene_direct :: proc(app: ^App, scene_idx: int) {
-    if !app.finished { return }
-    label := EXAMPLE_SCENES[scene_idx].label
-    _load_example_at(app, scene_idx, false)
-    app_push_log(app, fmt.aprintf("Loaded example: %s", label))
-}
-
 @(private="file")
 _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     if save_first {
