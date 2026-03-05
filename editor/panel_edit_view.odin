@@ -743,6 +743,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 							ev.selected_idx   = new_idx
 							if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
 								edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
+								mark_scene_dirty(app)
 								app_push_log(app, strings.clone("Add sphere"))
 							}
 							app.r_render_pending = true
@@ -750,6 +751,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 							del_idx := ev.ctx_menu_hit_idx
 							if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
 								edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+								mark_scene_dirty(app)
 								app_push_log(app, strings.clone("Delete sphere"))
 							}
 							OrderedRemove(ev.scene_mgr, del_idx)
@@ -908,6 +910,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 						before = ev.drag_before,
 						after  = sphere,
 					})
+					mark_scene_dirty(app)
 					app_push_log(app, strings.clone("Move sphere"))
 					app.r_render_pending = true
 				}
@@ -947,6 +950,7 @@ AppendDefaultSphere(ev.scene_mgr)
 			// Record add in history
 			if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
 				edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
+				mark_scene_dirty(app)
 				app_push_log(app, strings.clone("Add sphere"))
 			}
 			app.r_render_pending = true
@@ -958,6 +962,7 @@ AppendDefaultSphere(ev.scene_mgr)
 			del_idx := ev.selected_idx
 			if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
 				edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+				mark_scene_dirty(app)
 				app_push_log(app, strings.clone("Delete sphere"))
 			}
 OrderedRemove(ev.scene_mgr, del_idx)
@@ -1249,6 +1254,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 					before = ev.nudge_before,
 					after  = sphere,
 				})
+				mark_scene_dirty(app)
 				app_push_log(app, strings.clone("Nudge sphere"))
 				app.r_render_pending = true
 			}

@@ -40,12 +40,17 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    app.e_scene_dirty = false
     app_push_log(app, strings.clone("New scene (3 default spheres)"))
 }
 
 FILE_MODAL_FALLBACK :: #config(FILE_MODAL_FALLBACK, false) // When true, show text path modal if native dialog unavailable
 
 cmd_action_file_import :: proc(app: ^App) {
+    if app.e_scene_dirty {
+        save_changes_modal_open(&app.e_save_changes, .Import)
+        return
+    }
     default_dir := util.dialog_default_dir(app.current_scene_path)
     path, ok := util.open_file_dialog(default_dir, util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
     delete(default_dir)
@@ -66,6 +71,7 @@ ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(app.current_scene_path, app.r_camera, world) {
+        app.e_scene_dirty = false
         app_push_log(app, fmt.aprintf("Saved: %s", app.current_scene_path))
     } else {
         app_push_log(app, fmt.aprintf("Save failed: %s", app.current_scene_path))
@@ -90,7 +96,11 @@ cmd_action_file_save_as :: proc(app: ^App) {
 }
 
 cmd_action_file_exit :: proc(app: ^App) {
-    app.should_exit = true
+    if app.e_scene_dirty {
+        save_changes_modal_open(&app.e_save_changes, .Exit)
+    } else {
+        app.should_exit = true
+    }
 }
 
 // ── View panel toggle actions (concrete named procs — avoids loop-closure pitfall) ─
@@ -319,6 +329,7 @@ cmd_action_paste :: proc(app: ^App) {
     ev.selection_kind = .Sphere
     ev.selected_idx   = insert_idx
     edit_history_push(&app.edit_history, AddSphereAction{idx = insert_idx, sphere = sphere})
+    mark_scene_dirty(app)
     app_push_log(app, strings.clone("Pasted sphere"))
 }
 
@@ -338,6 +349,7 @@ cmd_action_duplicate :: proc(app: ^App) {
     ev.selection_kind = .Sphere
     ev.selected_idx   = insert_idx
     edit_history_push(&app.edit_history, AddSphereAction{idx = insert_idx, sphere = sphere})
+    mark_scene_dirty(app)
     app_push_log(app, strings.clone("Duplicated sphere"))
 }
 
@@ -348,7 +360,11 @@ cmd_enabled_duplicate :: proc(app: ^App) -> bool {
 // ── Example scene actions ────────────────────────────────────────────────────
 
 cmd_action_scene_load_example :: proc(app: ^App) {
-    confirm_load_modal_open(&app.e_confirm_load, app.e_confirm_load.scene_idx)
+    if app.e_scene_dirty {
+        confirm_load_modal_open(&app.e_confirm_load, app.e_confirm_load.scene_idx)
+    } else {
+        load_example_scene_direct(app, app.e_confirm_load.scene_idx)
+    }
 }
 
 // ── register_all_commands ────────────────────────────────────────────────────

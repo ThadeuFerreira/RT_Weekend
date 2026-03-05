@@ -273,6 +273,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 					before = st.drag_before_c_camera_params,
 					after  = app.c_camera_params,
 				})
+				mark_scene_dirty(app)
 				app_push_log(app, strings.clone("Camera property"))
 				st.prop_drag_idx = -1
 				rl.SetMouseCursor(.DEFAULT)
@@ -346,6 +347,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 					before = st.drag_before_sphere,
 					after  = s_after,
 				})
+				mark_scene_dirty(app)
 				app_push_log(app, strings.clone("Sphere property"))
 			}
 			st.prop_drag_idx = -1
@@ -383,6 +385,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			sphere.material_kind = .Lambertian
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+			mark_scene_dirty(app)
 			app_push_log(app, strings.clone("Material: Lambertian"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
@@ -393,6 +396,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			sphere.material_kind = .Metallic
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+			mark_scene_dirty(app)
 			app_push_log(app, strings.clone("Material: Metallic"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
@@ -403,6 +407,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			if sphere.ref_idx < 1.0 { sphere.ref_idx = 1.5 }
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+			mark_scene_dirty(app)
 			app_push_log(app, strings.clone("Material: Dielectric"))
 			if g_app != nil { g_app.input_consumed = true }
 			return

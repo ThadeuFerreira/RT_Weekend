@@ -5,6 +5,175 @@ import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
+import "RT_Weekend:util"
+
+// Save Changes? modal (exit or import when scene is dirty)
+SaveChangesReason :: enum { None, Exit, Import }
+SaveChangesModalState :: struct {
+    active: bool,
+    reason: SaveChangesReason,
+}
+
+// User choice: Save (overwrite), Save As (pick path), Cancel, Continue (discard)
+SaveChangesChoice :: enum { Save, Save_As, Cancel, Continue }
+
+save_changes_modal_open :: proc(modal: ^SaveChangesModalState, reason: SaveChangesReason) {
+    modal.active = true
+    modal.reason = reason
+}
+
+@(private="file")
+save_changes_button_rects :: proc(dx, dy, dialog_w, dialog_h: f32) -> (btn_save, btn_save_as, btn_cancel, btn_continue: rl.Rectangle) {
+    by := dy + dialog_h - 34
+    btn_save     = rl.Rectangle{dx + 12,         by, 55,  24}
+    btn_save_as  = rl.Rectangle{dx + 12 + 63,   by, 65,  24}
+    btn_cancel   = rl.Rectangle{dx + 12 + 136,  by, 58,  24}
+    btn_continue = rl.Rectangle{dx + 12 + 202, by, 70,  24}
+    return
+}
+
+@(private="file")
+save_changes_do_action :: proc(app: ^App, reason: SaveChangesReason) {
+    switch reason {
+    case .Exit:
+        app.should_exit = true
+    case .Import:
+        default_dir := util.dialog_default_dir(app.current_scene_path)
+        path, ok := util.open_file_dialog(default_dir, util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+        delete(default_dir)
+        if ok {
+            file_import_from_path(app, path)
+        }
+    case .None:
+        break
+    }
+}
+
+save_changes_modal_update :: proc(app: ^App) {
+    modal := &app.e_save_changes
+    if !modal.active { return }
+
+    app.input_consumed = true
+
+    if rl.IsKeyPressed(.ESCAPE) {
+        save_changes_modal_apply(app, .Cancel)
+        return
+    }
+    if rl.IsKeyPressed(.ENTER) {
+        // Enter = Save if path exists, else Continue
+        if len(app.current_scene_path) > 0 {
+            save_changes_modal_apply(app, .Save)
+        } else {
+            save_changes_modal_apply(app, .Continue)
+        }
+        return
+    }
+
+    if rl.IsMouseButtonPressed(.LEFT) {
+        sw := f32(rl.GetScreenWidth())
+        sh := f32(rl.GetScreenHeight())
+        dialog_w := f32(460)
+        dialog_h := f32(140)
+        dx := (sw - dialog_w) * 0.5
+        dy := (sh - dialog_h) * 0.5
+        btn_save, btn_save_as, btn_cancel, btn_continue := save_changes_button_rects(dx, dy, dialog_w, dialog_h)
+        mouse := rl.GetMousePosition()
+        save_enabled := len(app.current_scene_path) > 0
+        if save_enabled && rl.CheckCollisionPointRec(mouse, btn_save) {
+            save_changes_modal_apply(app, .Save)
+        } else if rl.CheckCollisionPointRec(mouse, btn_save_as) {
+            save_changes_modal_apply(app, .Save_As)
+        } else if rl.CheckCollisionPointRec(mouse, btn_cancel) {
+            save_changes_modal_apply(app, .Cancel)
+        } else if rl.CheckCollisionPointRec(mouse, btn_continue) {
+            save_changes_modal_apply(app, .Continue)
+        }
+    }
+}
+
+@(private="file")
+save_changes_modal_apply :: proc(app: ^App, choice: SaveChangesChoice) {
+    modal := &app.e_save_changes
+    reason := modal.reason
+    modal.active = false
+    modal.reason = .None
+
+    switch choice {
+    case .Cancel:
+        return
+    case .Save:
+        if len(app.current_scene_path) > 0 {
+            cmd_action_file_save(app)
+        }
+        save_changes_do_action(app, reason)
+    case .Save_As:
+        default_dir := util.dialog_default_dir(app.current_scene_path)
+        path, ok := util.save_file_dialog(default_dir, "scene.json", util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+        delete(default_dir)
+        if !ok { return } // user cancelled; modal already closed
+        file_save_as_path(app, path)
+        save_changes_do_action(app, reason)
+    case .Continue:
+        save_changes_do_action(app, reason)
+    }
+}
+
+save_changes_modal_draw :: proc(app: ^App) {
+    modal := &app.e_save_changes
+    if !modal.active { return }
+
+    sw := f32(rl.GetScreenWidth())
+    sh := f32(rl.GetScreenHeight())
+    dialog_w := f32(460)
+    dialog_h := f32(140)
+    dx := (sw - dialog_w) * 0.5
+    dy := (sh - dialog_h) * 0.5
+    dialog_rect := rl.Rectangle{dx, dy, dialog_w, dialog_h}
+
+    rl.DrawRectangle(0, 0, i32(sw), i32(sh), rl.Color{0, 0, 0, 160})
+    rl.DrawRectangleRec(dialog_rect, PANEL_BG_COLOR)
+    rl.DrawRectangleLinesEx(dialog_rect, 1, BORDER_COLOR)
+    rl.DrawRectangleRec(rl.Rectangle{dx, dy, dialog_w, TITLE_BAR_HEIGHT}, TITLE_BG_COLOR)
+    draw_ui_text(app, "Save Changes?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
+    if modal.reason == .Exit {
+        draw_ui_text(app, "Save before closing?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
+    } else {
+        draw_ui_text(app, "Save before loading another scene?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
+    }
+
+    btn_save, btn_save_as, btn_cancel, btn_continue := save_changes_button_rects(dx, dy, dialog_w, dialog_h)
+    mouse := rl.GetMousePosition()
+    save_enabled := len(app.current_scene_path) > 0
+    save_hov     := save_enabled && rl.CheckCollisionPointRec(mouse, btn_save)
+    save_as_hov  := rl.CheckCollisionPointRec(mouse, btn_save_as)
+    cancel_hov   := rl.CheckCollisionPointRec(mouse, btn_cancel)
+    continue_hov := rl.CheckCollisionPointRec(mouse, btn_continue)
+
+    save_bg: rl.Color
+    if !save_enabled {
+        save_bg = rl.Color{40, 60, 40, 130}
+    } else if save_hov {
+        save_bg = rl.Color{80, 160, 80, 255}
+    } else {
+        save_bg = rl.Color{55, 110, 55, 255}
+    }
+    rl.DrawRectangleRec(btn_save, save_bg)
+    rl.DrawRectangleRec(btn_save_as,  save_as_hov  ? rl.Color{80, 160, 80, 255} : rl.Color{55, 110, 55, 255})
+    rl.DrawRectangleRec(btn_cancel,   cancel_hov   ? rl.Color{160, 60, 60, 255} : rl.Color{110, 40, 40, 255})
+    rl.DrawRectangleRec(btn_continue, continue_hov ? rl.Color{80, 120, 200, 255} : rl.Color{55, 80, 160, 255})
+    rl.DrawRectangleLinesEx(btn_save, 1, BORDER_COLOR)
+    rl.DrawRectangleLinesEx(btn_save_as, 1, BORDER_COLOR)
+    rl.DrawRectangleLinesEx(btn_cancel, 1, BORDER_COLOR)
+    rl.DrawRectangleLinesEx(btn_continue, 1, BORDER_COLOR)
+
+    save_label_col := save_enabled ? rl.RAYWHITE : rl.Color{160, 160, 160, 120}
+    draw_ui_text(app, "Save",    i32(btn_save.x) + 14,     i32(btn_save.y) + 4, 12, save_label_col)
+    draw_ui_text(app, "Save As", i32(btn_save_as.x) + 8,   i32(btn_save_as.y) + 4, 12, rl.RAYWHITE)
+    draw_ui_text(app, "Cancel",  i32(btn_cancel.x) + 8,    i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
+    draw_ui_text(app, "Continue", i32(btn_continue.x) + 4, i32(btn_continue.y) + 4, 12, rl.RAYWHITE)
+}
+
+// --- Load Example Scene confirmation ---
 
 ConfirmLoadModalState :: struct {
     active:      bool,
@@ -44,7 +213,8 @@ confirm_load_modal_update :: proc(app: ^App) {
 
         btn_save_load, btn_load, btn_cancel := confirm_button_rects(dx, dy, dialog_w, dialog_h)
         mouse := rl.GetMousePosition()
-        save_enabled := len(app.current_scene_path) > 0
+        // Save & Load always enabled when modal is shown (dirty); use Save As if no path yet
+        save_enabled := true
 
         if save_enabled && rl.CheckCollisionPointRec(mouse, btn_save_load) {
             confirm_load_execute(app, true)
@@ -95,9 +265,9 @@ confirm_load_modal_draw :: proc(app: ^App) {
     draw_ui_text(app, line1, i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
     draw_ui_text(app, "This cannot be undone.", i32(dx) + 12, i32(dy) + 54, 12, CONTENT_TEXT_COLOR)
 
-    // Buttons
+    // Buttons (Save & Load always enabled when modal shown — user can save with custom name via Save As)
     mouse := rl.GetMousePosition()
-    save_enabled := len(app.current_scene_path) > 0
+    save_enabled := true
     btn_save_load, btn_load, btn_cancel := confirm_button_rects(dx, dy, dialog_w, dialog_h)
 
     // [Save & Load]
@@ -130,48 +300,61 @@ confirm_load_modal_draw :: proc(app: ^App) {
     draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 6, i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
 }
 
-@(private="file")
-confirm_load_execute :: proc(app: ^App, save_first: bool) {
-    modal := &app.e_confirm_load
+// load_example_scene_direct loads the example scene at scene_idx without showing a dialog. Call when scene is not dirty.
+load_example_scene_direct :: proc(app: ^App, scene_idx: int) {
     if !app.finished { return }
+    label := EXAMPLE_SCENES[scene_idx].label
+    _load_example_at(app, scene_idx, false)
+    app_push_log(app, fmt.aprintf("Loaded example: %s", label))
+}
 
+@(private="file")
+_load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     if save_first {
-        cmd_action_file_save(app)
+        if len(app.current_scene_path) > 0 {
+            cmd_action_file_save(app)
+        } else {
+            // No path yet (e.g. modified example): open Save As so user can save with custom name
+            default_dir := util.dialog_default_dir(app.current_scene_path)
+            path, ok := util.save_file_dialog(default_dir, "scene.json", util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+            delete(default_dir)
+            if !ok { return false } // user cancelled save dialog, don't load
+            file_save_as_path(app, path)
+        }
     }
-
-    spheres, cam := EXAMPLE_SCENES[modal.scene_idx].build()
+    spheres, cam := EXAMPLE_SCENES[scene_idx].build()
     defer delete(spheres)
-
     ev := &app.e_edit_view
     LoadFromSceneSpheres(ev.scene_mgr, spheres)
     ev.selection_kind = .None
     ev.selected_idx   = -1
-
     app.c_camera_params = cam
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-
     delete(app.current_scene_path)
     app.current_scene_path = ""
-
     edit_history_free(&app.edit_history)
     app.edit_history = EditHistory{}
-
     app.e_scene_dirty = false
-
     rt.free_session(app.r_session)
     app.r_session = nil
-
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
     app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
-
     app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
-
     rt.init_camera(app.r_camera)
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
-    app_push_log(app, fmt.aprintf("Loaded example: %s", modal.scene_label))
+    return true
+}
 
-    modal.active = false
+@(private="file")
+confirm_load_execute :: proc(app: ^App, save_first: bool) {
+    modal := &app.e_confirm_load
+    if !app.finished { return }
+    if _load_example_at(app, modal.scene_idx, save_first) {
+        app_push_log(app, fmt.aprintf("Loaded example: %s", modal.scene_label))
+        modal.active = false
+    }
+    // If _load_example_at returned false, user cancelled Save As dialog; keep modal open
 }

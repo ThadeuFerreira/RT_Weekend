@@ -119,6 +119,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
 
     delete(app.current_scene_path)
     app.current_scene_path = path
+    app.e_scene_dirty = false
 
     if !app.finished {
         rt.finish_render(app.r_session)
@@ -151,6 +152,7 @@ file_save_as_path :: proc(app: ^App, path: string) {
     if persistence.save_scene(path, app.r_camera, world) {
         delete(app.current_scene_path)
         app.current_scene_path = path
+        app.e_scene_dirty = false
         app_push_log(app, fmt.aprintf("Saved as: %s", path))
     } else {
         app_push_log(app, fmt.aprintf("Save failed: %s", path))
