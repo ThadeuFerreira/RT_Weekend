@@ -15,6 +15,8 @@ SceneCamera :: struct {
 	defocus_angle: f32   `json:"defocus_angle,omitempty"`,
 	focus_dist:    f32   `json:"focus_dist,omitempty"`,
 	max_depth:     int   `json:"max_depth,omitempty"`,
+	shutter_open:  f32   `json:"shutter_open,omitempty"`,
+	shutter_close: f32   `json:"shutter_close,omitempty"`,
 }
 
 SceneMaterial :: struct {
@@ -27,8 +29,10 @@ SceneMaterial :: struct {
 SceneObject :: struct {
 	object_type: string        `json:"type"`,
 	center:      [3]f32        `json:"center"`,
+	center1:     [3]f32        `json:"center1,omitempty"`, // end position for motion blur (t=1)
 	radius:      f32           `json:"radius"`,
 	material:    SceneMaterial `json:"material"`,
+	is_moving:   bool          `json:"is_moving,omitempty"`,
 }
 
 SceneFile :: struct {
@@ -83,6 +87,10 @@ load_scene :: proc(
 	if scene.camera.max_depth > 0 {
 		cam.max_depth = scene.camera.max_depth
 	}
+	if scene.camera.shutter_close > scene.camera.shutter_open {
+		cam.shutter_open = scene.camera.shutter_open
+		cam.shutter_close = scene.camera.shutter_close
+	}
 	rt.init_camera(cam)
 
 	cap_val := 0
@@ -95,7 +103,17 @@ load_scene :: proc(
 			mat := scene_material_to_material(&obj.material)
 			switch obj.object_type {
 			case "sphere":
-				append(&world, rt.Sphere{center = obj.center, radius = obj.radius, material = mat})
+				center1 := obj.center1
+				if !obj.is_moving {
+					center1 = obj.center
+				}
+				append(&world, rt.Sphere{
+					center    = obj.center,
+					center1   = center1,
+					radius    = obj.radius,
+					material  = mat,
+					is_moving = obj.is_moving,
+				})
 			case "cube":
 				append(&world, rt.Cube{center = obj.center, radius = obj.radius, material = mat})
 			case:
@@ -136,6 +154,8 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 			defocus_angle = r_camera.defocus_angle,
 			focus_dist    = r_camera.focus_dist,
 			max_depth     = r_camera.max_depth,
+			shutter_open  = r_camera.shutter_open,
+			shutter_close = r_camera.shutter_close,
 		},
 		objects = make([dynamic]SceneObject),
 	}
@@ -147,8 +167,10 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 			append(&scene.objects, SceneObject{
 				object_type = "sphere",
 				center      = o.center,
+				center1     = o.center1,
 				radius      = o.radius,
 				material    = material_to_scene_material(o.material),
+				is_moving   = o.is_moving,
 			})
 		case rt.Cube:
 			append(&scene.objects, SceneObject{

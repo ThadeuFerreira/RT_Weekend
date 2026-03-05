@@ -37,9 +37,9 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 | `panel_log.odin` | Log |
 | `panel_system_info.odin` | System Info |
 | `panel_edit_view.odin` | Edit View |
-| `panel_camera.odin` | Camera |
+| `panel_camera.odin` | Camera (includes **shutter open/close** for motion blur). |
 | `panel_preview.odin` | Camera Preview Port |
-| `panel_obj_props.odin` | Object Properties |
+| `panel_obj_props.odin` | Object Properties (camera: shutter; sphere: **MOTION** section with **dX/dY/dZ** = center1 − center, undo/dirty on edit). |
 | `panel_file_modal.odin` | File modal (Preset Name; Import/Save As only with FILE_MODAL_FALLBACK). `file_import_from_path`, `file_save_as_path`. |
 | `panel_confirm_modal.odin` | Save Changes? (exit/import when dirty); Load Example confirmation. |
 
@@ -59,7 +59,7 @@ The Edit View has two camera concepts:
 
 1. **Orbit camera** — The 3D viewport camera. It **orbits** a target point using spherical coordinates: **yaw**, **pitch**, **orbit_distance**, **orbit_target**. The view direction is computed from these; the viewport always uses world up `(0, 1, 0)` (no roll). Updated by `update_orbit_camera(ev)`; pose for syncing to the renderer by `get_orbit_camera_pose(ev)` (returns only lookfrom/lookat; vup is left unchanged to preserve roll).
 
-2. **Render camera** — The path-tracer camera (`app.c_camera_params`: lookfrom, lookat, **vup**, vfov, …). **Roll** is stored only here, as **vup** (up vector). Yaw/pitch/distance are implicit in lookfrom/lookat. The property strip (when the camera is selected) edits this camera; roll is edited via the Roll field and is independent of yaw/pitch (each gimbal is independent).
+2. **Render camera** — The path-tracer camera (`app.c_camera_params`: lookfrom, lookat, **vup**, vfov, **shutter_open**, **shutter_close**, …). **Roll** is stored only here, as **vup** (up vector). Yaw/pitch/distance are implicit in lookfrom/lookat. The property strip (when the camera is selected) edits this camera, including shutter; roll is edited via the Roll field and is independent of yaw/pitch (each gimbal is independent).
 
 **Yaw** — Horizontal angle (radians) around world Y; 0 = -Z, increasing toward +X.  
 **Pitch** — Vertical angle (radians); clamped to ±π×0.45 to avoid gimbal lock at straight up/down.  

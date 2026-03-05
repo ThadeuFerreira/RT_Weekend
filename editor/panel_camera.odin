@@ -6,7 +6,7 @@ import "RT_Weekend:core"
 
 // CameraPanelState: camera panel drag state (which field is being dragged).
 CameraPanelState :: struct {
-	drag_idx:       int,   // 0..9: from_xyz, at_xyz, vfov, defocus, focus_dist, max_depth
+	drag_idx:       int,   // 0..11: from_xyz, at_xyz, vfov, defocus, focus_dist, max_depth, shutter_open, shutter_close
 	drag_start_x:   f32,
 	drag_start_val: f32,
 }
@@ -17,14 +17,14 @@ CAMERA_PROP_GAP :: f32(4)
 CAMERA_PROP_FW  :: f32(64)
 CAMERA_PROP_FH  :: f32(18)
 
-// camera_panel_field_rects returns 10 value-box rectangles for the camera panel content area.
-// [0,1,2]=lookfrom xyz, [3,4,5]=lookat xyz, [6]=vfov, [7]=defocus, [8]=focus_dist, [9]=max_depth
-camera_panel_field_rects :: proc(r: rl.Rectangle) -> [10]rl.Rectangle {
+// camera_panel_field_rects returns 12 value-box rectangles for the camera panel content area.
+// [0,1,2]=lookfrom xyz, [3,4,5]=lookat xyz, [6]=vfov, [7]=defocus, [8]=focus_dist, [9]=max_depth, [10,11]=shutter_open, shutter_close
+camera_panel_field_rects :: proc(r: rl.Rectangle) -> [12]rl.Rectangle {
 	x0 := r.x + 8
 	y0 := r.y + 8
 	off := CAMERA_PROP_LW + CAMERA_PROP_GAP + 25
 	row := CAMERA_PANEL_LINE_H
-	return [10]rl.Rectangle{
+	return [12]rl.Rectangle{
 		{x0 + off, y0 + 0*row,      CAMERA_PROP_FW, CAMERA_PROP_FH}, // from x
 		{x0 + off + 70, y0 + 0*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // from y
 		{x0 + off + 140, y0 + 0*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // from z
@@ -35,6 +35,8 @@ camera_panel_field_rects :: proc(r: rl.Rectangle) -> [10]rl.Rectangle {
 		{x0 + off, y0 + 3*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // defocus
 		{x0 + off, y0 + 4*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // focus_dist
 		{x0 + off, y0 + 5*row,      CAMERA_PROP_FW, CAMERA_PROP_FH}, // max_depth
+		{x0 + off, y0 + 6*row,      CAMERA_PROP_FW, CAMERA_PROP_FH}, // shutter_open
+		{x0 + off + 70, y0 + 6*row, CAMERA_PROP_FW, CAMERA_PROP_FH}, // shutter_close
 	}
 }
 
@@ -72,6 +74,7 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_ui_text(app, "Defocus", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
 	draw_ui_text(app, "Focus dist", i32(x0), i32(y0 + 4*row), fs, CONTENT_TEXT_COLOR)
 	draw_ui_text(app, "Max depth", i32(x0), i32(y0 + 5*row), fs, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, "Shutter", i32(x0), i32(y0 + 6*row), fs, CONTENT_TEXT_COLOR)
 
 	fields := camera_panel_field_rects(content)
 	draw_camera_panel_drag_field(app, "X", c_params.lookfrom[0], fields[0], e_cam.drag_idx == 0, mouse)
@@ -84,8 +87,10 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_camera_panel_drag_field(app, "", c_params.defocus_angle, fields[7], e_cam.drag_idx == 7, mouse)
 	draw_camera_panel_drag_field(app, "", c_params.focus_dist, fields[8], e_cam.drag_idx == 8, mouse)
 	draw_camera_panel_drag_field(app, "D", f32(c_params.max_depth), fields[9], e_cam.drag_idx == 9, mouse)
+	draw_camera_panel_drag_field(app, "Op", c_params.shutter_open, fields[10], e_cam.drag_idx == 10, mouse)
+	draw_camera_panel_drag_field(app, "Cl", c_params.shutter_close, fields[11], e_cam.drag_idx == 11, mouse)
 
-	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 6*row + 4), 10, rl.Color{120, 130, 148, 180})
+	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 7*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
@@ -120,6 +125,16 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				c_params.max_depth = int(e_cam.drag_start_val + delta * 0.5)
 				if c_params.max_depth < 1 { c_params.max_depth = 1 }
 				if c_params.max_depth > 100 { c_params.max_depth = 100 }
+			case 10:
+				c_params.shutter_open = e_cam.drag_start_val + delta * 0.005
+				if c_params.shutter_open < 0 { c_params.shutter_open = 0 }
+				if c_params.shutter_open > 1 { c_params.shutter_open = 1 }
+				if c_params.shutter_open > c_params.shutter_close { c_params.shutter_close = c_params.shutter_open }
+			case 11:
+				c_params.shutter_close = e_cam.drag_start_val + delta * 0.005
+				if c_params.shutter_close < 0 { c_params.shutter_close = 0 }
+				if c_params.shutter_close > 1 { c_params.shutter_close = 1 }
+				if c_params.shutter_close < c_params.shutter_open { c_params.shutter_open = c_params.shutter_close }
 			}
 		}
 		return
@@ -127,7 +142,7 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 
 	if lmb_pressed {
 		fields := camera_panel_field_rects(content)
-		for i in 0..<10 {
+		for i in 0..<12 {
 			if rl.CheckCollisionPointRec(mouse, fields[i]) {
 				e_cam.drag_idx = i
 				e_cam.drag_start_x = mouse.x
@@ -142,6 +157,8 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				case 7: e_cam.drag_start_val = c_params.defocus_angle
 				case 8: e_cam.drag_start_val = c_params.focus_dist
 				case 9: e_cam.drag_start_val = f32(c_params.max_depth)
+				case 10: e_cam.drag_start_val = c_params.shutter_open
+				case 11: e_cam.drag_start_val = c_params.shutter_close
 				}
 				rl.SetMouseCursor(.CROSSHAIR)
 				if g_app != nil { g_app.input_consumed = true }

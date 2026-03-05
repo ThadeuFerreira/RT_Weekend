@@ -48,6 +48,10 @@ Camera :: struct{
     defocus_disk_v : [3]f32,
 
     max_depth : int,
+
+    // Motion blur shutter (normalized [0..1]). Scaffolding; get_ray does not use yet.
+    shutter_open : f32,
+    shutter_close : f32,
 }
 
 Tile :: struct {
@@ -120,6 +124,9 @@ make_camera :: proc(image_width : int, image_height : int, samples_per_pixel : i
     cam.defocus_angle = 0.6
     cam.focus_dist = 10.0
 
+    cam.shutter_open = 0.0
+    cam.shutter_close = 1.0
+
     return cam
 }
 
@@ -132,6 +139,8 @@ apply_scene_camera :: proc(cam: ^Camera, params: ^core.CameraParams) {
     cam.defocus_angle = params.defocus_angle
     cam.focus_dist    = params.focus_dist
     cam.max_depth     = params.max_depth
+    cam.shutter_open   = params.shutter_open
+    cam.shutter_close  = params.shutter_close
 }
 
 // copy_camera_to_scene_params fills shared camera params from a raytrace Camera (e.g. at startup).
@@ -143,6 +152,18 @@ copy_camera_to_scene_params :: proc(params: ^core.CameraParams, cam: ^Camera) {
     params.defocus_angle = cam.defocus_angle
     params.focus_dist    = cam.focus_dist
     params.max_depth     = cam.max_depth
+    params.shutter_open   = cam.shutter_open
+    params.shutter_close  = cam.shutter_close
+}
+
+// normalize_shutter clamps open/close to [0,1] and ensures open <= close. For future get_ray use.
+normalize_shutter :: proc(open, close: f32) -> (norm_open, norm_close: f32) {
+    norm_open  = open  if 0 <= open && open <= 1 else (0.0 if open < 0 else 1.0)
+    norm_close = close if 0 <= close && close <= 1 else (0.0 if close < 0 else 1.0)
+    if norm_open > norm_close {
+        norm_open, norm_close = norm_close, norm_open
+    }
+    return
 }
 
 init_camera :: proc(c :^Camera){

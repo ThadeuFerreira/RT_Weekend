@@ -24,6 +24,8 @@ WEEKEND_CAMERA :: core.CameraParams{
     defocus_angle = 0.6,
     focus_dist    = 10,
     max_depth     = 50,
+    shutter_open  = 0,
+    shutter_close = 1,
 }
 
 // build_weekend_final_scene returns the final scene from "Ray Tracing in One Weekend".
