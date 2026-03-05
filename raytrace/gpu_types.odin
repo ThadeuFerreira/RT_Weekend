@@ -139,7 +139,7 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
         if !ok { continue }
 
         gpu := GPUSphere{}
-        gpu.center = s.center
+        gpu.center = GPURay{origin = s.center, dir = s.center1 - s.center, time = 0}
         gpu.radius = s.radius
 
         switch m in s.material {

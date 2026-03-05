@@ -12,11 +12,10 @@ hit_record :: struct {
 }
 
 Sphere :: struct {
-    center:    ray,
-    center1:   ray, // end position (t=1); only used when is_moving
+    center:    [3]f32,
+    center1:   [3]f32, // end position (t=1); only used when is_moving
     radius:    f32,
     material:  material,
-    ray_time:  f32,
     is_moving: bool,
 }
 
@@ -25,15 +24,8 @@ sphere_center_at :: proc(s: Sphere, time: f32) -> [3]f32 {
     return s.center + time * (s.center1 - s.center)
 }
 
-create_stationary_sphere :: proc(center: [3]f32, radius: f32, material: material) -> Sphere {
-    return Sphere{center = ray{origin = center, dir = [3]f32{0, 0, 0}, time = 0}, radius = radius, material = material}
-}
-create_moving_sphere :: proc(center1: [3]f32, center2: [3]f32, radius: f32, material: material, time0: f32, time1: f32) -> Sphere {
-    return Sphere{center = ray{origin = center1, dir = center2 - center1, time = time0}, radius = radius, material = material}
-}
-
 Cube :: struct {
-    center : ray,
+    center : [3]f32,
     radius : f32,
     material : material,
 }

@@ -213,7 +213,7 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
 
     rec.t = root;
     rec.p = ray_at(r, rec.t);
-    vec3 outward_normal = (rec.p - s.center) / s.radius;
+    vec3 outward_normal = (rec.p - s.center.origin) / s.radius;
     set_face_normal(rec, r, outward_normal);
     rec.mat_type    = s.mat_type;
     rec.albedo      = s.albedo;

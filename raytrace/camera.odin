@@ -180,7 +180,7 @@ get_ray :: proc(r_camera: ^Camera, u : f32, v : f32, rng: ^util.ThreadRNG) -> ra
     ray_direction := pixel_sample - ray_origin
     ray_time := util.random_float(rng)
 
-    return ray{ray_origin, ray_direction, ray_time}
+    return ray{origin = ray_origin, dir = ray_direction, time = ray_time}
 }
 
 // pixel_to_ray returns a deterministic ray through the center of pixel (px, py).
@@ -189,7 +189,7 @@ pixel_to_ray :: proc(r_camera: ^Camera, px, py: f32) -> ray {
     pixel_world := r_camera.pixel00_loc +
                    px * r_camera.pixel_delta_u +
                    py * r_camera.pixel_delta_v
-    return ray{orig = r_camera.center, dir = pixel_world - r_camera.center}
+    return ray{origin = r_camera.center, dir = pixel_world - r_camera.center}
 }
 
 defocus_disk_sample :: proc(c : ^Camera, rng: ^util.ThreadRNG) -> [3]f32 {
