@@ -12,9 +12,17 @@ hit_record :: struct {
 }
 
 Sphere :: struct {
-    center : ray,
-    radius : f32,
-    material : material,
+    center:    ray,
+    center1:   ray, // end position (t=1); only used when is_moving
+    radius:    f32,
+    material:  material,
+    ray_time:  f32,
+    is_moving: bool,
+}
+
+sphere_center_at :: proc(s: Sphere, time: f32) -> [3]f32 {
+    if !s.is_moving { return s.center }
+    return s.center + time * (s.center1 - s.center)
 }
 
 create_stationary_sphere :: proc(center: [3]f32, radius: f32, material: material) -> Sphere {
@@ -42,11 +50,19 @@ AABB :: struct {
 }
 
 sphere_bounding_box :: proc(s: Sphere) -> AABB {
-    return AABB{
-        x = Interval{s.center[0] - s.radius, s.center[0] + s.radius},
-        y = Interval{s.center[1] - s.radius, s.center[1] + s.radius},
-        z = Interval{s.center[2] - s.radius, s.center[2] + s.radius},
+    r := s.radius
+    box0 := AABB{
+        x = Interval{s.center[0] - r, s.center[0] + r},
+        y = Interval{s.center[1] - r, s.center[1] + r},
+        z = Interval{s.center[2] - r, s.center[2] + r},
     }
+    if !s.is_moving { return box0 }
+    box1 := AABB{
+        x = Interval{s.center1[0] - r, s.center1[0] + r},
+        y = Interval{s.center1[1] - r, s.center1[1] + r},
+        z = Interval{s.center1[2] - r, s.center1[2] + r},
+    }
+    return aabb_union(box0, box1)
 }
 
 object_bounding_box :: proc(obj: Object) -> AABB {
@@ -54,7 +70,7 @@ object_bounding_box :: proc(obj: Object) -> AABB {
     case Sphere:
         return sphere_bounding_box(o)
     case Cube:
-        return sphere_bounding_box(Sphere{o.center, o.radius, material{}})
+        return sphere_bounding_box(Sphere{center = o.center, radius = o.radius})
     }
     return AABB{
         x = Interval{0, 0},
@@ -139,6 +155,7 @@ BVHNode :: struct {
 object_center :: proc(obj: Object, axis: int) -> f32 {
     switch o in obj {
     case Sphere:
+        if o.is_moving { return (o.center[axis] + o.center1[axis]) * 0.5 }
         return o.center[axis]
     case Cube:
         return o.center[axis]

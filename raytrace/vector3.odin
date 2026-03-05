@@ -110,6 +110,7 @@ ray :: struct {
     origin : [3]f32,
     dir : [3]f32,
     time : f32,
+    time : f32,
 }
 
 ray_at :: proc(r : ray, t : f32) -> [3]f32 {

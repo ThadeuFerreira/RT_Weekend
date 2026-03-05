@@ -11,7 +11,7 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 		s, ok := obj.(Sphere)
 		if !ok { continue }
 		if s.center[1] < -100 { continue } // skip ground plane
-		ss := core.SceneSphere{center = s.center, radius = s.radius}
+		ss := core.SceneSphere{center = s.center, center1 = s.center1, radius = s.radius, is_moving = s.is_moving}
 		switch m in s.material {
 		case lambertian:
 			ss.material_kind = .Lambertian
@@ -58,9 +58,11 @@ build_world_from_scene :: proc(scene_objects: []core.SceneSphere) -> [dynamic]Ob
 			mat = material(lambertian{albedo = s.albedo})
 		}
 		append(&world, Object(Sphere{
-			center   = ray{origin = s.center.origin, dir = s.center.dir, time = s.ray_time},
-			radius   = s.radius,
-			material = mat,
+			center   = ray{origin = s.center.origin, dir  = s.center.dir, time = s.ray_time},
+			center1   = ray{origin = s.center1.origin, dir = s.center1.dir, time = s.ray_time},
+			radius    = s.radius,
+			material  = mat,
+			is_moving = s.is_moving,
 		}))
 	}
 

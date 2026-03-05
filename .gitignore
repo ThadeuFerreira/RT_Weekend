@@ -2,3 +2,7 @@
 /build
 *.ppm
 *.xcf
+
+# User scene files (keep folder via scenes/.gitkeep)
+scenes/*
+!scenes/.gitkeep

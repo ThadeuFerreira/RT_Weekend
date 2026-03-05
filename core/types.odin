@@ -17,13 +17,15 @@ Ray :: struct {
 // SceneSphere is the canonical in-memory representation of a sphere for the editor and the renderer.
 // The edit view stores these; raytrace.build_world_from_scene converts them to raytrace.Object.
 SceneSphere :: struct {
-	center:       Ray,
-	radius:       f32,
+	center:        Ray,
+	center1:       Ray, // end position for motion blur (t=1); only used when is_moving
+	radius:        f32,
 	material_kind: MaterialKind,
-	albedo:       [3]f32,
-	fuzz:         f32, // used for Metallic (default 0.1)
-	ref_idx:      f32, // used for Dielectric (default 1.5)
-	ray_time:     f32,
+	albedo:        [3]f32,
+	fuzz:          f32, // used for Metallic (default 0.1)
+	ref_idx:       f32, // used for Dielectric (default 1.5)
+	ray_time:      f32,
+	is_moving:     bool,
 }
 
 // CameraParams is the shared camera definition used by the edit view (and camera panel) and the path tracer.

@@ -189,7 +189,7 @@ pixel_to_ray :: proc(r_camera: ^Camera, px, py: f32) -> ray {
     pixel_world := r_camera.pixel00_loc +
                    px * r_camera.pixel_delta_u +
                    py * r_camera.pixel_delta_v
-    return ray{r_camera.center, pixel_world - r_camera.center}
+    return ray{orig = r_camera.center, dir = pixel_world - r_camera.center}
 }
 
 defocus_disk_sample :: proc(c : ^Camera, rng: ^util.ThreadRNG) -> [3]f32 {
