@@ -156,7 +156,7 @@ copy_camera_to_scene_params :: proc(params: ^core.CameraParams, cam: ^Camera) {
     params.shutter_close  = cam.shutter_close
 }
 
-// TODO: Use in get_ray or UI validation to clamp/normalize shutter before sampling.
+// TODO: Call from get_ray (or UI) to clamp open/close to [0,1] and ensure open <= close before sampling.
 // normalize_shutter clamps open/close to [0,1] and ensures open <= close.
 normalize_shutter :: proc(open, close: f32) -> (norm_open, norm_close: f32) {
     norm_open  = open  if 0 <= open && open <= 1 else (0.0 if open < 0 else 1.0)
