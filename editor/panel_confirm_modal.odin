@@ -326,6 +326,7 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     }
     spheres, cam, ground_tex := EXAMPLE_SCENES[scene_idx].build()
     defer delete(spheres)
+    app_set_ground_texture(app, ground_tex)
     ev := &app.e_edit_view
     LoadFromSceneSpheres(ev.scene_mgr, spheres)
     ev.selection_kind = .None
@@ -341,7 +342,7 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     app.r_session = nil
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
-    app.r_world = rt.build_world_from_scene(ev.export_scratch[:], ground_tex)
+    app.r_world = rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
     app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()

@@ -263,15 +263,20 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 
 	// COLOR
 	op_section_label(app, "COLOR", lo.lx, lo.y_color)
-	op_drag_field(app, "R", sphere.albedo[0], lo.boxes_rgb[0], st.prop_drag_idx == 4, mouse)
-	op_drag_field(app, "G", sphere.albedo[1], lo.boxes_rgb[1], st.prop_drag_idx == 5, mouse)
-	op_drag_field(app, "B", sphere.albedo[2], lo.boxes_rgb[2], st.prop_drag_idx == 6, mouse)
+	
+	disp_col := [3]f32{0.5, 0.5, 0.5}
+	if ct, ok := sphere.albedo.(core.ConstantTexture); ok { disp_col = ct.color }
+	else if ct2, ok := sphere.albedo.(core.CheckerTexture); ok { disp_col = ct2.even }
+	
+	op_drag_field(app, "R", disp_col[0], lo.boxes_rgb[0], st.prop_drag_idx == 4, mouse)
+	op_drag_field(app, "G", disp_col[1], lo.boxes_rgb[1], st.prop_drag_idx == 5, mouse)
+	op_drag_field(app, "B", disp_col[2], lo.boxes_rgb[2], st.prop_drag_idx == 6, mouse)
 
 	// Color swatch
 	swatch_col := rl.Color{
-		u8(clamp(sphere.albedo[0], f32(0), f32(1)) * 255),
-		u8(clamp(sphere.albedo[1], f32(0), f32(1)) * 255),
-		u8(clamp(sphere.albedo[2], f32(0), f32(1)) * 255),
+		u8(clamp(disp_col[0], f32(0), f32(1)) * 255),
+		u8(clamp(disp_col[1], f32(0), f32(1)) * 255),
+		u8(clamp(disp_col[2], f32(0), f32(1)) * 255),
 		255,
 	}
 	rl.DrawRectangleRec(lo.swatch, swatch_col)
@@ -399,9 +404,13 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			case 1: sphere.center[1] = st.prop_drag_start_val + delta * 0.01
 			case 2: sphere.center[2] = st.prop_drag_start_val + delta * 0.01
 			case 3: sphere.radius    = max(st.prop_drag_start_val + delta * 0.005, f32(0.05))
-			case 4: sphere.albedo[0] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
-			case 5: sphere.albedo[1] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
-			case 6: sphere.albedo[2] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
+			case 4..=6:
+				cur_col := [3]f32{0.5, 0.5, 0.5}
+				if ct, ok := sphere.albedo.(core.ConstantTexture); ok { cur_col = ct.color }
+				if st.prop_drag_idx == 4 { cur_col[0] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1)) }
+				if st.prop_drag_idx == 5 { cur_col[1] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1)) }
+				if st.prop_drag_idx == 6 { cur_col[2] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1)) }
+				sphere.albedo = core.ConstantTexture{color = cur_col}
 			case 7:
 				if sphere.material_kind == .Metallic {
 					sphere.fuzz    = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1))
@@ -479,9 +488,12 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if op_try_start_drag(lo.boxes_motion[0], 8, motion_offset[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_motion[1], 9, motion_offset[1], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_motion[2], 10, motion_offset[2], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_rgb[0], 4, sphere.albedo[0], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_rgb[1], 5, sphere.albedo[1], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_rgb[2], 6, sphere.albedo[2], st, mouse, lmb_pressed) { any_hovered = true }
+	drag_col := [3]f32{0.5, 0.5, 0.5}
+	if ct, ok := sphere.albedo.(core.ConstantTexture); ok { drag_col = ct.color }
+	else if ct2, ok := sphere.albedo.(core.CheckerTexture); ok { drag_col = ct2.even }
+	if op_try_start_drag(lo.boxes_rgb[0], 4, drag_col[0], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_rgb[1], 5, drag_col[1], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_rgb[2], 6, drag_col[2], st, mouse, lmb_pressed) { any_hovered = true }
 	if lo.has_mat_param {
 		mat_val := sphere.material_kind == .Metallic ? sphere.fuzz : sphere.ref_idx
 		if op_try_start_drag(lo.box_mat_param, 7, mat_val, st, mouse, lmb_pressed) { any_hovered = true }

@@ -69,6 +69,7 @@ const int TEX_CHECKER  = 1;
 
 struct Ray {
     vec3 origin;
+    float _pad0; // explicit std430 pad: origin(12) + pad(4) keeps dir at offset 16
     vec3 dir;
     float time;
 };
@@ -76,6 +77,7 @@ struct Ray {
 struct Sphere {
     Ray   center;
     float radius;
+    float _pad_r[3];    // explicit padding: aligns albedo to 16-byte boundary (matches Odin _pad_r)
     vec3  albedo;
     int   mat_type;
     float fuzz_or_ior;  // fuzz (metallic) or index of refraction (dielectric)
@@ -242,6 +244,7 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
     rec.mat_type    = s.mat_type;
     rec.albedo      = s.albedo;
     rec.fuzz_or_ior = s.fuzz_or_ior;
+    rec.ray_time    = r.time;
     rec.tex_type    = s.tex_type;
     rec.tex_scale   = s.tex_scale;
     rec.tex_even    = s.tex_even;
@@ -340,7 +343,9 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
 // Evaluate Lambertian colour from hit (ConstantTexture = albedo, CheckerTexture = 3D checker at rec.p).
 vec3 texture_value_lambertian(HitRecord rec) {
     if (rec.tex_type == TEX_CHECKER) {
-        float inv_scale = 1.0 / rec.tex_scale;
+        // Guard against invalid/degenerate checker scale to avoid NaN/Inf and black output.
+        float safe_scale = abs(rec.tex_scale) > 1e-8 ? rec.tex_scale : 1.0;
+        float inv_scale = 1.0 / safe_scale;
         int xi = int(floor(inv_scale * rec.p.x));
         int yi = int(floor(inv_scale * rec.p.y));
         int zi = int(floor(inv_scale * rec.p.z));
@@ -358,7 +363,7 @@ bool scatter_lambertian(HitRecord rec, inout uint seed,
     vec3 scatter_dir = rec.normal + rand_unit_vec3(seed);
     // Degenerate case: direction nearly zero — use normal instead.
     if (dot(scatter_dir, scatter_dir) < 1e-12) scatter_dir = rec.normal;
-    scattered   = Ray(rec.p, scatter_dir, rec.ray_time);
+    scattered   = Ray(rec.p, 0.0, scatter_dir, rec.ray_time);
     attenuation = texture_value_lambertian(rec);
     return true;
 }
@@ -369,7 +374,7 @@ bool scatter_metallic(vec3 albedo, float fuzz, Ray r_in, HitRecord rec,
                       inout uint seed, out vec3 attenuation, out Ray scattered) {
     vec3 reflected = reflect(normalize(r_in.dir), rec.normal);
     reflected = normalize(reflected) + fuzz * rand_unit_vec3(seed);
-    scattered   = Ray(rec.p, reflected, rec.ray_time);
+    scattered   = Ray(rec.p, 0.0, reflected, rec.ray_time);
     attenuation = albedo;
     // Ray scattered below the surface means no contribution.
     return dot(scattered.dir, rec.normal) > 0.0;
@@ -403,7 +408,7 @@ bool scatter_dielectric(float ior, Ray r_in, HitRecord rec,
         direction = refract(unit_dir, rec.normal, ri);
     }
 
-    scattered = Ray(rec.p, direction, rec.ray_time);
+    scattered = Ray(rec.p, 0.0, direction, rec.ray_time);
     return true;
 }
 
@@ -519,7 +524,7 @@ void main() {
                    + disk.y * defocus_disk_v.xyz;
     }
 
-    Ray primary = Ray(ray_origin, pixel_sample - ray_origin, rand(seed));
+    Ray primary = Ray(ray_origin, 0.0, pixel_sample - ray_origin, rand(seed));
 
     // ── Trace the path ──────────────────────────────────────
     vec3 colour = path_trace(primary, seed);

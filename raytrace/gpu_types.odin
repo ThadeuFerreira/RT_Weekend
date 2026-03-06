@@ -1,5 +1,8 @@
 package raytrace
 
+import "core:fmt"
+import "RT_Weekend:core"
+
 // ============================================================
 // GPU-compatible type definitions
 // ============================================================
@@ -180,19 +183,40 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
         case lambertian:
             gpu.mat_type    = MAT_LAMBERTIAN
             gpu.fuzz_or_ior = 0.0
-            switch t in m.albedo {
-            case ConstantTexture:
+            switch tex in m.albedo {
+            case core.ConstantTexture:
+                fmt.println("ConstantTexture")
+                fmt.println("Albedo type: ", typeid_of(type_of(m.albedo)))
+                fmt.println("type of tex: ", typeid_of(type_of(tex)))
                 gpu.tex_type  = TEX_CONSTANT
-                gpu.albedo    = t.color
+                gpu.albedo    = tex.color
                 gpu.tex_scale = 1.0
-                gpu.tex_even  = t.color
-                gpu.tex_odd   = t.color
-            case CheckerTexture:
+                gpu.tex_even  = tex.color
+                gpu.tex_odd   = tex.color
+            case  core.CheckerTexture:
+                // Used when ground or any Lambertian has CheckerTexture (e.g. "Next Week: Checkers Texture" example).
                 gpu.tex_type  = TEX_CHECKER
-                gpu.albedo    = t.even
-                gpu.tex_scale = t.scale
-                gpu.tex_even  = t.even
-                gpu.tex_odd   = t.odd
+                gpu.albedo    = [3]f32{0, 0, 0}
+                if gpu.tex_scale == 0 {
+                    // Keep checker sampling stable if a scene provides an invalid zero scale.
+                    gpu.tex_scale = 1.0
+                }
+                gpu.tex_even  = [3]f32{0, 1, 0}
+                gpu.tex_odd   = [3]f32{1, 1, 1}
+            case:
+                // Future texture types or fallback: sample at origin so GPU gets a single colour; shader uses TEX_CONSTANT.
+                fmt.println("Default Case, why checker is not working?")
+                fmt.println("Albedo type: ", typeid_of(type_of(m.albedo)))
+                fmt.println("type of tex: ", typeid_of(type_of(tex)))
+                sample       := texture_value(m.albedo, 0, 0, {0, 0, 0})
+                gpu.tex_type  = TEX_CHECKER
+                gpu.albedo    = [3]f32{0, 0, 0}
+                if gpu.tex_scale == 0 {
+                    // Keep checker sampling stable if a scene provides an invalid zero scale.
+                    gpu.tex_scale = 1.0
+                }
+                gpu.tex_even  = [3]f32{0, 0, 0}
+                gpu.tex_odd   = [3]f32{1, 1, 1}
             }
         case metallic:
             gpu.mat_type    = MAT_METALLIC

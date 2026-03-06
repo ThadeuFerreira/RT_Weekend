@@ -76,15 +76,15 @@ build_weekend_final_scene :: proc() -> (spheres: []core.SceneSphere, camera: cor
                 b1 := util.random_float(&rng)
                 b2 := util.random_float(&rng)
                 sphere.material_kind = .Lambertian
-                sphere.albedo = {r1 * r2, g1 * g2, b1 * b2}
+                sphere.albedo = core.ConstantTexture{color = {r1 * r2, g1 * g2, b1 * b2}}
             } else if choose_mat < 0.95 {
                 // Metallic
                 sphere.material_kind = .Metallic
-                sphere.albedo = {
+                sphere.albedo = core.ConstantTexture{color = {
                     util.random_float_range(&rng, 0.5, 1),
                     util.random_float_range(&rng, 0.5, 1),
                     util.random_float_range(&rng, 0.5, 1),
-                }
+                }}
                 sphere.fuzz = util.random_float_range(&rng, 0, 0.5)
             } else {
                 // Dielectric
@@ -107,13 +107,13 @@ build_weekend_final_scene :: proc() -> (spheres: []core.SceneSphere, camera: cor
         center        = {-4, 1, 0},
         radius        = 1.0,
         material_kind = .Lambertian,
-        albedo        = {0.4, 0.2, 0.1},
+        albedo        = core.ConstantTexture{color = {0.4, 0.2, 0.1}},
     })
     append(&result, core.SceneSphere{
         center        = {4, 1, 0},
         radius        = 1.0,
         material_kind = .Metallic,
-        albedo        = {0.7, 0.6, 0.5},
+        albedo        = core.ConstantTexture{color = {0.7, 0.6, 0.5}},
         fuzz          = 0.0,
     })
 
@@ -154,17 +154,17 @@ build_next_week_bouncing_scene :: proc() -> (spheres: []core.SceneSphere, camera
                 b1 := util.random_float(&rng)
                 b2 := util.random_float(&rng)
                 sphere.material_kind = .Lambertian
-                sphere.albedo = {r1 * r2, g1 * g2, b1 * b2}
+                sphere.albedo = core.ConstantTexture{color={r1 * r2, g1 * g2, b1 * b2}}
                 sphere.is_moving = true
                 sphere.center1 = sphere.center + [3]f32{0, util.random_float_range(&rng, 0, 0.5), 0}
             } else if choose_mat < 0.95 {
                 // Metallic — static
                 sphere.material_kind = .Metallic
-                sphere.albedo = {
+                sphere.albedo = core.ConstantTexture{color={
                     util.random_float_range(&rng, 0.5, 1),
                     util.random_float_range(&rng, 0.5, 1),
                     util.random_float_range(&rng, 0.5, 1),
-                }
+                }}
                 sphere.fuzz = util.random_float_range(&rng, 0, 0.5)
             } else {
                 // Dielectric — static
@@ -187,13 +187,13 @@ build_next_week_bouncing_scene :: proc() -> (spheres: []core.SceneSphere, camera
         center        = {-4, 1, 0},
         radius        = 1.0,
         material_kind = .Lambertian,
-        albedo        = {0.4, 0.2, 0.1},
+        albedo        = core.ConstantTexture{color = {0.4, 0.2, 0.1}},
     })
     append(&result, core.SceneSphere{
         center        = {4, 1, 0},
         radius        = 1.0,
         material_kind = .Metallic,
-        albedo        = {0.7, 0.6, 0.5},
+        albedo        = core.ConstantTexture{color = {0.7, 0.6, 0.5}},
         fuzz          = 0.0,
     })
 
@@ -236,15 +236,15 @@ build_next_week_texture_checker_scene :: proc() -> (spheres: []core.SceneSphere,
                 b1 := util.random_float(&rng)
                 b2 := util.random_float(&rng)
                 sphere.material_kind = .Lambertian
-                sphere.albedo = {r1 * r2, g1 * g2, b1 * b2}
+                sphere.albedo = core.ConstantTexture{color = {r1 * r2, g1 * g2, b1 * b2}}
             } else if choose_mat < 0.95 {
                 // Metallic
                 sphere.material_kind = .Metallic
-                sphere.albedo = {
+                sphere.albedo = core.ConstantTexture{color = {
                     util.random_float_range(&rng, 0.5, 1),
                     util.random_float_range(&rng, 0.5, 1),
                     util.random_float_range(&rng, 0.5, 1),
-                }
+                }}
                 sphere.fuzz = util.random_float_range(&rng, 0, 0.5)
             } else {
                 // Dielectric
@@ -267,13 +267,13 @@ build_next_week_texture_checker_scene :: proc() -> (spheres: []core.SceneSphere,
         center        = {-4, 1, 0},
         radius        = 1.0,
         material_kind = .Lambertian,
-        albedo        = {0.4, 0.2, 0.1},
+        albedo        = core.ConstantTexture{color = {0.4, 0.2, 0.1}},
     })
     append(&result, core.SceneSphere{
         center        = {4, 1, 0},
         radius        = 1.0,
         material_kind = .Metallic,
-        albedo        = {0.7, 0.6, 0.5},
+        albedo        = core.ConstantTexture{color = {0.7, 0.6, 0.5}},
         fuzz          = 0.0,
     })
 

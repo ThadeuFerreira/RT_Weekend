@@ -93,6 +93,24 @@ app_find_panel :: proc(app: ^App, id: string) -> ^FloatingPanel {
     return nil
 }
 
+// app_active_ground_texture returns the currently configured custom ground texture.
+// Nil means "use default grey ground".
+app_active_ground_texture :: proc(app: ^App) -> rt.Texture {
+    if !app.has_custom_ground_texture { return core.ConstantTexture{color = {0.5, 0.5, 0.5}} }
+    return app.custom_ground_texture
+}
+
+// app_set_ground_texture updates the custom ground texture used for world rebuilds.
+// Pass nil to clear and use default grey ground.
+app_set_ground_texture :: proc(app: ^App, ground_texture: ^rt.Texture = nil) {
+    if ground_texture == nil {
+        app.has_custom_ground_texture = false
+        return
+    }
+    app.custom_ground_texture = ground_texture^
+    app.has_custom_ground_texture = true
+}
+
 // app_restart_render replaces the current world with new_world and starts a fresh render.
 // No-op if the current render has not yet finished (finish_render must have been called).
 app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
@@ -118,12 +136,15 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 // When ground_texture is nil, the ground plane uses default grey; otherwise the given texture (e.g. from an example scene).
 app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere, ground_texture: ^rt.Texture = nil) {
     if !app.finished { return }
+    if ground_texture != nil {
+        app_set_ground_texture(app, ground_texture)
+    }
 
     rt.free_session(app.r_session)
     app.r_session = nil
 
     delete(app.r_world)
-    app.r_world = rt.build_world_from_scene(scene_objects, ground_texture)
+    app.r_world = rt.build_world_from_scene(scene_objects, app_active_ground_texture(app))
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -148,6 +169,8 @@ App :: struct {
     num_threads:   int,
     r_camera:      ^rt.Camera,
     r_world:       [dynamic]rt.Object,
+    custom_ground_texture: rt.Texture,
+    has_custom_ground_texture: bool,
     c_camera_params: core.CameraParams, // shared camera definition; applied to r_camera before each render
 
     // User's chosen render path (GPU vs CPU). Persists across scene changes and re-renders until toggled.
@@ -424,7 +447,7 @@ run_app :: proc(
     delete(r_world) // edit view is now the source of truth; free the raw rt.Object array
     // Build the startup world from the edit view (always).
     ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
-    app.r_world = rt.build_world_from_scene(app.e_edit_view.export_scratch[:])
+    app.r_world = rt.build_world_from_scene(app.e_edit_view.export_scratch[:], app_active_ground_texture(&app))
     app.e_object_props  = ObjectPropsPanelState{prop_drag_idx = -1}
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)

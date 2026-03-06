@@ -13,15 +13,16 @@ import "RT_Weekend:util"
 
 cmd_action_file_new :: proc(app: ^App) {
     if !app.finished { return }
+    app_set_ground_texture(app, nil)
 
     rt.free_session(app.r_session)
     app.r_session = nil
 
     ev := &app.e_edit_view
     initial := [3]core.SceneSphere{
-        {center = {-1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}},
-        {center = { 0,   0.5, 0}, radius = 0.5, material_kind = .Metallic,   albedo = {0.2, 0.2, 0.8}, fuzz = 0.1},
-        {center = { 1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}},
+        {center = {-1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.8, 0.2, 0.2}}},
+        {center = { 0,   0.5, 0}, radius = 0.5, material_kind = .Metallic,   albedo = core.ConstantTexture{color={0.2, 0.2, 0.8}}, fuzz = 0.1},
+        {center = { 1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.2, 0.8, 0.2}}},
     }
 LoadFromSceneSpheres(ev.scene_mgr, initial[:])
     ev.selection_kind = .None
@@ -32,7 +33,7 @@ LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
-    app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
+    app.r_world = rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -69,7 +70,7 @@ cmd_action_file_save :: proc(app: ^App) -> bool {
     if len(app.current_scene_path) == 0 { return false }
     ev := &app.e_edit_view
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    world := rt.build_world_from_scene(ev.export_scratch[:])
+    world := rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(app.current_scene_path, app.r_camera, world) {

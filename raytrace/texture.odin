@@ -1,21 +1,13 @@
 package raytrace
 
 import "core:math"
+import "RT_Weekend:core"
 
-ConstantTexture :: struct {
-	color: [3]f32,
-}
+ConstantTexture :: core.ConstantTexture
+CheckerTexture :: core.CheckerTexture
+Texture :: core.Texture
 
-CheckerTexture :: struct {
-	scale: f32,
-	even:  [3]f32,
-	odd:   [3]f32,
-}
 
-Texture :: union {
-	ConstantTexture,
-	CheckerTexture,
-}
 
 texture_value :: proc(tex: Texture, u, v: f32, p: [3]f32) -> [3]f32 {
 	switch t in tex {

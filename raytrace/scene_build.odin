@@ -15,10 +15,10 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 		switch m in s.material {
 		case lambertian:
 			ss.material_kind = .Lambertian
-			ss.albedo = texture_value(m.albedo, 0, 0, {0, 0, 0})
+			ss.albedo = m.albedo
 		case metallic:
 			ss.material_kind = .Metallic
-			ss.albedo = m.albedo
+			ss.albedo = ConstantTexture{color = m.albedo}
 			ss.fuzz = m.fuzz
 		case dielectric:
 			ss.material_kind = .Dielectric
@@ -32,13 +32,11 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 // build_world_from_scene converts shared scene spheres to raytrace Objects.
 // Prepends a ground plane. When ground_texture is nil, uses grey ConstantTexture; otherwise uses the given texture.
 // Caller owns and must delete the returned dynamic array.
-build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture: ^Texture = nil) -> [dynamic]Object {
+build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture: Texture) -> [dynamic]Object {
 	world := make([dynamic]Object)
 
-	ground_tex: Texture = ConstantTexture{color = {0.5, 0.5, 0.5}}
-	if ground_texture != nil {
-		ground_tex = ground_texture^
-	}
+	ground_tex: Texture = ground_texture
+	
 	append(&world, Object(Sphere{
 		center   = {0, -1000, 0},
 		radius   = 1000,
@@ -49,17 +47,25 @@ build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture
 		mat: material
 		switch s.material_kind {
 		case .Lambertian:
-			mat = material(lambertian{albedo = ConstantTexture{color = s.albedo}})
+			mat = material(lambertian{albedo = s.albedo})
 		case .Metallic:
 			fuzz := s.fuzz
 			if fuzz <= 0 { fuzz = 0.1 }
-			mat = material(metallic{albedo = s.albedo, fuzz = fuzz})
+			
+			// Editor metallic fallback to basic array extraction
+			metal_col := [3]f32{0.5, 0.5, 0.5}
+			if ct, ok := s.albedo.(core.ConstantTexture); ok {
+				metal_col = ct.color
+			} else if ct2, ok := s.albedo.(core.CheckerTexture); ok {
+				metal_col = ct2.even
+			}
+			mat = material(metallic{albedo = metal_col, fuzz = fuzz})
 		case .Dielectric:
 			ref_idx := s.ref_idx
 			if ref_idx <= 0 { ref_idx = 1.5 }
 			mat = material(dielectric{ref_idx = ref_idx})
 		case:
-			mat = material(lambertian{albedo = ConstantTexture{color = s.albedo}})
+			mat = material(lambertian{albedo = s.albedo})
 		}
 		append(&world, Object(Sphere{
 			center    = s.center,
