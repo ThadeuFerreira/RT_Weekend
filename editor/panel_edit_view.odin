@@ -665,14 +665,12 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 
 	// AABB / BVH visualization toggles
 	btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus := edit_view_aabb_toolbar_rects(content)
-	aabb_hover := rl.CheckCollisionPointRec(mouse, btn_aabb)
-	sel_hover  := rl.CheckCollisionPointRec(mouse, btn_sel)
-	bvh_hover  := rl.CheckCollisionPointRec(mouse, btn_bvh)
-	btn_aabb    := rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
-	btn_sel     := rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
-	btn_bvh     := rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
-	btn_d_plus  := rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
-	btn_d_minus := rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
+
+	// btn_aabb    := rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
+	// btn_sel     := rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
+	// btn_bvh     := rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
+	// btn_d_plus  := rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
+	// btn_d_minus := rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
 	aabb_hover   := rl.CheckCollisionPointRec(mouse, btn_aabb)
 	sel_hover    := rl.CheckCollisionPointRec(mouse, btn_sel)
 	bvh_hover    := rl.CheckCollisionPointRec(mouse, btn_bvh)
@@ -1078,6 +1076,10 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		}
 		if rl.CheckCollisionPointRec(mouse, btn_bvh) {
 			ev.show_bvh_hierarchy = !ev.show_bvh_hierarchy
+			if !ev.show_bvh_hierarchy && ev.viz_bvh_root != nil {
+				rt.free_bvh(ev.viz_bvh_root)
+				ev.viz_bvh_root = nil
+			}
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}

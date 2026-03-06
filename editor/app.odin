@@ -431,6 +431,12 @@ run_app :: proc(
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer delete(app.e_edit_view.export_scratch)
     defer free_scene_manager(app.e_edit_view.scene_mgr)
+    defer {
+        if app.e_edit_view.viz_bvh_root != nil {
+            rt.free_bvh(app.e_edit_view.viz_bvh_root)
+            app.e_edit_view.viz_bvh_root = nil
+        }
+    }
     defer { rt.free_session(app.r_session) }
     defer delete(app.r_world)
     defer {
