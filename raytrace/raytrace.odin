@@ -92,12 +92,17 @@ write_buffer_to_png :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camer
     return result != 0
 }
 
-setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_spheres: int) -> (^Camera, [dynamic]Object) {
+// Legacy: ground_texture is ^Texture for optional; elsewhere (e.g. build_world_from_scene) textures are passed by value.
+setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_spheres: int, ground_texture: ^Texture = nil) -> (^Camera, [dynamic]Object) {
     world := make([dynamic]Object, 0, number_of_spheres)
 
     scene_rng := util.create_thread_rng(54321)
 
-    ground_material := material(lambertian{[3]f32{0.5, 0.5, 0.5}})
+    ground_tex: Texture = ConstantTexture{color = {0.5, 0.5, 0.5}}
+    if ground_texture != nil {
+        ground_tex = ground_texture^
+    }
+    ground_material := material(lambertian{albedo = ground_tex})
     append(&world, Sphere{center = {0, -1000, 0}, radius = 1000, material = ground_material})
 
     num_spheres := 0
@@ -109,7 +114,7 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
             if vector_length_squared(center_to_check) > 0.81 {
                 if choose_mat < 0.8 {
                     albedo   := vector_random(&scene_rng) * vector_random(&scene_rng)
-                    mat      := material(lambertian{albedo})
+                    mat      := material(lambertian{albedo = ConstantTexture{color = albedo}})
                     append(&world, Sphere{center = center, radius = 0.2, material = mat})
                 } else if choose_mat < 0.95 {
                     albedo   := vector_random_range(&scene_rng, 0.5, 1)
@@ -131,7 +136,7 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
     material1 := material(dielectric{1.5})
     append(&world, Sphere{center = {0, 1, 0}, radius = 1.0, material = material1})
 
-    material2 := material(lambertian{[3]f32{0.4, 0.2, 0.1}})
+    material2 := material(lambertian{albedo = ConstantTexture{color = {0.4, 0.2, 0.1}}})
     append(&world, Sphere{center = {-4, 1, 0}, radius = 1.0, material = material2})
 
     material3 := material(metallic{[3]f32{0.7, 0.6, 0.5}, 0.0})

@@ -86,7 +86,7 @@ Paths are resolved **relative to the current working directory** at launch. Run 
 Layout is Godot-inspired: **core** (shared types), **raytrace** (renderer only), **persistence** (scene/config load and save), **editor** (application UI). See each major folder’s **AGENTS.md** for scoped context.
 
 - **`main.odin`** (package `main`) — entry point; imports `RT_Weekend:core`, `RT_Weekend:util`, `RT_Weekend:raytrace`, `RT_Weekend:persistence`, `RT_Weekend:editor`.
-- **`core/`** (package `core`) — shared types used by editor and renderer: `MaterialKind`, `CameraParams`, `SceneSphere`. No I/O, no editor/raytrace dependency. See [core/AGENTS.md](core/AGENTS.md).
+- **`core/`** (package `core`) — shared types used by editor and renderer: `MaterialKind`, `CameraParams`, `SceneSphere`, **Texture** (ConstantTexture, CheckerTexture). No I/O, no editor/raytrace dependency. See [core/AGENTS.md](core/AGENTS.md).
 - **`util/`** (package `util`) — CLI args (`Args`, `parse_args_with_short_flags`), system info (`get_number_of_physical_cores`, `print_system_info`), per-thread RNG. No file I/O. See [util/AGENTS.md](util/AGENTS.md).
 - **`raytrace/`** (package `raytrace`) — path tracer only: camera, BVH, materials, vector/ray math, pixel buffer, profiling, `scene_build`. No scene file I/O. See [raytrace/AGENTS.md](raytrace/AGENTS.md).
 - **`persistence/`** (package `persistence`) — scene/config persistence: `load_scene`/`save_scene`, `load_config`/`save_config`; types `RenderConfig`, `EditorLayout`, etc. Depends on core and raytrace. See [persistence/AGENTS.md](persistence/AGENTS.md).
@@ -137,7 +137,12 @@ BVH (Bounding Volume Hierarchy) built with median splitting. Reduces ray–scene
 - `raytrace/raytrace.odin`: `setup_scene` builds world geometry; `write_buffer_to_ppm` saves the final image
 
 ### Materials (`raytrace/material.odin`)
-Union-based dispatch over `Lambertian`, `Metallic`, and `Dielectric`. Each implements a `scatter` procedure returning the scattered ray and attenuation color.
+Union-based dispatch over `Lambertian`, `Metallic`, and `Dielectric`. Each implements a `scatter` procedure returning the scattered ray and attenuation color. Lambertian uses **Texture** (value) for albedo; sampling is via `texture_value(tex, u, v, p)` in **raytrace/texture.odin**.
+
+### Textures (core + raytrace)
+- **core/types.odin** — `ConstantTexture` (single color), `CheckerTexture` (scale, even, odd colors), `Texture` union. **SceneSphere.albedo** is a `Texture` value.
+- **raytrace/texture.odin** — Aliases from core; `texture_value(tex: Texture, u, v: f32, p: [3]f32) -> [3]f32` for CPU path. Textures are passed **by value**; prefer stack allocation over pointers.
+- **raytrace/gpu_types.odin** — GPU path uses `TEX_CONSTANT` / `TEX_CHECKER` and `tex_scale`, `tex_even`, `tex_odd` in `GPUSphere`; `scene_to_gpu_spheres` converts core Texture to GPU fields.
 
 ### Geometry (`raytrace/hittable.odin`)
 `Sphere` and `Cube` primitives. BVH nodes are also `Hittable` variants (recursive union tree). Spheres support **motion blur** via `center` → `center1` over the shutter interval when `is_moving` is true.
@@ -157,6 +162,10 @@ Zero-cost profiling gated by `PROFILING_ENABLED` compile flag. Records nanosecon
 
 ### Interval Math (`raytrace/interval.odin`)
 Simple `Interval` struct used for ray `t`-range clamping and AABB overlap tests.
+
+## Allocation preference
+
+In this project we prefer **stack allocation** as much as possible. Don’t pass pointers around unless it is strictly necessary (e.g. optional “no value”, large shared buffers, or legacy APIs). Texture, SceneSphere, and material data are value types; pass them by value.
 
 ## Odin-Specific Notes
 

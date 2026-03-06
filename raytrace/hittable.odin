@@ -16,6 +16,8 @@ hit_record :: struct {
     material : material,
     t : f32,
     front_face : bool,
+    u: f32,
+    v: f32,
 }
 
 Sphere :: struct {

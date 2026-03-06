@@ -1,5 +1,20 @@
 package core
 
+ConstantTexture :: struct {
+	color: [3]f32,
+}
+
+CheckerTexture :: struct {
+	scale: f32,
+	even:  [3]f32,
+	odd:   [3]f32,
+}
+
+Texture :: union {
+	ConstantTexture,
+	CheckerTexture,
+}
+
 // MaterialKind is the shared material type used by the edit view (Raylib) and the path tracer.
 // Both sides use this enum so no package needs to depend on the other's material representation.
 MaterialKind :: enum {
@@ -15,7 +30,7 @@ SceneSphere :: struct {
 	center1:       [3]f32, // end position for motion blur (t=1); only used when is_moving
 	radius:        f32,
 	material_kind: MaterialKind,
-	albedo:        [3]f32,
+	albedo:        Texture,
 	fuzz:          f32, // used for Metallic (default 0.1)
 	ref_idx:       f32, // used for Dielectric (default 1.5)
 	is_moving:     bool,

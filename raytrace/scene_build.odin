@@ -18,7 +18,7 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 			ss.albedo = m.albedo
 		case metallic:
 			ss.material_kind = .Metallic
-			ss.albedo = m.albedo
+			ss.albedo = ConstantTexture{color = m.albedo}
 			ss.fuzz = m.fuzz
 		case dielectric:
 			ss.material_kind = .Dielectric
@@ -30,15 +30,15 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 }
 
 // build_world_from_scene converts shared scene spheres to raytrace Objects.
-// Prepends a grey ground plane. Caller owns and must delete the returned dynamic array.
-build_world_from_scene :: proc(scene_objects: []core.SceneSphere) -> [dynamic]Object {
+// Prepends a ground plane using the given ground_texture (value). Caller passes default grey (e.g. ConstantTexture{0.5,0.5,0.5}) when no custom ground is desired.
+// Caller owns and must delete the returned dynamic array.
+build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture: Texture) -> [dynamic]Object {
 	world := make([dynamic]Object)
 
-	// Ground plane
 	append(&world, Object(Sphere{
 		center   = {0, -1000, 0},
 		radius   = 1000,
-		material = lambertian{albedo = {0.5, 0.5, 0.5}},
+		material = lambertian{albedo = ground_texture},
 	}))
 
 	for s in scene_objects {
@@ -49,7 +49,15 @@ build_world_from_scene :: proc(scene_objects: []core.SceneSphere) -> [dynamic]Ob
 		case .Metallic:
 			fuzz := s.fuzz
 			if fuzz <= 0 { fuzz = 0.1 }
-			mat = material(metallic{albedo = s.albedo, fuzz = fuzz})
+			
+			// Editor metallic fallback to basic array extraction
+			metal_col := [3]f32{0.5, 0.5, 0.5}
+			if ct, ok := s.albedo.(core.ConstantTexture); ok {
+				metal_col = ct.color
+			} else if ct2, ok := s.albedo.(core.CheckerTexture); ok {
+				metal_col = ct2.even
+			}
+			mat = material(metallic{albedo = metal_col, fuzz = fuzz})
 		case .Dielectric:
 			ref_idx := s.ref_idx
 			if ref_idx <= 0 { ref_idx = 1.5 }

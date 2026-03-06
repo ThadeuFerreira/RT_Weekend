@@ -152,9 +152,9 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.scene_mgr = new_scene_manager()
 	ev.export_scratch = make([dynamic]core.SceneSphere)
 	initial := make([dynamic]core.SceneSphere)
-	append(&initial, core.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.8, 0.2, 0.2}})
-	append(&initial, core.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = {0.2, 0.2, 0.8}, fuzz = 0.1})
-	append(&initial, core.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = {0.2, 0.8, 0.2}})
+	append(&initial, core.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.8, 0.2, 0.2}}})
+	append(&initial, core.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = core.ConstantTexture{color={0.2, 0.2, 0.8}}, fuzz = 0.1})
+	append(&initial, core.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.2, 0.8, 0.2}}})
 LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 	delete(initial)
 
@@ -270,7 +270,12 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 		if ev.selection_kind == .Sphere && i == ev.selected_idx {
 			col = rl.YELLOW
 		} else {
-			col = rl.Color{u8(sphere.albedo[0]*255), u8(sphere.albedo[1]*255), u8(sphere.albedo[2]*255), 255}
+			disp_col := [3]f32{0.5, 0.5, 0.5}
+			#partial switch tex in sphere.albedo {
+			case core.ConstantTexture: disp_col = tex.color
+			case core.CheckerTexture: disp_col = tex.even
+			}
+			col = rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
 		}
 		rl.DrawSphere(center, sphere.radius, col)
 		rl.DrawSphereWires(center, sphere.radius, 8, 8, rl.Color{30, 30, 30, 180})
@@ -333,7 +338,7 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 				rt.free_bvh(ev.viz_bvh_root)
 				ev.viz_bvh_root = nil
 			}
-			objects := rt.build_world_from_scene(objs)
+			objects := rt.build_world_from_scene(objs, app_active_ground_texture(app))
 			defer delete(objects)
 			ev.viz_bvh_root = rt.build_bvh(objects[:])
 			ev.viz_bvh_dirty = false
@@ -1147,7 +1152,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			// Export scene
 			ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			delete(app.r_world)
-			app.r_world = rt.build_world_from_scene(ev.export_scratch[:])
+			app.r_world = rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
 
 			// Parse render settings
 			width, height, res_ok := calculate_render_dimensions(app)

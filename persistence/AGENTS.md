@@ -19,3 +19,7 @@ This package does not introduce its own scope prefix. It uses idiomatic core/ray
 ## Dependency rule
 
 **persistence** may import **core** and **raytrace**. Callers (main, editor) use these procs for all file-based scene and config operations so the renderer stays I/O-free.
+
+## Allocation preference
+
+Prefer stack allocation; avoid passing pointers unless strictly necessary. Scene objects and materials (including Texture) are serialized from value types.

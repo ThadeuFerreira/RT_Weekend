@@ -1,6 +1,7 @@
 package editor
 
 import rl "vendor:raylib"
+import "RT_Weekend:core"
 
 // get_render_aspect returns the aspect ratio (width/height) used by the render from app.r_aspect_ratio.
 get_render_aspect :: proc(app: ^App) -> f32 {
@@ -60,10 +61,15 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
 	for s in app.e_edit_view.export_scratch {
 		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
+		disp_col := [3]f32{0.5, 0.5, 0.5}
+		#partial switch tex in s.albedo {
+		case core.ConstantTexture: disp_col = tex.color
+		case core.CheckerTexture: disp_col = tex.even
+		}
 		col := rl.Color{
-			u8(clamp(s.albedo[0], f32(0), f32(1)) * 255),
-			u8(clamp(s.albedo[1], f32(0), f32(1)) * 255),
-			u8(clamp(s.albedo[2], f32(0), f32(1)) * 255),
+			u8(clamp(disp_col[0], f32(0), f32(1)) * 255),
+			u8(clamp(disp_col[1], f32(0), f32(1)) * 255),
+			u8(clamp(disp_col[2], f32(0), f32(1)) * 255),
 			255,
 		}
 		rl.DrawSphere(center, s.radius, col)

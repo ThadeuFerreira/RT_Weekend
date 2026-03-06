@@ -51,6 +51,10 @@ Use idiomatic Odin names for editor types/functions. Use scoped variable/field p
 
 **editor** imports **core**, **util**, **raytrace**, **persistence**. Layout/types for persistence (e.g. `EditorLayout`, `PanelState`) are defined in **persistence**; editor uses them and calls `persistence.load_config` / `save_config` for I/O.
 
+## Allocation preference
+
+Prefer stack allocation; don’t pass pointers unless strictly necessary. Example scenes return ground texture by value; app stores `custom_ground_texture: rt.Texture` and uses optional/flag for “no custom ground”.
+
 ---
 
 ## Orbit camera and Yaw / Pitch / Roll
