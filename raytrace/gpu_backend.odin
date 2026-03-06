@@ -23,6 +23,8 @@ package raytrace
 
 import "core:fmt"
 import "core:math"
+import "base:runtime"
+import "core:time"
 import gl "vendor:OpenGL"
 
 // ── GL proc loader (Linux) ───────────────────────────────────────────────────
@@ -91,6 +93,19 @@ when ODIN_OS == .Darwin {
     }
 }
 
+// ── GL debug callback ────────────────────────────────────────────────────────
+//
+// Registered when PROFILING_ENABLED is true so that shader compile errors,
+// invalid operations, and other GL issues surface as readable stderr messages.
+// Only MEDIUM and HIGH severity messages are shown (LOW / NOTIFICATION suppressed).
+
+@(private)
+_gl_debug_callback :: proc "c" (source, type_, id, severity: u32, length: i32, message: cstring, userParam: rawptr) {
+    context = runtime.default_context()
+    fmt.eprintfln("[GL] source=0x%X type=0x%X id=%d severity=0x%X: %s",
+        source, type_, id, severity, message)
+}
+
 // ── Internal helper ──────────────────────────────────────────────────────────
 
 // _camera_to_gpu_uniforms converts Camera fields to the flat GPUCameraUniforms
@@ -135,6 +150,19 @@ gpu_backend_init :: proc(
     } else {
         fmt.println("[GPU] OpenGL not supported on this platform")
         return nil, false
+    }
+
+    // Enable GL debug output when profiling is on — gives readable error messages
+    // for shader compile errors, invalid operations, etc.
+    when PROFILING_ENABLED {
+        if gl.DebugMessageCallback != nil {
+            gl.Enable(gl.DEBUG_OUTPUT)
+            gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
+            gl.DebugMessageCallback(_gl_debug_callback, nil)
+            // Suppress low-priority and notification messages.
+            gl.DebugMessageControl(gl.DONT_CARE, gl.DONT_CARE, gl.DEBUG_SEVERITY_LOW,          0, nil, false)
+            gl.DebugMessageControl(gl.DONT_CARE, gl.DONT_CARE, gl.DEBUG_SEVERITY_NOTIFICATION,  0, nil, false)
+        }
     }
 
     // Verify compute shader support (OpenGL 4.3+).
@@ -235,6 +263,13 @@ gpu_backend_init :: proc(
 // inserted at the end ensures subsequent GetBufferSubData calls see the
 // completed writes (see gpu_backend_readback).
 gpu_backend_dispatch :: proc(b: ^GPUBackend) {
+    when PROFILING_ENABLED {
+        _t0 := time.now()
+        defer {
+            b.dispatch_total_ns += time.duration_nanoseconds(time.diff(_t0, time.now()))
+        }
+    }
+
     // Advance the sample counter and push the updated UBO.
     b.current_sample += 1
     b.cached_uniforms.current_sample = i32(b.current_sample)
@@ -274,6 +309,13 @@ gpu_backend_readback :: proc(b: ^GPUBackend, out: [][4]u8) {
     if b == nil { return }
     pixel_count := b.width * b.height
     if len(out) < pixel_count { return }
+
+    when PROFILING_ENABLED {
+        _t0 := time.now()
+        defer {
+            b.readback_total_ns += time.duration_nanoseconds(time.diff(_t0, time.now()))
+        }
+    }
 
     // Read the raw float accumulation buffer from GPU memory.
     tmp := make([][4]f32, pixel_count)
@@ -336,6 +378,10 @@ _ogl_init :: proc(cam: ^Camera, world: []Object, bvh: []LinearBVHNode, total: in
     b := (^GPUBackend)(s)
     return b.current_sample, b.total_samples
 }
+@(private) _ogl_get_timings :: proc(s: rawptr) -> (i64, i64) {
+    b := (^GPUBackend)(s)
+    return b.dispatch_total_ns, b.readback_total_ns
+}
 
 OPENGL_RENDERER_API :: GpuRendererApi{
     init        = _ogl_init,
@@ -343,4 +389,5 @@ OPENGL_RENDERER_API :: GpuRendererApi{
     readback    = _ogl_readback,
     destroy     = _ogl_destroy,
     get_samples = _ogl_get_samples,
+    get_timings = _ogl_get_timings,
 }

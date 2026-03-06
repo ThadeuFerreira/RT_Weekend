@@ -668,6 +668,16 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	aabb_hover := rl.CheckCollisionPointRec(mouse, btn_aabb)
 	sel_hover  := rl.CheckCollisionPointRec(mouse, btn_sel)
 	bvh_hover  := rl.CheckCollisionPointRec(mouse, btn_bvh)
+	btn_aabb    := rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
+	btn_sel     := rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
+	btn_bvh     := rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
+	btn_d_plus  := rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
+	btn_d_minus := rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
+	aabb_hover   := rl.CheckCollisionPointRec(mouse, btn_aabb)
+	sel_hover    := rl.CheckCollisionPointRec(mouse, btn_sel)
+	bvh_hover    := rl.CheckCollisionPointRec(mouse, btn_bvh)
+	dplus_hover  := rl.CheckCollisionPointRec(mouse, btn_d_plus)
+	dminus_hover := rl.CheckCollisionPointRec(mouse, btn_d_minus)
 	aabb_bg := (ev.show_aabbs ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
 	if aabb_hover { aabb_bg = ev.show_aabbs ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
 	rl.DrawRectangleRec(btn_aabb, aabb_bg)

@@ -131,19 +131,22 @@ PhaseEntry :: struct {
 }
 
 RenderProfileSummary :: struct {
-    total_seconds:        f64,
-    phase_count:           int,
-    phases:                [8]PhaseEntry,
-    has_sample_breakdown:  bool,
-    sample_get_ray_pct:    f64,
+    total_seconds:          f64,
+    phase_count:            int,
+    phases:                 [8]PhaseEntry,
+    has_sample_breakdown:   bool,
+    sample_get_ray_pct:     f64,
     sample_intersection_pct: f64,
-    sample_scatter_pct:    f64,
-    sample_background_pct: f64,
+    sample_scatter_pct:     f64,
+    sample_background_pct:  f64,
     sample_pixel_setup_pct: f64,
     // Reserved for future display (e.g. Stats panel counts line); not currently shown in UI.
-    total_samples:        i64,
-    total_rays:            i64,
-    total_intersections:   i64,
+    total_samples:          i64,
+    total_rays:             i64,
+    total_intersections:    i64,
+    // GPU-path timing (seconds); zero on CPU path.
+    gpu_dispatch_seconds:   f64,
+    gpu_readback_seconds:   f64,
 }
 
 start_parallel_timing :: proc() -> ParallelTimingBreakdown {
