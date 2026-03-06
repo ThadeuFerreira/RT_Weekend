@@ -102,12 +102,12 @@ app_active_ground_texture :: proc(app: ^App) -> rt.Texture {
 
 // app_set_ground_texture updates the custom ground texture used for world rebuilds.
 // Pass nil to clear and use default grey ground.
-app_set_ground_texture :: proc(app: ^App, ground_texture: ^rt.Texture = nil) {
+app_set_ground_texture :: proc(app: ^App, ground_texture: rt.Texture) {
     if ground_texture == nil {
         app.has_custom_ground_texture = false
         return
     }
-    app.custom_ground_texture = ground_texture^
+    app.custom_ground_texture = ground_texture
     app.has_custom_ground_texture = true
 }
 
@@ -134,7 +134,7 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
 // When ground_texture is nil, the ground plane uses default grey; otherwise the given texture (e.g. from an example scene).
-app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere, ground_texture: ^rt.Texture = nil) {
+app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere, ground_texture: rt.Texture = nil) {
     if !app.finished { return }
     if ground_texture != nil {
         app_set_ground_texture(app, ground_texture)

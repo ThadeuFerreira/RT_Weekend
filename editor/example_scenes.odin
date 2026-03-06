@@ -9,14 +9,7 @@ import "RT_Weekend:util"
 // build() returns (spheres, camera, ground_texture). When ground_texture is nil, build_world_from_scene uses default grey ground.
 ExampleScene :: struct {
     label: string,
-    build: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: ^raytrace.Texture),
-}
-
-// Checker ground used by the "Next Week: Checkers Texture" example only.
-CHECKER_GROUND_TEXTURE: raytrace.Texture = raytrace.CheckerTexture{
-    scale = 10,
-    even  = {0.9, 0.9, 0.9},
-    odd   = {0.1, 0.1, 0.1},
+    build: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: raytrace.Texture),
 }
 
 // EXAMPLE_SCENES is the static registry of built-in example scenes.
@@ -41,7 +34,7 @@ WEEKEND_CAMERA :: core.CameraParams{
 // build_weekend_final_scene returns the final scene from "Ray Tracing in One Weekend".
 // Uses a fixed seed (42) for deterministic output. Caller must delete the returned slice.
 // Ground plane is NOT included — build_world_from_scene auto-prepends it.
-build_weekend_final_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: ^raytrace.Texture) {
+build_weekend_final_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: raytrace.Texture) {
     rng := util.create_thread_rng(42)
 
     result := make([dynamic]core.SceneSphere)
@@ -123,7 +116,7 @@ build_weekend_final_scene :: proc() -> (spheres: []core.SceneSphere, camera: cor
 // build_next_week_bouncing_scene returns the bouncing balls scene from "Ray Tracing: The Next Week" Chapter 2.
 // Lambertian small spheres are moving (motion blur); metallic and dielectric are static.
 // Uses the same fixed seed (42) and grid as build_weekend_final_scene. Caller must delete the returned slice.
-build_next_week_bouncing_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: ^raytrace.Texture) {
+build_next_week_bouncing_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: raytrace.Texture) {
     rng := util.create_thread_rng(42)
 
     result := make([dynamic]core.SceneSphere)
@@ -201,7 +194,7 @@ build_next_week_bouncing_scene :: proc() -> (spheres: []core.SceneSphere, camera
 }
 
 
-build_next_week_texture_checker_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: ^raytrace.Texture) {
+build_next_week_texture_checker_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: raytrace.Texture) {
     rng := util.create_thread_rng(42)
 
     result := make([dynamic]core.SceneSphere)
@@ -277,5 +270,11 @@ build_next_week_texture_checker_scene :: proc() -> (spheres: []core.SceneSphere,
         fuzz          = 0.0,
     })
 
-    return result[:], WEEKEND_CAMERA, &CHECKER_GROUND_TEXTURE
+    gt := raytrace.CheckerTexture{
+        scale = 0.32,
+        even  = {0.2, 0.3, 0.1},
+        odd   = {0.9, 0.9, 0.9},
+    }
+
+    return result[:], WEEKEND_CAMERA, gt
 }

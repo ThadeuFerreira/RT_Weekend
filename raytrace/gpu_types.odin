@@ -185,9 +185,6 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
             gpu.fuzz_or_ior = 0.0
             switch tex in m.albedo {
             case core.ConstantTexture:
-                fmt.println("ConstantTexture")
-                fmt.println("Albedo type: ", typeid_of(type_of(m.albedo)))
-                fmt.println("type of tex: ", typeid_of(type_of(tex)))
                 gpu.tex_type  = TEX_CONSTANT
                 gpu.albedo    = tex.color
             case  core.CheckerTexture:
@@ -199,22 +196,13 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
                     // Keep checker sampling stable if a scene provides an invalid zero scale.
                     gpu.tex_scale = 1.0
                 }
-                gpu.tex_even  = [3]f32{0, 1, 0}
-                gpu.tex_odd   = [3]f32{1, 1, 1}
+                gpu.tex_even  = tex.even
+                gpu.tex_odd   = tex.odd
             case:
                 // Future texture types or fallback: sample at origin so GPU gets a single colour; shader uses TEX_CONSTANT.
-                fmt.println("Default Case, why checker is not working?")
-                fmt.println("Albedo type: ", typeid_of(type_of(m.albedo)))
-                fmt.println("type of tex: ", typeid_of(type_of(tex)))
-                gpu.tex_type  = TEX_CHECKER
-                gpu.albedo    = [3]f32{0, 0, 0}
-                // gpu.tex_scale = tex.(core.CheckerTexture).scale
-                if gpu.tex_scale == 0 {
-                    // Keep checker sampling stable if a scene provides an invalid zero scale.
-                    gpu.tex_scale = 0.32
-                }
-                gpu.tex_even  = [3]f32{.2, .3, .1}
-                gpu.tex_odd   = [3]f32{.9, .9, .9}
+                gpu.tex_type  = TEX_CONSTANT
+                //Pinkish color
+                gpu.albedo    = [3]f32{1, 0.5, 0.5}
             }
         case metallic:
             gpu.mat_type    = MAT_METALLIC
