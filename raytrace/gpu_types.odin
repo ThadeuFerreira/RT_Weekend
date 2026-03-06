@@ -25,17 +25,20 @@ package raytrace
 // RenderSession (in camera.odin) can hold a pointer to it without
 // requiring a separate compilation unit.
 GPUBackend :: struct {
-    program:         u32,  // linked compute shader program
-    ssbo_spheres:    u32,  // SSBO: [4]i32 header then []GPUSphere
-    ssbo_bvh:        u32,  // SSBO: [4]i32 header then []LinearBVHNode
-    ssbo_output:     u32,  // SSBO: vec4 per pixel (RGB accumulation)
-    ubo_camera:      u32,  // UBO: GPUCameraUniforms (std140)
-    width:           int,
-    height:          int,
-    current_sample:  int,  // number of samples dispatched so far
-    total_samples:   int,  // target sample count
+    program:           u32,  // linked compute shader program
+    ssbo_spheres:      u32,  // SSBO: [4]i32 header then []GPUSphere
+    ssbo_bvh:          u32,  // SSBO: [4]i32 header then []LinearBVHNode
+    ssbo_output:       u32,  // SSBO: vec4 per pixel (RGB accumulation)
+    ubo_camera:        u32,  // UBO: GPUCameraUniforms (std140)
+    width:             int,
+    height:            int,
+    current_sample:    int,  // number of samples dispatched so far
+    total_samples:     int,  // target sample count
     // Cached UBO contents so dispatch can update only current_sample.
-    cached_uniforms: GPUCameraUniforms,
+    cached_uniforms:   GPUCameraUniforms,
+    // Timing (nanoseconds) accumulated across all dispatch/readback calls.
+    dispatch_total_ns: i64,
+    readback_total_ns: i64,
 }
 
 // ---- Step 1 ------------------------------------------------

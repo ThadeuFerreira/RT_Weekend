@@ -117,6 +117,12 @@ EditViewState :: struct {
 	show_frustum_gizmo:  bool,
 	show_focal_indicator: bool,
 
+	// AABB Visualization
+	show_aabbs:         bool, // master toggle
+	aabb_selected_only: bool, // show only selected sphere AABB
+	show_bvh_hierarchy: bool, // show BVH internal nodes (depth-coded)
+	aabb_max_depth:    int,   // BVH depth limit; -1 = unlimited
+
 	initialized: bool,
 }
 
@@ -132,6 +138,10 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.cam_rot_drag_axis = -1
 	ev.show_frustum_gizmo  = true
 	ev.show_focal_indicator = true
+	ev.show_aabbs          = false
+	ev.aabb_selected_only  = false
+	ev.show_bvh_hierarchy  = false
+	ev.aabb_max_depth     = -1
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
@@ -294,6 +304,30 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 			c := rl.Vector3{sphere.center[0], sphere.center[1], sphere.center[2]}
 			rl.DrawCircle3D(c, sphere.radius + 0.08, rl.Vector3{1, 0, 0}, 90, rl.Color{255, 220, 0, 200})
 		}
+	}
+
+	// --- AABB Visualization ---
+	if ev.show_aabbs {
+		for i in 0..<len(objs) {
+			if ev.aabb_selected_only && !(ev.selection_kind == .Sphere && ev.selected_idx == i) {
+				continue
+			}
+			aabb  := compute_scene_sphere_aabb(objs[i])
+			color := rl.Color{100, 220, 100, 150}
+			if ev.selection_kind == .Sphere && ev.selected_idx == i {
+				color = rl.Color{255, 220, 0, 200}
+			}
+			draw_aabb_wireframe(aabb, color)
+		}
+	}
+
+	// --- BVH Hierarchy Visualization ---
+	if ev.show_bvh_hierarchy && len(objs) > 0 {
+		objects := rt.build_world_from_scene(objs)
+		defer delete(objects)
+		root := rt.build_bvh_sah(objects[:])
+		defer rt.free_bvh(root)
+		draw_bvh_node(root, 0, ev.aabb_max_depth)
 	}
 
 	rl.EndMode3D()
@@ -606,6 +640,45 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.DrawRectangleLinesEx(btn_focal, 1, ev.show_focal_indicator ? ACCENT_COLOR : BORDER_COLOR)
 	draw_ui_text(app, "Focal", i32(btn_focal.x) + 6, i32(btn_focal.y) + 4, 11, rl.RAYWHITE)
 
+	// AABB / BVH visualization toggles
+	btn_aabb    := rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
+	btn_sel     := rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
+	btn_bvh     := rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
+	btn_d_plus  := rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
+	btn_d_minus := rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
+	aabb_hover   := rl.CheckCollisionPointRec(mouse, btn_aabb)
+	sel_hover    := rl.CheckCollisionPointRec(mouse, btn_sel)
+	bvh_hover    := rl.CheckCollisionPointRec(mouse, btn_bvh)
+	dplus_hover  := rl.CheckCollisionPointRec(mouse, btn_d_plus)
+	dminus_hover := rl.CheckCollisionPointRec(mouse, btn_d_minus)
+	aabb_bg := (ev.show_aabbs ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
+	if aabb_hover { aabb_bg = ev.show_aabbs ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
+	rl.DrawRectangleRec(btn_aabb, aabb_bg)
+	rl.DrawRectangleLinesEx(btn_aabb, 1, ev.show_aabbs ? ACCENT_COLOR : BORDER_COLOR)
+	draw_ui_text(app, "AABB", i32(btn_aabb.x) + 4, i32(btn_aabb.y) + 4, 11, rl.RAYWHITE)
+	if ev.show_aabbs {
+		sel_bg := (ev.aabb_selected_only ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
+		if sel_hover { sel_bg = ev.aabb_selected_only ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
+		rl.DrawRectangleRec(btn_sel, sel_bg)
+		rl.DrawRectangleLinesEx(btn_sel, 1, ev.aabb_selected_only ? ACCENT_COLOR : BORDER_COLOR)
+		draw_ui_text(app, "Sel", i32(btn_sel.x) + 4, i32(btn_sel.y) + 4, 11, rl.RAYWHITE)
+	}
+	bvh_bg := (ev.show_bvh_hierarchy ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
+	if bvh_hover { bvh_bg = ev.show_bvh_hierarchy ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
+	rl.DrawRectangleRec(btn_bvh, bvh_bg)
+	rl.DrawRectangleLinesEx(btn_bvh, 1, ev.show_bvh_hierarchy ? ACCENT_COLOR : BORDER_COLOR)
+	draw_ui_text(app, "BVH", i32(btn_bvh.x) + 4, i32(btn_bvh.y) + 4, 11, rl.RAYWHITE)
+	dplus_bg  := dplus_hover ? rl.Color{55, 68, 88, 255} : rl.Color{45, 55, 70, 255}
+	dminus_bg := dminus_hover ? rl.Color{55, 68, 88, 255} : rl.Color{45, 55, 70, 255}
+	rl.DrawRectangleRec(btn_d_plus, dplus_bg)
+	rl.DrawRectangleLinesEx(btn_d_plus, 1, BORDER_COLOR)
+	draw_ui_text(app, "D+", i32(btn_d_plus.x) + 4, i32(btn_d_plus.y) + 4, 11, rl.RAYWHITE)
+	rl.DrawRectangleRec(btn_d_minus, dminus_bg)
+	rl.DrawRectangleLinesEx(btn_d_minus, 1, BORDER_COLOR)
+	draw_ui_text(app, "D-", i32(btn_d_minus.x) + 4, i32(btn_d_minus.y) + 4, 11, rl.RAYWHITE)
+	depth_label := ev.aabb_max_depth < 0 ? cstring("∞") : fmt.ctprintf("%d", ev.aabb_max_depth)
+	draw_ui_text(app, depth_label, i32(btn_d_minus.x) + 22 + 4, i32(btn_d_minus.y) + 5, 11, rl.Color{180, 185, 200, 220})
+
 	// "From View" — sync orbit (editor) camera → render camera
 	btn_fromview  := rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
 	fv_hover      := rl.CheckCollisionPointRec(mouse, btn_fromview)
@@ -712,8 +785,14 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	btn_del      := rl.Rectangle{content.x + 106,                  content.y + 5, 60, 22}
 	btn_frustum  := rl.Rectangle{content.x + 174,                  content.y + 5, 56, 22}
 	btn_focal    := rl.Rectangle{content.x + 234,                  content.y + 5, 40, 22}
+	btn_aabb     := rl.Rectangle{content.x + 278,                  content.y + 5, 44, 22}
+	btn_sel      := rl.Rectangle{content.x + 324,                  content.y + 5, 28, 22}
+	btn_bvh      := rl.Rectangle{content.x + 354,                  content.y + 5, 34, 22}
+	btn_d_plus   := rl.Rectangle{content.x + 390,                  content.y + 5, 22, 22}
+	btn_d_minus  := rl.Rectangle{content.x + 414,                  content.y + 5, 22, 22}
 	btn_fromview := rl.Rectangle{content.x + content.width - 178,  content.y + 5, 82, 22}
 	btn_render   := rl.Rectangle{content.x + content.width - 90,   content.y + 5, 82, 22}
+	AABB_MAX_DEPTH_CAP :: 20
 	vp_rect    := rl.Rectangle{
 		content.x,
 		content.y + EDIT_TOOLBAR_H,
@@ -957,6 +1036,35 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		}
 		if rl.CheckCollisionPointRec(mouse, btn_focal) {
 			ev.show_focal_indicator = !ev.show_focal_indicator
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		if rl.CheckCollisionPointRec(mouse, btn_aabb) {
+			ev.show_aabbs = !ev.show_aabbs
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		if ev.show_aabbs && rl.CheckCollisionPointRec(mouse, btn_sel) {
+			ev.aabb_selected_only = !ev.aabb_selected_only
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		if rl.CheckCollisionPointRec(mouse, btn_bvh) {
+			ev.show_bvh_hierarchy = !ev.show_bvh_hierarchy
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		if rl.CheckCollisionPointRec(mouse, btn_d_plus) {
+			if ev.aabb_max_depth < AABB_MAX_DEPTH_CAP {
+				ev.aabb_max_depth += 1
+			}
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		if rl.CheckCollisionPointRec(mouse, btn_d_minus) {
+			if ev.aabb_max_depth > -1 {
+				ev.aabb_max_depth -= 1
+			}
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}

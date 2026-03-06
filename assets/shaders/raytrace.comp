@@ -233,32 +233,18 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
 // =============================================================
 // AABB overlap test
 // =============================================================
-// Tests whether ray r intersects the axis-aligned bounding box
-// defined by [aabb_min, aabb_max] within t ∈ [t_min, t_max].
-// Uses the slab method (Smits 1998): test each axis pair,
-// intersect the resulting intervals, reject if empty.
+// aabb_hit_fast uses a precomputed inverse direction — one vec3 div
+// per ray instead of one per AABB.  Modern GPUs handle 1/0 = ±Inf
+// correctly with IEEE 754, so no special-case for parallel rays.
 
-bool aabb_hit(vec3 aabb_min, vec3 aabb_max, Ray r, float t_min, float t_max) {
-    for (int axis = 0; axis < 3; axis++) {
-        float dir  = r.dir[axis];
-        float origin = r.origin[axis];
-        float lo   = aabb_min[axis];
-        float hi   = aabb_max[axis];
-
-        if (abs(dir) < 1e-8) {
-            // Ray is nearly parallel to this slab.
-            if (origin < lo || origin > hi) return false;
-        } else {
-            float invD = 1.0 / dir;
-            float t0 = (lo - origin) * invD;
-            float t1 = (hi - origin) * invD;
-            if (t0 > t1) { float tmp = t0; t0 = t1; t1 = tmp; }
-            t_min = max(t_min, t0);
-            t_max = min(t_max, t1);
-            if (t_max <= t_min) return false;
-        }
-    }
-    return true;
+bool aabb_hit_fast(vec3 aabb_min, vec3 aabb_max, vec3 inv_dir, vec3 origin, float t_min, float t_max) {
+    vec3 t0 = (aabb_min - origin) * inv_dir;
+    vec3 t1 = (aabb_max - origin) * inv_dir;
+    vec3 tlo = min(t0, t1);
+    vec3 thi = max(t0, t1);
+    t_min = max(t_min, max(tlo.x, max(tlo.y, tlo.z)));
+    t_max = min(t_max, min(thi.x, min(thi.y, thi.z)));
+    return t_max > t_min;
 }
 
 // =============================================================
@@ -280,8 +266,10 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
     float closest = t_max;
     bool  hit_anything = false;
 
-    // max depth 64 — sufficient for up to ~10^18 objects with balanced BVH;
-    // exceeding it silently skips nodes (missing geometry).
+    // Precompute reciprocal direction once — eliminates 3 divisions per AABB test.
+    vec3 inv_dir = 1.0 / r.dir;
+
+    // Stack size 64 — sufficient for balanced BVH with ~2^63 objects.
     int stack[64];
     int stack_ptr = 0;
     stack[stack_ptr++] = 0; // start at root (index 0)
@@ -293,7 +281,7 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
         BVHNode node = bvh_nodes[idx];
 
         // AABB test: skip this subtree if the ray misses the bounding box.
-        if (!aabb_hit(node.aabb_min, node.aabb_max, r, t_min, closest)) continue;
+        if (!aabb_hit_fast(node.aabb_min, node.aabb_max, inv_dir, r.origin, t_min, closest)) continue;
 
         if (node.left_idx == -1) {
             // ── Leaf node ──
@@ -309,8 +297,9 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
             }
         } else {
             // ── Internal node ── push children (right first so left is popped first).
-            if (node.right_or_obj_idx >= 0) stack[stack_ptr++] = node.right_or_obj_idx;
-            if (node.left_idx          >= 0) stack[stack_ptr++] = node.left_idx;
+            // Stack overflow guard: silently skip if stack is full.
+            if (node.right_or_obj_idx >= 0 && stack_ptr < 63) stack[stack_ptr++] = node.right_or_obj_idx;
+            if (node.left_idx          >= 0 && stack_ptr < 63) stack[stack_ptr++] = node.left_idx;
         }
     }
 

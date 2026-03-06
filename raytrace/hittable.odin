@@ -3,6 +3,13 @@ package raytrace
 import "core:fmt"
 import "core:math"
 
+// Compile-time flag: use SAH BVH (default) or median-split (comparison baseline).
+// Override with: -define:USE_SAH_BVH=false
+USE_SAH_BVH :: #config(USE_SAH_BVH, true)
+
+// Number of bins for binned SAH construction.
+N_BINS :: 12
+
 hit_record :: struct {
     p : [3]f32,
     normal : [3]f32,
@@ -88,6 +95,16 @@ aabb_union :: proc(box0: AABB, box1: AABB) -> AABB {
     }
 }
 
+// aabb_surface_area returns 2*(dx*dy + dy*dz + dz*dx).
+// Returns 0 for empty / degenerate boxes (where any dimension is negative).
+aabb_surface_area :: proc(box: AABB) -> f32 {
+    dx := box.x.max - box.x.min
+    dy := box.y.max - box.y.min
+    dz := box.z.max - box.z.min
+    if dx < 0 || dy < 0 || dz < 0 { return 0 }
+    return 2.0 * (dx*dy + dy*dz + dz*dx)
+}
+
 aabb_hit :: proc(box: AABB, r: ray, ray_t: Interval) -> bool {
     tmin := ray_t.min
     tmax := ray_t.max
@@ -137,11 +154,33 @@ aabb_hit :: proc(box: AABB, r: ray, ray_t: Interval) -> bool {
 }
 
 BVHNode :: struct {
-    bbox: AABB,
-    left: ^BVHNode,
-    right: ^BVHNode,
-    object: Object,
-    is_leaf: bool,
+    bbox:      AABB,
+    left:      ^BVHNode,
+    right:     ^BVHNode,
+    object:    Object,
+    obj_index: int,   // original world-slice index (leaf only; -1 = unknown)
+    is_leaf:   bool,
+}
+
+// aabb_hit_fast is like aabb_hit but uses a precomputed inverse direction,
+// eliminating 3 divisions per AABB test.  Call once per ray before the BVH loop.
+// Uses the ±Inf slab method — works correctly with IEEE 754 for non-degenerate rays.
+aabb_hit_fast :: proc(box: AABB, inv_dir: [3]f32, origin: [3]f32, ray_t: Interval) -> bool {
+    tmin := ray_t.min
+    tmax := ray_t.max
+
+    axes := [3]Interval{box.x, box.y, box.z}
+    for axis in 0..<3 {
+        invD := inv_dir[axis]
+        o    := origin[axis]
+        t0   := (axes[axis].min - o) * invD
+        t1   := (axes[axis].max - o) * invD
+        if t0 > t1 { t0, t1 = t1, t0 }
+        tmin = math.max(tmin, t0)
+        tmax = math.min(tmax, t1)
+        if tmax <= tmin { return false }
+    }
+    return true
 }
 
 object_center :: proc(obj: Object, axis: int) -> f32 {
@@ -164,11 +203,12 @@ build_bvh :: proc(objects: []Object, allocator := context.allocator) -> ^BVHNode
         bbox := object_bounding_box(objects[0])
         node := new(BVHNode, allocator)
         node^ = BVHNode{
-            bbox = bbox,
-            left = nil,
-            right = nil,
-            object = objects[0],
-            is_leaf = true,
+            bbox      = bbox,
+            left      = nil,
+            right     = nil,
+            object    = objects[0],
+            obj_index = -1,   // unknown: _flatten_bvh_recurse falls back to O(n) search
+            is_leaf   = true,
         }
         return node
     }
@@ -224,6 +264,193 @@ build_bvh :: proc(objects: []Object, allocator := context.allocator) -> ^BVHNode
 
     delete(objects_sorted)
     return node
+}
+
+// ============================================================
+// SAH BVH — Surface Area Heuristic construction
+// ============================================================
+//
+// build_bvh_sah builds a BVH using binned SAH for large partitions
+// and falls back to median split for small ones (n ≤ 4).
+//
+// It allocates one working copy of objects + a parallel index array,
+// partitions them in place (like quicksort), then frees them after
+// the tree is built. Each leaf stores obj_index so flatten_bvh
+// can look up the original world-slice index in O(1).
+//
+// Enable/disable via: -define:USE_SAH_BVH=false (median split)
+
+@(private)
+BVHSAHBin :: struct {
+    bbox:  AABB,
+    count: int,
+}
+
+@(private)
+_build_bvh_sah :: proc(objects: []Object, indices: []int, allocator := context.allocator) -> ^BVHNode {
+    n := len(objects)
+    if n == 0 { return nil }
+
+    node := new(BVHNode, allocator)
+
+    // Compute bounding box of all objects in this partition.
+    parent_bbox := object_bounding_box(objects[0])
+    for i in 1..<n {
+        parent_bbox = aabb_union(parent_bbox, object_bounding_box(objects[i]))
+    }
+    node.bbox = parent_bbox
+
+    if n == 1 {
+        node.is_leaf   = true
+        node.object    = objects[0]
+        node.obj_index = indices[0]   // O(1): tracked through partitioning
+        return node
+    }
+
+    // Compute centroid range for SAH axis selection.
+    centroid_min := [3]f32{
+        object_center(objects[0], 0),
+        object_center(objects[0], 1),
+        object_center(objects[0], 2),
+    }
+    centroid_max := centroid_min
+    for i in 1..<n {
+        for ax in 0..<3 {
+            c := object_center(objects[i], ax)
+            centroid_min[ax] = math.min(centroid_min[ax], c)
+            centroid_max[ax] = math.max(centroid_max[ax], c)
+        }
+    }
+
+    parent_area := aabb_surface_area(parent_bbox)
+
+    best_cost  := f32(n)   // leaf cost: no split pays n intersection tests
+    best_axis  := -1
+    best_split := 0
+
+    // Binned SAH: only worth it for n > 4.
+    if n > 4 && parent_area > 0 {
+        empty_iv := Interval{math.inf_f32(1), math.inf_f32(-1)}
+
+        for axis in 0..<3 {
+            cmin   := centroid_min[axis]
+            cmax   := centroid_max[axis]
+            extent := cmax - cmin
+            if extent < 1e-6 { continue }   // degenerate axis: all centroids equal
+
+            // Initialise bins.
+            bins: [N_BINS]BVHSAHBin
+            for i in 0..<N_BINS {
+                bins[i] = BVHSAHBin{
+                    bbox  = AABB{x = empty_iv, y = empty_iv, z = empty_iv},
+                    count = 0,
+                }
+            }
+
+            // Assign each object to a bin by its centroid.
+            for i in 0..<n {
+                c := object_center(objects[i], axis)
+                bi := int((c - cmin) / extent * N_BINS)
+                if bi >= N_BINS { bi = N_BINS - 1 }
+                bins[bi].count += 1
+                bins[bi].bbox   = aabb_union(bins[bi].bbox, object_bounding_box(objects[i]))
+            }
+
+            // Forward sweep: left area and count for split after bin k.
+            left_area:  [N_BINS - 1]f32
+            left_count: [N_BINS - 1]int
+            running_bbox  := bins[0].bbox
+            running_count := bins[0].count
+            for k in 0..<N_BINS - 1 {
+                left_area[k]  = aabb_surface_area(running_bbox)
+                left_count[k] = running_count
+                if k + 1 < N_BINS {
+                    running_bbox  = aabb_union(running_bbox, bins[k + 1].bbox)
+                    running_count += bins[k + 1].count
+                }
+            }
+
+            // Backward sweep: evaluate SAH cost for each split plane.
+            right_bbox := bins[N_BINS - 1].bbox
+            right_cnt  := bins[N_BINS - 1].count
+            for k := N_BINS - 2; k >= 0; k -= 1 {
+                cost := (left_area[k] * f32(left_count[k]) +
+                         aabb_surface_area(right_bbox) * f32(right_cnt)) / parent_area + 1.0
+                if cost < best_cost {
+                    best_cost  = cost
+                    best_axis  = axis
+                    best_split = k
+                }
+                right_bbox = aabb_union(right_bbox, bins[k].bbox)
+                right_cnt += bins[k].count
+            }
+        }
+    }
+
+    // Partition objects and indices in place.
+    mid := n / 2   // default: median
+    if best_axis >= 0 {
+        // SAH split: divide at the boundary between bin best_split and best_split+1.
+        cmin      := centroid_min[best_axis]
+        cmax      := centroid_max[best_axis]
+        extent    := cmax - cmin
+        split_val := cmin + (f32(best_split + 1) / f32(N_BINS)) * extent
+
+        i := 0
+        for j in 0..<n {
+            if object_center(objects[j], best_axis) < split_val {
+                objects[i], objects[j] = objects[j], objects[i]
+                indices[i], indices[j] = indices[j], indices[i]
+                i += 1
+            }
+        }
+        if i == 0 || i == n { i = n / 2 }   // degenerate partition → median fallback
+        mid = i
+    } else {
+        // n ≤ 4 or no SAH improvement: median split on longest axis.
+        dx := parent_bbox.x.max - parent_bbox.x.min
+        dy := parent_bbox.y.max - parent_bbox.y.min
+        dz := parent_bbox.z.max - parent_bbox.z.min
+        axis := 0
+        if dy > dx && dy > dz { axis = 1 } else if dz > dx && dz > dy { axis = 2 }
+
+        // Insertion sort (cheap for n ≤ 4; also used as fallback).
+        for i in 1..<n {
+            key_obj := objects[i]
+            key_idx := indices[i]
+            j := i - 1
+            for j >= 0 && object_center(objects[j], axis) > object_center(key_obj, axis) {
+                objects[j + 1] = objects[j]
+                indices[j + 1] = indices[j]
+                j -= 1
+            }
+            objects[j + 1] = key_obj
+            indices[j + 1] = key_idx
+        }
+        mid = n / 2
+    }
+
+    node.is_leaf = false
+    node.left    = _build_bvh_sah(objects[:mid], indices[:mid], allocator)
+    node.right   = _build_bvh_sah(objects[mid:], indices[mid:], allocator)
+    return node
+}
+
+// build_bvh_sah is the SAH entry point. It allocates a working copy
+// of objects and a parallel index array (O(n) total), then delegates
+// to _build_bvh_sah which partitions in place — no per-level alloc.
+build_bvh_sah :: proc(objects: []Object, allocator := context.allocator) -> ^BVHNode {
+    if len(objects) == 0 { return nil }
+
+    objects_work := make([]Object, len(objects))
+    indices      := make([]int,    len(objects))
+    defer delete(objects_work)
+    defer delete(indices)
+
+    copy(objects_work, objects)
+    for i in 0..<len(indices) { indices[i] = i }
+
+    return _build_bvh_sah(objects_work, indices, allocator)
 }
 
 bvh_hit :: proc(node: ^BVHNode, r: ray, ray_t: Interval, rec: ^hit_record, closest_so_far: ^f32) -> bool {
@@ -305,14 +532,19 @@ _flatten_bvh_recurse :: proc(
 
     if node.is_leaf {
         // Find which index in objects matches this leaf's object.
+        // Fast path (SAH builder): obj_index is stored in the node — O(1).
+        // Slow path (median builder): fall back to O(n) value search.
         obj_idx := i32(-1)
-        for i in 0..<len(objects) {
-            // Compare by value equality — works because objects are plain structs.
-            switch a in node.object {
-            case Sphere:
-                if b, ok := objects[i].(Sphere); ok && a == b { obj_idx = i32(i) }
-            case Cube:
-                if b, ok := objects[i].(Cube); ok && a == b { obj_idx = i32(i) }
+        if node.obj_index >= 0 {
+            obj_idx = i32(node.obj_index)
+        } else {
+            for i in 0..<len(objects) {
+                switch a in node.object {
+                case Sphere:
+                    if b, ok := objects[i].(Sphere); ok && a == b { obj_idx = i32(i) }
+                case Cube:
+                    if b, ok := objects[i].(Cube); ok && a == b { obj_idx = i32(i) }
+                }
             }
         }
         nodes[my_index] = LinearBVHNode{
@@ -365,6 +597,9 @@ bvh_hit_linear :: proc(
 ) -> (HitRecord: hit_record, Hit: bool) {
     if len(nodes) == 0 { return }
 
+    // Precompute reciprocal direction once — eliminates 3 divisions per AABB test.
+    inv_dir := [3]f32{1.0 / r.dir[0], 1.0 / r.dir[1], 1.0 / r.dir[2]}
+
     // Stack holds indices of nodes yet to be tested.
     // Max BVH depth for N objects is ceil(log2(N)) + 1 ≤ 64.
     stack: [64]int
@@ -389,7 +624,7 @@ bvh_hit_linear :: proc(
             y = Interval{node.aabb_min[1], node.aabb_max[1]},
             z = Interval{node.aabb_min[2], node.aabb_max[2]},
         }
-        if !aabb_hit(bbox, r, Interval{ray_t.min, closest}) { continue }
+        if !aabb_hit_fast(bbox, inv_dir, r.origin, Interval{ray_t.min, closest}) { continue }
 
         if node.left_idx == -1 {
             // Leaf node: test the actual object.
@@ -403,11 +638,11 @@ bvh_hit_linear :: proc(
             }
         } else {
             // Internal node: push both children; test closer one last (LIFO).
-            if int(node.right_or_obj_idx) >= 0 {
+            if int(node.right_or_obj_idx) >= 0 && stack_ptr < 63 {
                 stack[stack_ptr] = int(node.right_or_obj_idx)
                 stack_ptr += 1
             }
-            if int(node.left_idx) >= 0 {
+            if int(node.left_idx) >= 0 && stack_ptr < 63 {
                 stack[stack_ptr] = int(node.left_idx)
                 stack_ptr += 1
             }
