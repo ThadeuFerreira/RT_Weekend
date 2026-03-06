@@ -115,15 +115,15 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 }
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
-// Used by the edit view so it does not need to import raytrace.
-app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere) {
+// When ground_texture is nil, the ground plane uses default grey; otherwise the given texture (e.g. from an example scene).
+app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere, ground_texture: ^rt.Texture = nil) {
     if !app.finished { return }
 
     rt.free_session(app.r_session)
     app.r_session = nil
 
     delete(app.r_world)
-    app.r_world = rt.build_world_from_scene(scene_objects)
+    app.r_world = rt.build_world_from_scene(scene_objects, ground_texture)
 
     app.finished     = false
     app.elapsed_secs = 0

@@ -49,7 +49,7 @@ layout(std140, binding = 0) uniform CameraBlock {
 // =============================================================
 // Binding 1 — Sphere array (SSBO, std430)
 // Matches GPUSphere in raytrace/gpu_types.odin.
-// 48 bytes per sphere.
+// 128 bytes per sphere (includes texture params for Lambertian).
 // =============================================================
 
 // Material type constants — mirror MAT_* in gpu_types.odin.
@@ -58,6 +58,10 @@ layout(std140, binding = 0) uniform CameraBlock {
 const int MAT_LAMBERTIAN = 0;
 const int MAT_METALLIC   = 1;
 const int MAT_DIELECTRIC = 2;
+
+// Texture type for Lambertian (mirror TEX_* in gpu_types.odin).
+const int TEX_CONSTANT = 0;
+const int TEX_CHECKER  = 1;
 
 // =============================================================
 // Ray / intersection helpers
@@ -70,12 +74,19 @@ struct Ray {
 };
 
 struct Sphere {
-    Ray  center;
+    Ray   center;
     float radius;
     vec3  albedo;
     int   mat_type;
     float fuzz_or_ior;  // fuzz (metallic) or index of refraction (dielectric)
     float _pad[3];
+    int   tex_type;     // TEX_CONSTANT or TEX_CHECKER (Lambertian only)
+    float tex_scale;
+    float _pad_tex[2];
+    vec3  tex_even;
+    float _pad_even;
+    vec3  tex_odd;
+    float _pad_odd;
 };
 
 layout(std430, binding = 1) readonly buffer SpheresBlock {
@@ -192,6 +203,10 @@ struct HitRecord {
     vec3  albedo;
     float fuzz_or_ior;
     float ray_time;
+    int   tex_type;   // for Lambertian: TEX_CONSTANT or TEX_CHECKER
+    float tex_scale;
+    vec3  tex_even;
+    vec3  tex_odd;
 };
 
 // set_face_normal ensures the stored normal always points against the ray.
@@ -227,6 +242,10 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
     rec.mat_type    = s.mat_type;
     rec.albedo      = s.albedo;
     rec.fuzz_or_ior = s.fuzz_or_ior;
+    rec.tex_type    = s.tex_type;
+    rec.tex_scale   = s.tex_scale;
+    rec.tex_even    = s.tex_even;
+    rec.tex_odd     = s.tex_odd;
     return true;
 }
 
@@ -318,15 +337,29 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
 //   2. Write a scatter_* function here.
 //   3. Add a case in the switch inside path_trace().
 
+// Evaluate Lambertian colour from hit (ConstantTexture = albedo, CheckerTexture = 3D checker at rec.p).
+vec3 texture_value_lambertian(HitRecord rec) {
+    if (rec.tex_type == TEX_CHECKER) {
+        float inv_scale = 1.0 / rec.tex_scale;
+        int xi = int(floor(inv_scale * rec.p.x));
+        int yi = int(floor(inv_scale * rec.p.y));
+        int zi = int(floor(inv_scale * rec.p.z));
+        int sum = xi + yi + zi;
+        int parity = (sum % 2 + 2) % 2; // handle negative sum
+        return parity == 0 ? rec.tex_even : rec.tex_odd;
+    }
+    return rec.albedo;
+}
+
 // Lambertian (diffuse): scatter in a random direction near the normal.
-// attenuation = albedo (material colour).
-bool scatter_lambertian(vec3 albedo, HitRecord rec, inout uint seed,
+// attenuation = texture colour at hit point (constant or 3D checker).
+bool scatter_lambertian(HitRecord rec, inout uint seed,
                         out vec3 attenuation, out Ray scattered) {
     vec3 scatter_dir = rec.normal + rand_unit_vec3(seed);
     // Degenerate case: direction nearly zero — use normal instead.
     if (dot(scatter_dir, scatter_dir) < 1e-12) scatter_dir = rec.normal;
     scattered   = Ray(rec.p, scatter_dir, rec.ray_time);
-    attenuation = albedo;
+    attenuation = texture_value_lambertian(rec);
     return true;
 }
 
@@ -416,7 +449,7 @@ vec3 path_trace(Ray r, inout uint seed) {
             // To add a new material: add MAT_* constant above and a case here.
             switch (rec.mat_type) {
             case MAT_LAMBERTIAN:
-                did_scatter = scatter_lambertian(rec.albedo, rec, seed, attenuation, scattered);
+                did_scatter = scatter_lambertian(rec, seed, attenuation, scattered);
                 break;
             case MAT_METALLIC:
                 did_scatter = scatter_metallic(rec.albedo, rec.fuzz_or_ior, r, rec, seed, attenuation, scattered);

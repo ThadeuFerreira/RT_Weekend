@@ -78,6 +78,10 @@ MAT_METALLIC   :: i32(1)   // Specular: reflect + fuzz perturbation
 MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
 // Future: MAT_EMISSIVE :: i32(3), MAT_PBR_GLOSSY :: i32(4), …
 
+// Texture type for Lambertian (GPU only; must match raytrace.comp).
+TEX_CONSTANT :: i32(0)  // use albedo as-is
+TEX_CHECKER  :: i32(1)  // 3D checker from tex_scale, tex_even, tex_odd
+
 
 // GPURay mirrors the GLSL `Ray` struct under std430 layout (32 bytes).
 // GLSL vec3 has base alignment 16, so a 4-byte pad is required between
@@ -90,21 +94,26 @@ GPURay :: struct #packed {
     time:   f32,        // 32 bytes total — matches GLSL Ray in std430
 }
 
-// GPUSphere mirrors the GLSL `Sphere` struct under std430 layout (80 bytes).
+// GPUSphere mirrors the GLSL `Sphere` struct under std430 layout (128 bytes).
 //
-// GLSL vec3 albedo requires 16-byte alignment, so 12 bytes of padding are
-// needed after radius (which ends at offset 36) to advance to offset 48.
-// Without _pad_r the CPU layout (64 bytes) diverges from the GPU (80 bytes),
-// corrupting albedo, mat_type, fuzz_or_ior, and _pad reads on the GPU.
+// GLSL vec3 has base alignment 16. Texture fields follow _pad so Lambertian
+// can use ConstantTexture (albedo only) or CheckerTexture (tex_*).
 //
 // Field offsets (must match raytrace.comp Sphere struct exactly):
-//   center (GPURay)  : 0  – 31  (32 bytes)
-//   radius           : 32 – 35  (4 bytes)
-//   _pad_r[3]        : 36 – 47  (12 bytes, padding before vec3 albedo)
-//   albedo           : 48 – 59  (12 bytes)
-//   mat_type         : 60 – 63  (4 bytes)
-//   fuzz_or_ior      : 64 – 67  (4 bytes)
-//   _pad[3]          : 68 – 79  (12 bytes; _pad[0] = is_moving flag)
+//   center (GPURay)  : 0   – 31   (32 bytes)
+//   radius           : 32  – 35   (4 bytes)
+//   _pad_r[3]        : 36  – 47   (12 bytes, padding before vec3 albedo)
+//   albedo           : 48  – 59   (12 bytes)
+//   mat_type         : 60  – 63   (4 bytes)
+//   fuzz_or_ior      : 64  – 67   (4 bytes)
+//   _pad[3]          : 68  – 79   (12 bytes; _pad[0] = is_moving flag)
+//   tex_type         : 80  – 83   (4 bytes)
+//   tex_scale        : 84  – 87   (4 bytes)
+//   _pad_tex[2]      : 88  – 95   (8 bytes, align tex_even to 16)
+//   tex_even         : 96  – 107  (12 bytes)
+//   _pad_even        : 108 – 111  (4 bytes)
+//   tex_odd          : 112 – 123  (12 bytes)
+//   _pad_odd         : 124 – 127  (4 bytes)
 GPUSphere :: struct #packed {
     center:      GPURay,
     radius:      f32,
@@ -113,6 +122,13 @@ GPUSphere :: struct #packed {
     mat_type:    i32,
     fuzz_or_ior: f32,
     _pad:        [3]f32,   // _pad[0] = is_moving flag (1.0=moving, 0.0=static)
+    tex_type:    i32,      // TEX_CONSTANT or TEX_CHECKER (Lambertian only)
+    tex_scale:   f32,
+    _pad_tex:    [2]f32,   // align tex_even to 16
+    tex_even:    [3]f32,
+    _pad_even:   f32,
+    tex_odd:     [3]f32,
+    _pad_odd:    f32,
 }
 
 // GPUCameraUniforms is uploaded as a UBO (std140).
@@ -163,20 +179,43 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
         switch m in s.material {
         case lambertian:
             gpu.mat_type    = MAT_LAMBERTIAN
-            gpu.albedo      = m.albedo
             gpu.fuzz_or_ior = 0.0
+            switch t in m.albedo {
+            case ConstantTexture:
+                gpu.tex_type  = TEX_CONSTANT
+                gpu.albedo    = t.color
+                gpu.tex_scale = 1.0
+                gpu.tex_even  = t.color
+                gpu.tex_odd   = t.color
+            case CheckerTexture:
+                gpu.tex_type  = TEX_CHECKER
+                gpu.albedo    = t.even
+                gpu.tex_scale = t.scale
+                gpu.tex_even  = t.even
+                gpu.tex_odd   = t.odd
+            }
         case metallic:
             gpu.mat_type    = MAT_METALLIC
             gpu.albedo      = m.albedo
             gpu.fuzz_or_ior = m.fuzz
+            gpu.tex_type    = TEX_CONSTANT
+            gpu.tex_even    = m.albedo
+            gpu.tex_odd     = m.albedo
         case dielectric:
             gpu.mat_type    = MAT_DIELECTRIC
             gpu.albedo      = [3]f32{1, 1, 1}
             gpu.fuzz_or_ior = m.ref_idx
+            gpu.tex_type    = TEX_CONSTANT
+            gpu.tex_even    = [3]f32{1, 1, 1}
+            gpu.tex_odd     = [3]f32{1, 1, 1}
         case:
-            // Unknown material: default to white Lambertian
-            gpu.mat_type = MAT_LAMBERTIAN
-            gpu.albedo   = [3]f32{1, 1, 1}
+            // Unknown material: default to white Lambertian (constant)
+            gpu.mat_type  = MAT_LAMBERTIAN
+            gpu.albedo    = [3]f32{1, 1, 1}
+            gpu.tex_type  = TEX_CONSTANT
+            gpu.tex_scale = 1.0
+            gpu.tex_even  = [3]f32{1, 1, 1}
+            gpu.tex_odd   = [3]f32{1, 1, 1}
         }
 
         result[idx] = gpu

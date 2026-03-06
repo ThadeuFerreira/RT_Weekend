@@ -129,13 +129,13 @@ load_scene :: proc(
 scene_material_to_material :: proc(s: ^SceneMaterial) -> rt.material {
 	switch s.material_type {
 	case "lambertian":
-		return rt.material(rt.lambertian{albedo = s.albedo})
+		return rt.material(rt.lambertian{albedo = rt.ConstantTexture{color = s.albedo}})
 	case "metal":
 		return rt.material(rt.metallic{albedo = s.albedo, fuzz = s.fuzz})
 	case "dielectric":
 		return rt.material(rt.dielectric{ref_idx = s.ref_idx})
 	case:
-		return rt.material(rt.lambertian{albedo = [3]f32{0.5, 0.5, 0.5}})
+		return rt.material(rt.lambertian{albedo = rt.ConstantTexture{color = {0.5, 0.5, 0.5}}})
 	}
 }
 
@@ -202,7 +202,7 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 material_to_scene_material :: proc(m: rt.material) -> SceneMaterial {
 	switch mat in m {
 	case rt.lambertian:
-		return SceneMaterial{material_type = "lambertian", albedo = mat.albedo}
+		return SceneMaterial{material_type = "lambertian", albedo = rt.texture_value(mat.albedo, 0, 0, {0, 0, 0})}
 	case rt.metallic:
 		return SceneMaterial{material_type = "metal", albedo = mat.albedo, fuzz = mat.fuzz}
 	case rt.dielectric:
