@@ -407,6 +407,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			case 4..=6:
 				cur_col := [3]f32{0.5, 0.5, 0.5}
 				if ct, ok := sphere.albedo.(core.ConstantTexture); ok { cur_col = ct.color }
+				else if ct2, ok := sphere.albedo.(core.CheckerTexture); ok { cur_col = ct2.even }
 				if st.prop_drag_idx == 4 { cur_col[0] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1)) }
 				if st.prop_drag_idx == 5 { cur_col[1] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1)) }
 				if st.prop_drag_idx == 6 { cur_col[2] = clamp(st.prop_drag_start_val + delta * 0.002, f32(0), f32(1)) }
