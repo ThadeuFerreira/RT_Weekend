@@ -2,7 +2,7 @@
 
 debug:
 	mkdir -p build
-	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -out:build/debug
+	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -out:build/debug
 
 release:
 	mkdir -p build
@@ -12,6 +12,7 @@ release:
 		-define:PROFILING_ENABLED=false \
 		-define:VERBOSE_OUTPUT=false \
 		-define:TRACE_CAPTURE_ENABLED=false \
+		-define:TRACK_ALLOCATIONS=false \
 		-out:build/release
 
 test: debug

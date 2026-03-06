@@ -10,6 +10,13 @@ import "RT_Weekend:util"
 VERBOSE_OUTPUT :: #config(VERBOSE_OUTPUT, true)
 
 main :: proc() {
+    when util.TRACK_ALLOCATIONS {
+        _track: util.Tracking_Allocator_State
+        util.tracking_init(&_track, context.allocator)
+        context.allocator = util.tracking_allocator(&_track)
+        defer util.tracking_report_and_destroy(&_track)
+    }
+
     args := util.Args{}
 
     if !util.parse_args_with_short_flags(&args) {
