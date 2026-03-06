@@ -6,3 +6,6 @@
 # User scene files (keep folder via scenes/.gitkeep)
 scenes/*
 !scenes/.gitkeep
+
+# Memory leak reports
+logs/
