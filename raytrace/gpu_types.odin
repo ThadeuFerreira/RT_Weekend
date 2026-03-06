@@ -1,6 +1,5 @@
 package raytrace
 
-import "core:fmt"
 import "RT_Weekend:core"
 
 // ============================================================

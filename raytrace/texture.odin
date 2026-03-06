@@ -14,7 +14,8 @@ texture_value :: proc(tex: Texture, u, v: f32, p: [3]f32) -> [3]f32 {
 	case ConstantTexture:
 		return t.color
 	case CheckerTexture:
-		inv_scale := 1.0 / t.scale
+		safe_scale := math.abs(t.scale) > 1e-8 ? t.scale : 1.0
+		inv_scale := 1.0 / safe_scale
 		xi := int(math.floor(inv_scale * p[0]))
 		yi := int(math.floor(inv_scale * p[1]))
 		zi := int(math.floor(inv_scale * p[2]))
