@@ -92,6 +92,7 @@ write_buffer_to_png :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camer
     return result != 0
 }
 
+// Legacy: ground_texture is ^Texture for optional; elsewhere (e.g. build_world_from_scene) textures are passed by value.
 setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_spheres: int, ground_texture: ^Texture = nil) -> (^Camera, [dynamic]Object) {
     world := make([dynamic]Object, 0, number_of_spheres)
 

@@ -11,7 +11,8 @@ This package is the **path tracer only**: camera, BVH, materials, ray math, tile
 
 Use idiomatic Odin names for raytrace types/functions (`Camera`, `make_camera`, `init_camera`, etc.). Use `r_` for variables/fields that hold render state (e.g. `r_camera`, `r_session`, `r_world`).
 - **Geometry** — `Sphere`, `Cube`, `Object` union; BVH and intersection in **hittable.odin**.
-- **Materials** — `material` union (lambertian, metallic, dielectric), `scatter` in **material.odin**.
+- **Materials** — `material` union (lambertian, metallic, dielectric), `scatter` in **material.odin**. Lambertian uses **Texture** (core union: ConstantTexture, CheckerTexture) for albedo; metallic/dielectric use plain `[3]f32` or ref_idx.
+- **Textures** — Types aliased from **core** in **texture.odin**; `texture_value(tex, u, v, p)` returns sampled color. Used by CPU path (material.odin) and by **gpu_types.odin** / **scene_to_gpu_spheres** for GPU (TEX_CONSTANT, TEX_CHECKER).
 - **Ray / color** — Vec3, ray math, `ray_color`, `linear_to_gamma` in **vector3.odin**; **raytrace.odin**: `TestPixelBuffer`, `write_buffer_to_ppm`, scene setup helpers.
 - **Profiling** — `PROFILING_ENABLED`, `Profile_Scope`, per-phase timings in **profiling.odin**. `VERBOSE_OUTPUT` (#config, default true) gates non-essential stdout; `aggregate_into_summary` always runs so the Stats panel has data in release builds.
 - **Interval** — `Interval`, `interval_clamp`, etc. in **interval.odin**.
@@ -19,9 +20,14 @@ Use idiomatic Odin names for raytrace types/functions (`Camera`, `make_camera`, 
 ## Files
 
 - **camera.odin** — Camera struct, tile queue, worker threads, start/get_progress/finish.
-- **scene_build.odin** — World ↔ core.SceneSphere conversion.
-- **vector3.odin**, **raytrace.odin**, **hittable.odin**, **material.odin**, **interval.odin**, **profiling.odin**.
+- **scene_build.odin** — World ↔ core.SceneSphere conversion; `build_world_from_scene(..., ground_texture: Texture)` takes texture by value.
+- **texture.odin** — Core texture type aliases; `texture_value(tex, u, v, p)`.
+- **vector3.odin**, **raytrace.odin**, **hittable.odin**, **material.odin**, **interval.odin**, **profiling.odin**, **gpu_types.odin** (GPU texture fields: tex_type, tex_scale, tex_even, tex_odd).
 
 ## Dependency rule
 
 **raytrace** depends only on **core** and **util**. Scene file load/save are in **persistence** (which imports raytrace for Camera and Object).
+
+## Allocation preference
+
+Prefer stack allocation; avoid passing pointers unless strictly necessary. Texture is passed by value (e.g. `build_world_from_scene(..., ground_texture: Texture)`, `texture_value(tex: Texture, ...)`). Use pointers only when needed (e.g. optional ground texture in editor, or legacy `setup_scene(..., ground_texture: ^Texture = nil)`).

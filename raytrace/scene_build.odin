@@ -30,7 +30,7 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 }
 
 // build_world_from_scene converts shared scene spheres to raytrace Objects.
-// Prepends a ground plane. When ground_texture is nil, uses grey ConstantTexture; otherwise uses the given texture.
+// Prepends a ground plane using the given ground_texture (value). Caller passes default grey (e.g. ConstantTexture{0.5,0.5,0.5}) when no custom ground is desired.
 // Caller owns and must delete the returned dynamic array.
 build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture: Texture) -> [dynamic]Object {
 	world := make([dynamic]Object)
