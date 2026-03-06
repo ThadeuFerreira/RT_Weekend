@@ -122,6 +122,9 @@ EditViewState :: struct {
 	aabb_selected_only: bool, // show only selected sphere AABB
 	show_bvh_hierarchy: bool, // show BVH internal nodes (depth-coded)
 	aabb_max_depth:    int,   // BVH depth limit; -1 = unlimited
+	// Cached BVH for hierarchy viz; rebuilt only when scene changes (viz_bvh_dirty).
+	viz_bvh_root:  ^rt.BVHNode,
+	viz_bvh_dirty: bool,
 
 	initialized: bool,
 }
@@ -142,6 +145,8 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.aabb_selected_only  = false
 	ev.show_bvh_hierarchy  = false
 	ev.aabb_max_depth     = -1
+	ev.viz_bvh_root       = nil
+	ev.viz_bvh_dirty      = true
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
@@ -321,13 +326,21 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 		}
 	}
 
-	// --- BVH Hierarchy Visualization ---
+	// --- BVH Hierarchy Visualization (cached; rebuild only when scene changes) ---
 	if ev.show_bvh_hierarchy && len(objs) > 0 {
-		objects := rt.build_world_from_scene(objs)
-		defer delete(objects)
-		root := rt.build_bvh_sah(objects[:])
-		defer rt.free_bvh(root)
-		draw_bvh_node(root, 0, ev.aabb_max_depth)
+		if ev.viz_bvh_dirty {
+			if ev.viz_bvh_root != nil {
+				rt.free_bvh(ev.viz_bvh_root)
+				ev.viz_bvh_root = nil
+			}
+			objects := rt.build_world_from_scene(objs)
+			defer delete(objects)
+			ev.viz_bvh_root = rt.build_bvh(objects[:])
+			ev.viz_bvh_dirty = false
+		}
+		if ev.viz_bvh_root != nil {
+			draw_bvh_node(ev.viz_bvh_root, 0, ev.aabb_max_depth)
+		}
 	}
 
 	rl.EndMode3D()
@@ -335,6 +348,16 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 
 	src := rl.Rectangle{0, 0, f32(ev.tex_w), -f32(ev.tex_h)}
 	rl.DrawTexturePro(ev.viewport_tex.texture, src, vp_rect, rl.Vector2{0, 0}, 0.0, rl.WHITE)
+}
+
+// edit_view_aabb_toolbar_rects returns the five AABB/BVH toolbar button rects so draw and update share one definition.
+edit_view_aabb_toolbar_rects :: proc(content: rl.Rectangle) -> (btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus: rl.Rectangle) {
+	btn_aabb    = rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
+	btn_sel     = rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
+	btn_bvh     = rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
+	btn_d_plus  = rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
+	btn_d_minus = rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
+	return
 }
 
 // ── Property strip ─────────────────────────────────────────────────────────
@@ -641,11 +664,13 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_ui_text(app, "Focal", i32(btn_focal.x) + 6, i32(btn_focal.y) + 4, 11, rl.RAYWHITE)
 
 	// AABB / BVH visualization toggles
-	btn_aabb    := rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
-	btn_sel     := rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
-	btn_bvh     := rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
-	btn_d_plus  := rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
-	btn_d_minus := rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
+	btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus := edit_view_aabb_toolbar_rects(content)
+
+	// btn_aabb    := rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
+	// btn_sel     := rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
+	// btn_bvh     := rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
+	// btn_d_plus  := rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
+	// btn_d_minus := rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
 	aabb_hover   := rl.CheckCollisionPointRec(mouse, btn_aabb)
 	sel_hover    := rl.CheckCollisionPointRec(mouse, btn_sel)
 	bvh_hover    := rl.CheckCollisionPointRec(mouse, btn_bvh)
@@ -668,16 +693,20 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.DrawRectangleRec(btn_bvh, bvh_bg)
 	rl.DrawRectangleLinesEx(btn_bvh, 1, ev.show_bvh_hierarchy ? ACCENT_COLOR : BORDER_COLOR)
 	draw_ui_text(app, "BVH", i32(btn_bvh.x) + 4, i32(btn_bvh.y) + 4, 11, rl.RAYWHITE)
-	dplus_bg  := dplus_hover ? rl.Color{55, 68, 88, 255} : rl.Color{45, 55, 70, 255}
-	dminus_bg := dminus_hover ? rl.Color{55, 68, 88, 255} : rl.Color{45, 55, 70, 255}
-	rl.DrawRectangleRec(btn_d_plus, dplus_bg)
-	rl.DrawRectangleLinesEx(btn_d_plus, 1, BORDER_COLOR)
-	draw_ui_text(app, "D+", i32(btn_d_plus.x) + 4, i32(btn_d_plus.y) + 4, 11, rl.RAYWHITE)
-	rl.DrawRectangleRec(btn_d_minus, dminus_bg)
-	rl.DrawRectangleLinesEx(btn_d_minus, 1, BORDER_COLOR)
-	draw_ui_text(app, "D-", i32(btn_d_minus.x) + 4, i32(btn_d_minus.y) + 4, 11, rl.RAYWHITE)
-	depth_label := ev.aabb_max_depth < 0 ? cstring("∞") : fmt.ctprintf("%d", ev.aabb_max_depth)
-	draw_ui_text(app, depth_label, i32(btn_d_minus.x) + 22 + 4, i32(btn_d_minus.y) + 5, 11, rl.Color{180, 185, 200, 220})
+	if ev.show_bvh_hierarchy {
+		dplus_hover  := rl.CheckCollisionPointRec(mouse, btn_d_plus)
+		dminus_hover := rl.CheckCollisionPointRec(mouse, btn_d_minus)
+		dplus_bg  := dplus_hover ? rl.Color{55, 68, 88, 255} : rl.Color{45, 55, 70, 255}
+		dminus_bg := dminus_hover ? rl.Color{55, 68, 88, 255} : rl.Color{45, 55, 70, 255}
+		rl.DrawRectangleRec(btn_d_plus, dplus_bg)
+		rl.DrawRectangleLinesEx(btn_d_plus, 1, BORDER_COLOR)
+		draw_ui_text(app, "D+", i32(btn_d_plus.x) + 4, i32(btn_d_plus.y) + 4, 11, rl.RAYWHITE)
+		rl.DrawRectangleRec(btn_d_minus, dminus_bg)
+		rl.DrawRectangleLinesEx(btn_d_minus, 1, BORDER_COLOR)
+		draw_ui_text(app, "D-", i32(btn_d_minus.x) + 4, i32(btn_d_minus.y) + 4, 11, rl.RAYWHITE)
+		depth_label := ev.aabb_max_depth < 0 ? "\u221E" : fmt.ctprintf("%d", ev.aabb_max_depth)
+		draw_ui_text(app, depth_label, i32(btn_d_minus.x) + 22 + 4, i32(btn_d_minus.y) + 5, 11, rl.Color{180, 185, 200, 220})
+	}
 
 	// "From View" — sync orbit (editor) camera → render camera
 	btn_fromview  := rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
@@ -785,11 +814,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	btn_del      := rl.Rectangle{content.x + 106,                  content.y + 5, 60, 22}
 	btn_frustum  := rl.Rectangle{content.x + 174,                  content.y + 5, 56, 22}
 	btn_focal    := rl.Rectangle{content.x + 234,                  content.y + 5, 40, 22}
-	btn_aabb     := rl.Rectangle{content.x + 278,                  content.y + 5, 44, 22}
-	btn_sel      := rl.Rectangle{content.x + 324,                  content.y + 5, 28, 22}
-	btn_bvh      := rl.Rectangle{content.x + 354,                  content.y + 5, 34, 22}
-	btn_d_plus   := rl.Rectangle{content.x + 390,                  content.y + 5, 22, 22}
-	btn_d_minus  := rl.Rectangle{content.x + 414,                  content.y + 5, 22, 22}
+	btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus := edit_view_aabb_toolbar_rects(content)
 	btn_fromview := rl.Rectangle{content.x + content.width - 178,  content.y + 5, 82, 22}
 	btn_render   := rl.Rectangle{content.x + content.width - 90,   content.y + 5, 82, 22}
 	AABB_MAX_DEPTH_CAP :: 20
@@ -1051,17 +1076,21 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		}
 		if rl.CheckCollisionPointRec(mouse, btn_bvh) {
 			ev.show_bvh_hierarchy = !ev.show_bvh_hierarchy
+			if !ev.show_bvh_hierarchy && ev.viz_bvh_root != nil {
+				rt.free_bvh(ev.viz_bvh_root)
+				ev.viz_bvh_root = nil
+			}
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
-		if rl.CheckCollisionPointRec(mouse, btn_d_plus) {
+		if ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, btn_d_plus) {
 			if ev.aabb_max_depth < AABB_MAX_DEPTH_CAP {
 				ev.aabb_max_depth += 1
 			}
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
-		if rl.CheckCollisionPointRec(mouse, btn_d_minus) {
+		if ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, btn_d_minus) {
 			if ev.aabb_max_depth > -1 {
 				ev.aabb_max_depth -= 1
 			}
@@ -1069,7 +1098,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			return
 		}
 		if rl.CheckCollisionPointRec(mouse, btn_add) {
-AppendDefaultSphere(ev.scene_mgr)
+			AppendDefaultSphere(ev.scene_mgr)
 			new_idx := SceneManagerLen(ev.scene_mgr) - 1
 			ev.selection_kind = .Sphere
 			ev.selected_idx   = new_idx

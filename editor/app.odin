@@ -222,8 +222,14 @@ App :: struct {
 g_app: ^App = nil
 
 // mark_scene_dirty sets the scene as having unsaved changes. Call after any edit (add/delete/modify sphere or camera).
+// Also invalidates the Edit View cached BVH (viz_bvh_dirty) so hierarchy viz rebuilds on next draw.
 mark_scene_dirty :: proc(app: ^App) {
-    if app != nil { app.e_scene_dirty = true }
+    if app != nil {
+        app.e_scene_dirty = true
+        if app.e_edit_view.initialized {
+            app.e_edit_view.viz_bvh_dirty = true
+        }
+    }
 }
 
 // has_custom_ui_font returns true when a custom font (SDF or LoadFontEx) is loaded for UI text.
@@ -425,6 +431,12 @@ run_app :: proc(
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer delete(app.e_edit_view.export_scratch)
     defer free_scene_manager(app.e_edit_view.scene_mgr)
+    defer {
+        if app.e_edit_view.viz_bvh_root != nil {
+            rt.free_bvh(app.e_edit_view.viz_bvh_root)
+            app.e_edit_view.viz_bvh_root = nil
+        }
+    }
     defer { rt.free_session(app.r_session) }
     defer delete(app.r_world)
     defer {
