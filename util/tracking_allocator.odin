@@ -18,6 +18,7 @@ package util
 import "core:fmt"
 import "core:mem"
 import "core:os"
+import "core:strings"
 import "core:time"
 
 TRACK_ALLOCATIONS :: #config(TRACK_ALLOCATIONS, ODIN_DEBUG)
@@ -40,9 +41,26 @@ tracking_allocator :: proc(state: ^Tracking_Allocator_State) -> mem.Allocator {
     }
 }
 
+// path_from_project_root returns the path relative to the current working directory when the
+// given path is under cwd; otherwise returns the original path. Uses no heap allocation.
+path_from_project_root :: proc(full_path: string, cwd: string) -> string {
+    if len(cwd) == 0 || !strings.has_prefix(full_path, cwd) {
+        return full_path
+    }
+    rest := full_path[len(cwd):]
+    for len(rest) > 0 && (rest[0] == '/' || rest[0] == '\\') {
+        rest = rest[1:]
+    }
+    if len(rest) == 0 {
+        return full_path
+    }
+    return rest
+}
+
 // Prints a one-line summary to stdout and writes a full report to logs/memory_YYYYMMDD_HHMMSS.txt
 // when leaks or bad frees are detected. Uses stack buffers throughout to avoid heap allocations
-// that would corrupt the report. Destroys the tracker on exit.
+// that would corrupt the report. File paths in the report are written relative to the project
+// root (cwd) for privacy. Destroys the tracker on exit.
 tracking_report_and_destroy :: proc(state: ^Tracking_Allocator_State) {
     when TRACK_ALLOCATIONS {
         defer mem.tracking_allocator_destroy(&state.tracker)
@@ -54,6 +72,9 @@ tracking_report_and_destroy :: proc(state: ^Tracking_Allocator_State) {
             fmt.println("[Memory] No leaks detected.")
             return
         }
+
+        // Cwd for stripping full paths (use temp so we don't pollute the leak report).
+        cwd := os.get_current_directory(context.temp_allocator)
 
         // Build timestamp without heap allocation.
         now := time.now()
@@ -78,14 +99,16 @@ tracking_report_and_destroy :: proc(state: ^Tracking_Allocator_State) {
             _, _ = os.write(fd, transmute([]byte)line)
 
             for _, entry in state.tracker.allocation_map {
+                rel := path_from_project_root(entry.location.file_path, cwd)
                 line = fmt.bprintf(line_buf[:], "[LEAK]  %6d bytes  %s:%d\n",
-                    entry.size, entry.location.file_path, entry.location.line)
+                    entry.size, rel, entry.location.line)
                 _, _ = os.write(fd, transmute([]byte)line)
             }
 
             for entry in state.tracker.bad_free_array {
+                rel := path_from_project_root(entry.location.file_path, cwd)
                 line = fmt.bprintf(line_buf[:], "[BAD FREE]  %p  %s:%d\n",
-                    entry.memory, entry.location.file_path, entry.location.line)
+                    entry.memory, rel, entry.location.line)
                 _, _ = os.write(fd, transmute([]byte)line)
             }
         }
