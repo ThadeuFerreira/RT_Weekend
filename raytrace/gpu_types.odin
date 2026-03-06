@@ -208,15 +208,11 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
             gpu.albedo      = m.albedo
             gpu.fuzz_or_ior = m.fuzz
             gpu.tex_type    = TEX_CONSTANT
-            gpu.tex_even    = m.albedo
-            gpu.tex_odd     = m.albedo
         case dielectric:
             gpu.mat_type    = MAT_DIELECTRIC
             gpu.albedo      = [3]f32{1, 1, 1}
             gpu.fuzz_or_ior = m.ref_idx
             gpu.tex_type    = TEX_CONSTANT
-            gpu.tex_even    = [3]f32{1, 1, 1}
-            gpu.tex_odd     = [3]f32{1, 1, 1}
         case:
             // Unknown material: default to white Lambertian (constant)
             gpu.mat_type  = MAT_LAMBERTIAN

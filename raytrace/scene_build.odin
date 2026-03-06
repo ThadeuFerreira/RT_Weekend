@@ -35,12 +35,10 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture: Texture) -> [dynamic]Object {
 	world := make([dynamic]Object)
 
-	ground_tex: Texture = ground_texture
-	
 	append(&world, Object(Sphere{
 		center   = {0, -1000, 0},
 		radius   = 1000,
-		material = lambertian{albedo = ground_tex},
+		material = lambertian{albedo = ground_texture},
 	}))
 
 	for s in scene_objects {
