@@ -204,7 +204,7 @@ material_to_scene_material :: proc(m: rt.material) -> SceneMaterial {
 	case rt.lambertian:
 		// Non-constant textures (e.g. CheckerTexture) are sampled at origin and stored as a single [3]f32.
 		// Save/load therefore converts them to constant color; full texture persistence is a known limitation.
-		return SceneMaterial{material_type = "lambertian", albedo = rt.texture_value(mat.albedo, 0, 0, {0, 0, 0})}
+		return SceneMaterial{material_type = "lambertian", albedo = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0})}
 	case rt.metallic:
 		return SceneMaterial{material_type = "metal", albedo = mat.albedo, fuzz = mat.fuzz}
 	case rt.dielectric:

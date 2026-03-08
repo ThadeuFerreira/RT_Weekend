@@ -15,7 +15,14 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 		switch m in s.material {
 		case lambertian:
 			ss.material_kind = .Lambertian
-			ss.albedo = m.albedo
+			switch a in m.albedo {
+			case ConstantTexture:
+				ss.albedo = core.Texture(a)
+			case CheckerTexture:
+				ss.albedo = core.Texture(a)
+			case ImageTextureRuntime:
+				ss.albedo = core.ImageTexture{path = a.path}
+			}
 		case metallic:
 			ss.material_kind = .Metallic
 			ss.albedo = ConstantTexture{color = m.albedo}
@@ -31,21 +38,50 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 
 // build_world_from_scene converts shared scene spheres to raytrace Objects.
 // Prepends a ground plane using the given ground_texture (value). Caller passes default grey (e.g. ConstantTexture{0.5,0.5,0.5}) when no custom ground is desired.
+// image_cache: when a sphere's albedo is core.ImageTexture(path), it is looked up here; if present, Lambertian gets ImageTextureRuntime(path, ptr). If nil or path missing, fallback to grey ConstantTexture.
 // Caller owns and must delete the returned dynamic array.
-build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture: Texture) -> [dynamic]Object {
+build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture: Texture, image_cache: map[string]^Texture_Image = nil) -> [dynamic]Object {
 	world := make([dynamic]Object)
 
+	ground_rtex: RTexture
+	switch g in ground_texture {
+	case ConstantTexture:
+		ground_rtex = g
+	case CheckerTexture:
+		ground_rtex = g
+	case core.ImageTexture:
+		ground_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+	}
 	append(&world, Object(Sphere{
 		center   = {0, -1000, 0},
 		radius   = 1000,
-		material = lambertian{albedo = ground_texture},
+		material = lambertian{albedo = ground_rtex},
 	}))
 
 	for s in scene_objects {
 		mat: material
 		switch s.material_kind {
 		case .Lambertian:
-			mat = material(lambertian{albedo = s.albedo})
+			albedo_rtex: RTexture
+			switch a in s.albedo {
+			case ConstantTexture:
+				albedo_rtex = a
+			case CheckerTexture:
+				albedo_rtex = a
+			case core.ImageTexture:
+				if image_cache != nil {
+					if img := image_cache[a.path]; img != nil {
+						albedo_rtex = ImageTextureRuntime{path = a.path, image = img}
+					} else {
+						albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+					}
+				} else {
+					albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+				}
+			case:
+				albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+			}
+			mat = material(lambertian{albedo = albedo_rtex})
 		case .Metallic:
 			fuzz := s.fuzz
 			if fuzz <= 0 { fuzz = 0.1 }
@@ -63,7 +99,13 @@ build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture
 			if ref_idx <= 0 { ref_idx = 1.5 }
 			mat = material(dielectric{ref_idx = ref_idx})
 		case:
-			mat = material(lambertian{albedo = s.albedo})
+			albedo_fallback: RTexture = ConstantTexture{color = {0.5, 0.5, 0.5}}
+			switch a in s.albedo {
+			case ConstantTexture: albedo_fallback = a
+			case CheckerTexture:  albedo_fallback = a
+			case core.ImageTexture: {}
+			}
+			mat = material(lambertian{albedo = albedo_fallback})
 		}
 		append(&world, Object(Sphere{
 			center    = s.center,

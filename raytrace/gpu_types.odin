@@ -183,10 +183,10 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
             gpu.mat_type    = MAT_LAMBERTIAN
             gpu.fuzz_or_ior = 0.0
             switch tex in m.albedo {
-            case core.ConstantTexture:
+            case ConstantTexture:
                 gpu.tex_type  = TEX_CONSTANT
                 gpu.albedo    = tex.color
-            case  core.CheckerTexture:
+            case CheckerTexture:
                 // Used when ground or any Lambertian has CheckerTexture (e.g. "Next Week: Checkers Texture" example).
                 gpu.tex_type  = TEX_CHECKER
                 gpu.albedo    = [3]f32{0, 0, 0}
@@ -197,10 +197,9 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
                 }
                 gpu.tex_even  = tex.even
                 gpu.tex_odd   = tex.odd
-            case:
-                // Future texture types or fallback: sample at origin so GPU gets a single colour; shader uses TEX_CONSTANT.
+            case ImageTextureRuntime:
+                // Image textures not yet on GPU path; use constant fallback.
                 gpu.tex_type  = TEX_CONSTANT
-                //Pinkish color
                 gpu.albedo    = [3]f32{1, 0.5, 0.5}
             }
         case metallic:

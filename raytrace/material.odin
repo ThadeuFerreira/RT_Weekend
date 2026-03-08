@@ -10,7 +10,7 @@ material :: union{
 }
 
 lambertian :: struct {
-    albedo: Texture,
+    albedo: RTexture,
 }
 
 metallic :: struct{
@@ -30,7 +30,7 @@ scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3
             scatter_dir = rec.normal
         }
         scattered^ = ray{origin = rec.p, dir = scatter_dir, time = r_in.time}
-        attenuation^ = texture_value(m.albedo, rec.u, rec.v, rec.p)
+        attenuation^ = texture_value_runtime(m.albedo, rec.u, rec.v, rec.p)
         return true
     case metallic:
         reflected := vector_reflect(r_in.dir, rec.normal)

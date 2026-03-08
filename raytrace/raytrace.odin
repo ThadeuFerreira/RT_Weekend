@@ -5,6 +5,7 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:c"
+import "RT_Weekend:core"
 import "RT_Weekend:util"
 import stbi "vendor:stb/image"
 
@@ -98,11 +99,15 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
 
     scene_rng := util.create_thread_rng(54321)
 
-    ground_tex: Texture = ConstantTexture{color = {0.5, 0.5, 0.5}}
+    ground_rtex: RTexture = ConstantTexture{color = {0.5, 0.5, 0.5}}
     if ground_texture != nil {
-        ground_tex = ground_texture^
+        switch g in ground_texture^ {
+        case ConstantTexture:   ground_rtex = g
+        case CheckerTexture:    ground_rtex = g
+        case core.ImageTexture: {}
+        }
     }
-    ground_material := material(lambertian{albedo = ground_tex})
+    ground_material := material(lambertian{albedo = ground_rtex})
     append(&world, Sphere{center = {0, -1000, 0}, radius = 1000, material = ground_material})
 
     num_spheres := 0
@@ -114,7 +119,7 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
             if vector_length_squared(center_to_check) > 0.81 {
                 if choose_mat < 0.8 {
                     albedo   := vector_random(&scene_rng) * vector_random(&scene_rng)
-                    mat      := material(lambertian{albedo = ConstantTexture{color = albedo}})
+                    mat      := material(lambertian{albedo = RTexture(ConstantTexture{color = albedo})})
                     append(&world, Sphere{center = center, radius = 0.2, material = mat})
                 } else if choose_mat < 0.95 {
                     albedo   := vector_random_range(&scene_rng, 0.5, 1)
@@ -136,13 +141,41 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
     material1 := material(dielectric{1.5})
     append(&world, Sphere{center = {0, 1, 0}, radius = 1.0, material = material1})
 
-    material2 := material(lambertian{albedo = ConstantTexture{color = {0.4, 0.2, 0.1}}})
+    material2 := material(lambertian{albedo = RTexture(ConstantTexture{color = {0.4, 0.2, 0.1}})})
     append(&world, Sphere{center = {-4, 1, 0}, radius = 1.0, material = material2})
 
     material3 := material(metallic{[3]f32{0.7, 0.6, 0.5}, 0.0})
     append(&world, Sphere{center = {4, 1, 0}, radius = 1.0, material = material3})
 
     cam := make_camera(image_width, image_height, samples_per_pixel)
+    init_camera(cam)
+
+    return cam, world
+}
+
+// Hard-coded earth scene: one sphere with image texture, camera from RTW "earth()".
+// earth_path is the key used in the image cache (e.g. "assets/images/earthmap1k.jpg").
+// Caller must keep earth_img alive for the duration of rendering; defer texture_image_destroy(earth_img) when done.
+setup_earth_scene :: proc(image_width, image_height, samples_per_pixel: int, earth_path: string, earth_img: ^Texture_Image) -> (^Camera, [dynamic]Object) {
+    scene := []core.SceneSphere{
+        {
+            center        = {0, 0, 0},
+            radius        = 2,
+            material_kind = .Lambertian,
+            albedo        = core.ImageTexture{path = earth_path},
+        },
+    }
+    cache: map[string]^Texture_Image
+    cache[earth_path] = earth_img
+    world := build_world_from_scene(scene, ConstantTexture{color = {0.5, 0.5, 0.5}}, cache)
+    delete(cache)
+
+    cam := make_camera(image_width, image_height, samples_per_pixel)
+    cam.vfov = 20
+    cam.lookfrom = [3]f32{0, 0, 12}
+    cam.lookat = [3]f32{0, 0, 0}
+    cam.vup = [3]f32{0, 1, 0}
+    cam.defocus_angle = 0
     init_camera(cam)
 
     return cam, world
