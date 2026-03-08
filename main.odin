@@ -108,11 +108,12 @@ main :: proc() {
         } else {
             cam, w, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
             if !ok {
-                fmt.fprintf(os.stderr, "Failed to load scene: %s\n", args.ScenePath)
-                return
+                fmt.fprintf(os.stderr, "Warning: failed to load scene %s; using default scene (3 spheres).\n", args.ScenePath)
+                r_camera, r_world = raytrace.setup_scene(image_width, image_height, samples_per_pixel, number_of_spheres)
+            } else {
+                r_camera = cam
+                r_world = w
             }
-            r_camera = cam
-            r_world = w
         }
     } else {
         r_camera = raytrace.make_camera(image_width, image_height, samples_per_pixel)
