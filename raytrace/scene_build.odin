@@ -2,6 +2,12 @@ package raytrace
 
 import "core:fmt"
 import "RT_Weekend:core"
+when !VERBOSE_OUTPUT {
+	@(private)
+	_use_verbose_imports_scene_build :: proc() {
+		_ = fmt.printf
+	}
+}
 
 // convert_world_to_edit_spheres converts rt.Object spheres to core.SceneSphere for the edit view.
 // Skips the ground plane (center.y < -100) and Cube objects.

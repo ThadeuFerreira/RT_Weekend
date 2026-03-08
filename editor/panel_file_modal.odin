@@ -104,14 +104,14 @@ file_modal_update :: proc(app: ^App) {
 file_import_from_path :: proc(app: ^App, path: string) {
     if len(path) == 0 { return }
     ev := &app.e_edit_view
-    cam, world, ok := persistence.load_scene(path, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel)
+    app_clear_image_texture_cache(app)
+    cam, world, ok := persistence.load_scene(path, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel, &app.image_texture_cache)
     if !ok {
         app_push_log(app, fmt.aprintf("Import failed: %s", path))
         delete(path)
         return
     }
     rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
-    app_set_image_texture_cache_from_world(app, world)
     converted := rt.convert_world_to_edit_spheres(world)
     LoadFromSceneSpheres(ev.scene_mgr, converted[:])
     delete(converted)

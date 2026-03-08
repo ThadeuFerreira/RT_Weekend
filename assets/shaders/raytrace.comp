@@ -67,7 +67,8 @@ const int TEX_CONSTANT = 0;
 const int TEX_CHECKER  = 1;
 const int TEX_IMAGE    = 2;
 
-// Bound by GPU backend to texture unit 4 when an image texture is present.
+// Always declared; bound to unit 4 only when the scene has an image texture.
+// When no image texture exists, the sampler is unbound (harmless; drivers handle it).
 uniform sampler2D u_image_tex;
 
 // =============================================================

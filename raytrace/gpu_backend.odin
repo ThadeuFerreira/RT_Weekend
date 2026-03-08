@@ -23,7 +23,6 @@ package raytrace
 
 import "core:fmt"
 import "core:math"
-import "core:strings"
 import "base:runtime"
 import "core:time"
 import gl "vendor:OpenGL"
@@ -142,6 +141,7 @@ _upload_image_texture_2d :: proc(img: ^Texture_Image) -> (tex_id: u32, ok: bool)
     gl.BindTexture(gl.TEXTURE_2D, tex_id)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, i32(gl.LINEAR))
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(gl.LINEAR))
+    // Equirectangular: S = longitude (wrap 0..1); T = latitude (clamp at poles to avoid sampling past top/bottom).
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, i32(gl.REPEAT))
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, i32(gl.CLAMP_TO_EDGE))
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -222,15 +222,15 @@ gpu_backend_init :: proc(
     b.height        = cam.image_height
     b.total_samples = samples
 
-    // Optional: bind first runtime image texture to texture unit 4 for TEX_IMAGE sampling.
+    // Upload a single runtime image texture to unit 4 for TEX_IMAGE sampling.
+    // find_first_runtime_image_texture returns only the first image texture in the scene;
+    // if multiple spheres use different image textures, all but the first are ignored on GPU.
     if img := find_first_runtime_image_texture(objects); img != nil {
         tex_id, uploaded := _upload_image_texture_2d(img)
         if uploaded {
             b.image_tex = tex_id
             gl.UseProgram(b.program)
-            sampler_name := strings.clone_to_cstring("u_image_tex")
-            defer delete(sampler_name)
-            loc := gl.GetUniformLocation(b.program, sampler_name)
+            loc := gl.GetUniformLocation(b.program, cstring("u_image_tex"))
             if loc >= 0 {
                 gl.Uniform1i(loc, 4)
             }

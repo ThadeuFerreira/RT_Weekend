@@ -314,6 +314,7 @@ worker_thread :: proc(t: ^thread.Thread) {
 }
 
 start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int) -> ^RenderSession {
+    image_texture_debug_reset()
     session := new(RenderSession)
     session.r_camera = r_camera
     session.num_threads = num_threads
@@ -582,6 +583,7 @@ start_render_auto :: proc(
     num_threads: int,
     use_gpu:     bool,
 ) -> ^RenderSession {
+    image_texture_debug_reset()
     if !use_gpu {
         return start_render(r_camera, world, num_threads)
     }

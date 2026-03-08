@@ -4,6 +4,12 @@ import "core:fmt"
 import "core:math"
 import "core:sync"
 import "RT_Weekend:core"
+when !VERBOSE_OUTPUT {
+	@(private)
+	_use_verbose_imports_texture :: proc() {
+		_, _ = fmt.printf, sync.atomic_add
+	}
+}
 
 IMAGE_TEXTURE_DEBUG_SAMPLES :: 16
 
@@ -27,6 +33,13 @@ RTexture :: union {
 
 @(private)
 image_texture_debug_sample_count: i32
+
+// image_texture_debug_reset clears the per-render sample counter so each render logs up to IMAGE_TEXTURE_DEBUG_SAMPLES. Call at start of each render.
+image_texture_debug_reset :: proc() {
+	when VERBOSE_OUTPUT {
+		image_texture_debug_sample_count = 0
+	}
+}
 
 texture_value :: proc(tex: Texture, u, v: f32, p: [3]f32) -> [3]f32 {
 	switch t in tex {

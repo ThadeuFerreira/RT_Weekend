@@ -3,6 +3,8 @@ package persistence
 import "core:encoding/json"
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
+import "core:strings"
 import rt "RT_Weekend:raytrace"
 
 // Intermediate types for JSON (avoid union unmarshaling).
@@ -22,6 +24,7 @@ SceneCamera :: struct {
 SceneMaterial :: struct {
 	material_type: string  `json:"type"`,
 	albedo:        [3]f32  `json:"albedo,omitempty"`,
+	image_path:    string  `json:"image_path,omitempty"`,
 	fuzz:          f32    `json:"fuzz,omitempty"`,
 	ref_idx:       f32    `json:"ref_idx,omitempty"`,
 }
@@ -40,13 +43,33 @@ SceneFile :: struct {
 	objects: [dynamic]SceneObject `json:"objects"`,
 }
 
+// _scene_resolve_image_path returns an absolute path for loading. Relative paths are resolved against scene_dir.
+@(private)
+_scene_resolve_image_path :: proc(scene_dir, image_path: string, allocator := context.allocator) -> string {
+	if len(image_path) == 0 do return ""
+	when ODIN_OS == .Windows {
+		if len(image_path) >= 3 && image_path[1] == ':' && (image_path[2] == '\\' || image_path[2] == '/') {
+			return strings.clone(image_path, allocator)
+		}
+	} else {
+		if image_path[0] == '/' {
+			return strings.clone(image_path, allocator)
+		}
+	}
+	return strings.concatenate({scene_dir, filepath.SEPARATOR_STRING, image_path}, allocator)
+}
+
 // load_scene loads camera and objects from a JSON scene file. Resolution/samples come from arguments.
+// When image_cache is non-nil, image_path fields in lambertian materials are loaded from disk (paths relative to
+// the scene file directory) and stored in the cache; the world is then built with ImageTextureRuntime so
+// image textures render correctly. When image_cache is nil, image_path is ignored and lambertian uses albedo only.
 // Returns (camera, world, true) on success; (nil, nil, false) on error.
 load_scene :: proc(
 	path: string,
 	image_width: int,
 	image_height: int,
 	samples_per_pixel: int,
+	image_cache: ^map[string]^rt.Texture_Image = nil,
 ) -> (^rt.Camera, [dynamic]rt.Object, bool) {
 	data, read_ok := os.read_entire_file(path)
 	if !read_ok {
@@ -60,6 +83,32 @@ load_scene :: proc(
 	if err != nil {
 		fmt.fprintf(os.stderr, "Scene parse error: %v\n", err)
 		return nil, nil, false
+	}
+
+	scene_dir := filepath.dir(path)
+	defer delete(scene_dir)
+
+	// Pre-load image textures when cache is provided so the world is built with ImageTextureRuntime.
+	if image_cache != nil && scene.objects != nil {
+		for &obj in scene.objects {
+			s := &obj.material
+			if s.material_type == "lambertian" && len(s.image_path) > 0 {
+				resolved := _scene_resolve_image_path(scene_dir, s.image_path)
+				defer delete(resolved)
+				if resolved not_in image_cache {
+					img := new(rt.Texture_Image)
+					img^ = rt.texture_image_init()
+					if rt.texture_image_load(img, resolved) {
+						// Key must outlive this scope; map owns it until cache is cleared.
+						image_cache[strings.clone(resolved)] = img
+					} else {
+						fmt.fprintf(os.stderr, "Scene image load failed: %s\n", resolved)
+						rt.texture_image_destroy(img)
+						free(img)
+					}
+				}
+			}
+		}
 	}
 
 	cam := rt.make_camera(image_width, image_height, samples_per_pixel)
@@ -100,7 +149,7 @@ load_scene :: proc(
 	world := make([dynamic]rt.Object, 0, cap_val)
 	if scene.objects != nil {
 		for &obj in scene.objects {
-			mat := scene_material_to_material(&obj.material)
+			mat := scene_material_to_material(&obj.material, scene_dir, image_cache)
 			switch obj.object_type {
 			case "sphere":
 				center1 := obj.center1
@@ -126,9 +175,17 @@ load_scene :: proc(
 	return cam, world, true
 }
 
-scene_material_to_material :: proc(s: ^SceneMaterial) -> rt.material {
+scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_cache: ^map[string]^rt.Texture_Image = nil) -> rt.material {
 	switch s.material_type {
 	case "lambertian":
+		if len(s.image_path) > 0 && image_cache != nil {
+			resolved := _scene_resolve_image_path(scene_dir, s.image_path)
+			defer delete(resolved)
+			if img := image_cache[resolved]; img != nil {
+				// Path must match cache key for later convert_world_to_edit_spheres / build_world_from_scene lookups.
+				return rt.material(rt.lambertian{albedo = rt.ImageTextureRuntime{path = strings.clone(resolved), image = img}})
+			}
+		}
 		return rt.material(rt.lambertian{albedo = rt.ConstantTexture{color = s.albedo}})
 	case "metal":
 		return rt.material(rt.metallic{albedo = s.albedo, fuzz = s.fuzz})
@@ -202,8 +259,15 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 material_to_scene_material :: proc(m: rt.material) -> SceneMaterial {
 	switch mat in m {
 	case rt.lambertian:
+		// ImageTextureRuntime: persist path so load_scene can reload the image; albedo is fallback for non-image.
+		if img_tex, ok := mat.albedo.(rt.ImageTextureRuntime); ok && len(img_tex.path) > 0 {
+			return SceneMaterial{
+				material_type = "lambertian",
+				albedo        = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0}),
+				image_path    = img_tex.path,
+			}
+		}
 		// Non-constant textures (e.g. CheckerTexture) are sampled at origin and stored as a single [3]f32.
-		// Save/load therefore converts them to constant color; full texture persistence is a known limitation.
 		return SceneMaterial{material_type = "lambertian", albedo = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0})}
 	case rt.metallic:
 		return SceneMaterial{material_type = "metal", albedo = mat.albedo, fuzz = mat.fuzz}

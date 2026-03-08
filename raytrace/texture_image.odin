@@ -46,6 +46,7 @@ _clamp_pixel :: proc(x, low, high: int) -> int {
 	return x
 }
 
+@(private)
 float_to_byte :: proc(value: f32) -> u8 {
 	if value <= 0.0 do return 0
 	if value >= 1.0 do return 255
@@ -112,8 +113,8 @@ texture_image_load :: proc(img: ^Texture_Image, filename: string) -> bool {
 }
 
 // texture_image_loadf loads an HDR/float image from disk into fdata (f32).
-// Returns false on failure. Call texture_image_convert_to_bytes to fill
-// bdata for pixel_data or GPU upload.
+// Returns false on failure. Converts to bdata eagerly so multi-threaded
+// CPU rendering can read bdata without racing on texture_image_convert_to_bytes.
 texture_image_loadf :: proc(img: ^Texture_Image, filename: string) -> bool {
 	if img == nil do return false
 	texture_image_destroy(img)
@@ -134,6 +135,8 @@ texture_image_loadf :: proc(img: ^Texture_Image, filename: string) -> bool {
 	img.fdata_owned = true // stb owns it → image_free in destroy
 	img.bdata = nil
 	img.bdata_owned = false
+
+	texture_image_convert_to_bytes(img)
 	return true
 }
 

@@ -92,6 +92,7 @@ main :: proc() {
     if len(args.ScenePath) > 0 {
         if args.ScenePath == "earth" {
             earth_img = new(raytrace.Texture_Image)
+            earth_img^ = raytrace.texture_image_init()
             if !raytrace.texture_image_load(earth_img, "assets/textures/earthmap1k.jpg") {
                 fmt.fprintf(os.stderr, "Failed to load earth texture: assets/textures/earthmap1k.jpg\n")
                 free(earth_img)

@@ -128,11 +128,16 @@ app_set_image_texture_cache_from_world :: proc(app: ^App, world: [dynamic]rt.Obj
     app.image_texture_cache = rt.collect_image_texture_cache(world[:])
 }
 
+// app_clear_image_texture_cache destroys all cached Texture_Image and frees the map.
+// Call before loading a new scene so the previous scene's images are released.
 app_clear_image_texture_cache :: proc(app: ^App) {
-    if app.image_texture_cache != nil {
-        delete(app.image_texture_cache)
-        app.image_texture_cache = nil
+    if app.image_texture_cache == nil { return }
+    for _, img in app.image_texture_cache {
+        rt.texture_image_destroy(img)
+        free(img)
     }
+    delete(app.image_texture_cache)
+    app.image_texture_cache = nil
 }
 
 // app_restart_render replaces the current world with new_world and starts a fresh render.
