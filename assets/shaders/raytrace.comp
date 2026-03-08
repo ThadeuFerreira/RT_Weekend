@@ -52,7 +52,9 @@ layout(std140, binding = 0) uniform CameraBlock {
 // =============================================================
 // Binding 1 — Sphere array (SSBO, std430)
 // Matches GPUSphere in raytrace/gpu_types.odin.
-// 136 bytes per sphere (std430 align 16; includes texture params + tex_index for Lambertian).
+// 144 bytes per sphere: std430 array stride = ceil(136/16)*16 = 144.
+// The explicit _pad_stride[3] brings the struct to 144 so both CPU and GPU
+// use the same stride (no implicit trailing padding mismatch).
 // =============================================================
 
 // Material type constants — mirror MAT_* in gpu_types.odin.
@@ -98,8 +100,8 @@ struct Sphere {
     float _pad_even;
     vec3  tex_odd;
     float _pad_odd;
-    int   tex_index;    // which u_image_tex[] slot for TEX_IMAGE (0..MAX_IMAGE_TEX-1)
-    float _pad_stride;  // padding so struct size = 136; matches std430 array stride (align 16)
+    int   tex_index;       // which u_image_tex[] slot for TEX_IMAGE (0..MAX_IMAGE_TEX-1)
+    float _pad_stride[3];  // pads struct to 144 bytes = ceil(136/16)*16; matches std430 array stride
 };
 
 layout(std430, binding = 1) readonly buffer SpheresBlock {

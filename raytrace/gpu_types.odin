@@ -102,10 +102,16 @@ GPURay :: struct #packed {
     time:   f32,        // 32 bytes total — matches GLSL Ray in std430
 }
 
-// GPUSphere mirrors the GLSL `Sphere` struct under std430 layout (128 bytes).
+// GPUSphere mirrors the GLSL `Sphere` struct under std430 layout (144 bytes).
 //
 // GLSL vec3 has base alignment 16. Texture fields follow _pad so Lambertian
 // can use ConstantTexture (albedo only) or CheckerTexture (tex_*).
+//
+// std430 array stride rule: struct stride = ceil(size / alignment) * alignment.
+// Struct alignment = 16 (largest member alignment = vec3). Size without final
+// padding = 136 bytes. 136 % 16 = 8 ≠ 0 → GPU adds implicit 8-byte trailing
+// pad → stride = 144. The CPU struct must match: _pad_stride is 12 bytes (not 4)
+// so that both sides use 144 bytes and sphere[N] is at offset N*144.
 //
 // Field offsets (must match raytrace.comp Sphere struct exactly):
 //   center (GPURay)  : 0   – 31   (32 bytes)
@@ -123,7 +129,7 @@ GPURay :: struct #packed {
 //   tex_odd          : 112 – 123  (12 bytes)
 //   _pad_odd         : 124 – 127  (4 bytes)
 //   tex_index        : 128 – 131  (4 bytes) — which image texture slot for TEX_IMAGE
-//   _pad_stride      : 132 – 135  (4 bytes) — std430 array stride: struct alignment 16 → stride 136
+//   _pad_stride      : 132 – 143  (12 bytes) — pads struct to 144 = ceil(136/16)*16
 GPUSphere :: struct #packed {
     center:      GPURay,
     radius:      f32,
@@ -140,7 +146,7 @@ GPUSphere :: struct #packed {
     tex_odd:     [3]f32,
     _pad_odd:    f32,
     tex_index:   i32,     // image texture slot index for TEX_IMAGE (0 = first bound texture)
-    _pad_stride: [1]f32,  // padding so size = 136; matches GLSL std430 array stride (align 16)
+    _pad_stride: [3]f32,  // pads struct to 144 bytes = ceil(136/16)*16; matches std430 array stride
 }
 
 // GPUCameraUniforms is uploaded as a UBO (std140).
