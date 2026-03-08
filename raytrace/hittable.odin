@@ -33,10 +33,47 @@ sphere_center_at :: proc(s: Sphere, time: f32) -> [3]f32 {
     return s.center + time * (s.center1 - s.center)
 }
 
+// sphere_get_uv returns (u, v) texture coordinates for a unit-sphere surface point p.
+// p is the normalized hit point relative to sphere center (outward_normal for a sphere).
+// Follows Ray Tracing: The Next Week Ch.4: theta = acos(-p.y), phi = atan2(-p.z, p.x) + π.
+sphere_get_uv :: proc(p: [3]f32) -> (u, v: f32) {
+    theta := math.acos(-p.y)
+    phi   := math.atan2(-p.z, p.x) + math.PI
+    u = phi / (2.0 * math.PI)
+    v = theta / math.PI
+    return
+}
+
 Cube :: struct {
     center : [3]f32,
     radius : f32,
     material : material,
+}
+
+// cube_get_uv returns (u, v) in [0,1] using face-projected UV: dominant axis of the
+// outward normal, then the two remaining axes normalized to the cube face extent.
+// No per-face unwrap; suitable as a simple fallback for image textures.
+cube_get_uv :: proc(p: [3]f32, outward_normal: [3]f32, center: [3]f32, radius: f32) -> (u, v: f32) {
+    // Dominant axis of the outward normal (which face was hit).
+    ax := 0
+    if math.abs(outward_normal[1]) > math.abs(outward_normal[ax]) { ax = 1 }
+    if math.abs(outward_normal[2]) > math.abs(outward_normal[ax]) { ax = 2 }
+    // The two other axes for (u, v).
+    axis_u: int = 1 if ax == 0 else 0
+    axis_v: int = 2
+    if ax == 1 {
+        axis_u = 0
+        axis_v = 2
+    } else if ax == 2 {
+        axis_u = 0
+        axis_v = 1
+    }
+    half := 2.0 * radius
+    u = (p[axis_u] - center[axis_u] + radius) / half
+    v = (p[axis_v] - center[axis_v] + radius) / half
+    u = math.clamp(u, 0.0, 1.0)
+    v = math.clamp(v, 0.0, 1.0)
+    return
 }
 
 Object :: union {
@@ -689,7 +726,11 @@ hit :: proc(r : ray, ray_t : Interval, rec : ^hit_record, object : Object, close
             return true
         }
     case Cube:
-        return false
+        if hit_cube(s, r, Interval{ray_t.min, closest_so_far^}, &temp_rec) {
+            rec^ = temp_rec
+            closest_so_far^ = temp_rec.t
+            return true
+        }
     }
     return false
 }
