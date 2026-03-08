@@ -1,9 +1,11 @@
 package editor
 
 import "core:fmt"
+import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
+import "RT_Weekend:util"
 
 // Layout constants for the Object Properties panel.
 // Separate from PROP_* in edit_view_panel.odin to fit a narrower panel.
@@ -41,19 +43,24 @@ OpLayout :: struct {
 	mat_rects:     [3]rl.Rectangle,
 	has_mat_param: bool,
 	box_mat_param: rl.Rectangle,   // fuzz (metallic) or IOR (dielectric)
+	// COLOR section (constant texture):
 	boxes_rgb:     [3]rl.Rectangle,
 	swatch:        rl.Rectangle,
+	// IMAGE TEXTURE section (Lambertian only):
+	btn_browse:    rl.Rectangle,   // "Browse…" button (full-width when no image; left half when image set)
+	btn_clear:     rl.Rectangle,   // "×" clear button (right of browse; only shown when image set)
+	has_image:     bool,           // true when current sphere has ImageTexture albedo
 }
 
 // Sphere drag index assignments (prop_drag_idx): 0–3 = TRANSFORM (xyz, radius), 8–10 = MOTION (dX dY dZ), 4–6 = COLOR (rgb), 7 = MATERIAL param (fuzz/ior). Layout order in UI is TRANSFORM → MOTION → MATERIAL → COLOR.
-op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) -> OpLayout {
+op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind, albedo: core.Texture = nil) -> OpLayout {
 	lo: OpLayout
 	lo.lx = content.x + 8
 	lo.x0 = lo.lx + OP_LW + OP_GAP
 
 	cy := content.y + 6
 
-	// TRANSFORM 
+	// TRANSFORM
 	lo.y_transform = cy
 	cy += 18
 
@@ -77,7 +84,7 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) ->
 	}
 	cy += OP_FH + 10
 
-	// MATERIAL 
+	// MATERIAL
 	lo.y_material = cy
 	cy += 18
 
@@ -94,18 +101,38 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind) ->
 	if lo.has_mat_param { cy += OP_FH + 6 }
 	cy += 4
 
-	// COLOR 
+	// COLOR / IMAGE TEXTURE
 	lo.y_color = cy
 	cy += 18
 
-	lo.boxes_rgb = [3]rl.Rectangle{
-		{lo.x0,             cy, OP_FW, OP_FH},
-		{lo.x0 + OP_COL,   cy, OP_FW, OP_FH},
-		{lo.x0 + 2*OP_COL, cy, OP_FW, OP_FH},
-	}
-	cy += OP_FH + 6
+	_, lo.has_image = albedo.(core.ImageTexture)
 
-	lo.swatch = rl.Rectangle{lo.lx, cy, 42, 30}
+	if !lo.has_image {
+		// Constant/Checker: show RGB drag fields + swatch
+		lo.boxes_rgb = [3]rl.Rectangle{
+			{lo.x0,             cy, OP_FW, OP_FH},
+			{lo.x0 + OP_COL,   cy, OP_FW, OP_FH},
+			{lo.x0 + 2*OP_COL, cy, OP_FW, OP_FH},
+		}
+		cy += OP_FH + 6
+		lo.swatch = rl.Rectangle{lo.lx, cy, 42, 30}
+		cy += 34
+	}
+
+	// Browse / Clear buttons (always shown for Lambertian)
+	if mat_kind == .Lambertian {
+		content_w := content.width - 16
+		if lo.has_image {
+			// [Browse…] | [×]
+			browse_w := content_w - 26
+			lo.btn_browse = rl.Rectangle{lo.lx, cy, browse_w, 22}
+			lo.btn_clear  = rl.Rectangle{lo.lx + browse_w + 4, cy, 20, 22}
+		} else {
+			// [Browse Image…] full width
+			lo.btn_browse = rl.Rectangle{lo.lx, cy, content_w, 22}
+		}
+	}
+
 	return lo
 }
 
@@ -229,7 +256,7 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	if ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) { return }
 	sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
 	if !ok { return }
-	lo := op_compute_layout(content, sphere.material_kind)
+	lo := op_compute_layout(content, sphere.material_kind, sphere.albedo)
 
 	// TRANSFORM
 	op_section_label(app, "TRANSFORM", lo.lx, lo.y_transform)
@@ -261,26 +288,52 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 		op_drag_field(app, "Ir", sphere.ref_idx, lo.box_mat_param, st.prop_drag_idx == 7, mouse)
 	}
 
-	// COLOR
+	// COLOR / IMAGE TEXTURE
 	op_section_label(app, "COLOR", lo.lx, lo.y_color)
-	
-	disp_col := [3]f32{0.5, 0.5, 0.5}
-	if ct, ok := sphere.albedo.(core.ConstantTexture); ok { disp_col = ct.color }
-	else if ct2, ok := sphere.albedo.(core.CheckerTexture); ok { disp_col = ct2.even }
-	
-	op_drag_field(app, "R", disp_col[0], lo.boxes_rgb[0], st.prop_drag_idx == 4, mouse)
-	op_drag_field(app, "G", disp_col[1], lo.boxes_rgb[1], st.prop_drag_idx == 5, mouse)
-	op_drag_field(app, "B", disp_col[2], lo.boxes_rgb[2], st.prop_drag_idx == 6, mouse)
 
-	// Color swatch
-	swatch_col := rl.Color{
-		u8(clamp(disp_col[0], f32(0), f32(1)) * 255),
-		u8(clamp(disp_col[1], f32(0), f32(1)) * 255),
-		u8(clamp(disp_col[2], f32(0), f32(1)) * 255),
-		255,
+	if lo.has_image {
+		// Show basename of the image path
+		if it, ok2 := sphere.albedo.(core.ImageTexture); ok2 {
+			base := filepath.base(it.path)
+			label := fmt.ctprintf("Img: %s", base)
+			draw_ui_text(app, label, i32(lo.lx), i32(lo.y_color) + 18, 10, CONTENT_TEXT_COLOR)
+		}
+	} else {
+		// RGB drag fields + swatch
+		disp_col := [3]f32{0.5, 0.5, 0.5}
+		if ct, ok2 := sphere.albedo.(core.ConstantTexture); ok2 { disp_col = ct.color }
+		else if ct2, ok2 := sphere.albedo.(core.CheckerTexture); ok2 { disp_col = ct2.even }
+
+		op_drag_field(app, "R", disp_col[0], lo.boxes_rgb[0], st.prop_drag_idx == 4, mouse)
+		op_drag_field(app, "G", disp_col[1], lo.boxes_rgb[1], st.prop_drag_idx == 5, mouse)
+		op_drag_field(app, "B", disp_col[2], lo.boxes_rgb[2], st.prop_drag_idx == 6, mouse)
+
+		swatch_col := rl.Color{
+			u8(clamp(disp_col[0], f32(0), f32(1)) * 255),
+			u8(clamp(disp_col[1], f32(0), f32(1)) * 255),
+			u8(clamp(disp_col[2], f32(0), f32(1)) * 255),
+			255,
+		}
+		rl.DrawRectangleRec(lo.swatch, swatch_col)
+		rl.DrawRectangleLinesEx(lo.swatch, 1, BORDER_COLOR)
 	}
-	rl.DrawRectangleRec(lo.swatch, swatch_col)
-	rl.DrawRectangleLinesEx(lo.swatch, 1, BORDER_COLOR)
+
+	// Browse / Clear buttons (Lambertian only)
+	if sphere.material_kind == .Lambertian {
+		browse_hov := rl.CheckCollisionPointRec(mouse, lo.btn_browse)
+		browse_bg := browse_hov ? rl.Color{70, 90, 140, 255} : rl.Color{45, 55, 80, 255}
+		rl.DrawRectangleRec(lo.btn_browse, browse_bg)
+		rl.DrawRectangleLinesEx(lo.btn_browse, 1, BORDER_COLOR)
+		draw_ui_text(app, "Browse Image\xe2\x80\xa6", i32(lo.btn_browse.x) + 4, i32(lo.btn_browse.y) + 4, 10, CONTENT_TEXT_COLOR)
+
+		if lo.has_image {
+			clear_hov := rl.CheckCollisionPointRec(mouse, lo.btn_clear)
+			clear_bg := clear_hov ? rl.Color{160, 60, 60, 255} : rl.Color{90, 40, 40, 255}
+			rl.DrawRectangleRec(lo.btn_clear, clear_bg)
+			rl.DrawRectangleLinesEx(lo.btn_clear, 1, BORDER_COLOR)
+			draw_ui_text(app, "\xc3\x97", i32(lo.btn_clear.x) + 4, i32(lo.btn_clear.y) + 4, 10, rl.RAYWHITE)
+		}
+	}
 }
 
 // ── update 
@@ -436,7 +489,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		return
 	}
 
-	lo := op_compute_layout(rect, sphere.material_kind)
+	lo := op_compute_layout(rect, sphere.material_kind, sphere.albedo)
 
 	// ── Material toggle clicks
 	if lmb_pressed {
@@ -472,6 +525,36 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
+
+		// ── Browse Image button (Lambertian only)
+		if sphere.material_kind == .Lambertian && rl.CheckCollisionPointRec(mouse, lo.btn_browse) {
+			default_dir := util.dialog_default_dir(app.current_scene_path)
+			img_path, ok2 := util.open_file_dialog(default_dir, util.IMAGE_FILTER_DESC, util.IMAGE_FILTER_EXT)
+			delete(default_dir)
+			if ok2 {
+				before := sphere
+				sphere.albedo = core.ImageTexture{path = img_path}
+				app_ensure_image_cached(app, img_path)
+				SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+				edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+				mark_scene_dirty(app)
+				app_push_log(app, fmt.aprintf("Texture: %s", filepath.base(img_path)))
+			}
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+
+		// ── Clear image button (Lambertian with ImageTexture)
+		if sphere.material_kind == .Lambertian && lo.has_image && rl.CheckCollisionPointRec(mouse, lo.btn_clear) {
+			before := sphere
+			sphere.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
+			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+			mark_scene_dirty(app)
+			app_push_log(app, strings.clone("Texture cleared"))
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
 	}
 
 	// ── Drag-field hover / start-drag
@@ -489,12 +572,15 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if op_try_start_drag(lo.boxes_motion[0], 8, motion_offset[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_motion[1], 9, motion_offset[1], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_motion[2], 10, motion_offset[2], st, mouse, lmb_pressed) { any_hovered = true }
-	drag_col := [3]f32{0.5, 0.5, 0.5}
-	if ct, ok := sphere.albedo.(core.ConstantTexture); ok { drag_col = ct.color }
-	else if ct2, ok := sphere.albedo.(core.CheckerTexture); ok { drag_col = ct2.even }
-	if op_try_start_drag(lo.boxes_rgb[0], 4, drag_col[0], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_rgb[1], 5, drag_col[1], st, mouse, lmb_pressed) { any_hovered = true }
-	if op_try_start_drag(lo.boxes_rgb[2], 6, drag_col[2], st, mouse, lmb_pressed) { any_hovered = true }
+	// RGB drag only when not an image texture
+	if !lo.has_image {
+		drag_col := [3]f32{0.5, 0.5, 0.5}
+		if ct, ok := sphere.albedo.(core.ConstantTexture); ok { drag_col = ct.color }
+		else if ct2, ok := sphere.albedo.(core.CheckerTexture); ok { drag_col = ct2.even }
+		if op_try_start_drag(lo.boxes_rgb[0], 4, drag_col[0], st, mouse, lmb_pressed) { any_hovered = true }
+		if op_try_start_drag(lo.boxes_rgb[1], 5, drag_col[1], st, mouse, lmb_pressed) { any_hovered = true }
+		if op_try_start_drag(lo.boxes_rgb[2], 6, drag_col[2], st, mouse, lmb_pressed) { any_hovered = true }
+	}
 	if lo.has_mat_param {
 		mat_val := sphere.material_kind == .Metallic ? sphere.fuzz : sphere.ref_idx
 		if op_try_start_drag(lo.box_mat_param, 7, mat_val, st, mouse, lmb_pressed) { any_hovered = true }

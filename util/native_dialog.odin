@@ -14,6 +14,10 @@ import "core:path/filepath"
 SCENE_FILTER_DESC :: "Scene files (*.json)"
 SCENE_FILTER_EXT  :: "json"
 
+// Image file filter used by the editor for texture import.
+IMAGE_FILTER_DESC :: "Image files (*.jpg *.jpeg *.png)"
+IMAGE_FILTER_EXT  :: "jpg"
+
 // open_file_dialog shows a native open-file dialog. default_dir is the starting directory (empty = current dir).
 // filter_desc and filter_ext are used for the file type filter (e.g. "Scene files (*.json)", "json").
 // Returns (selected path, true) or ("", false) on cancel/failure. Caller must delete the returned path.

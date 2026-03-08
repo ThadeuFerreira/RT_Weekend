@@ -140,6 +140,24 @@ app_clear_image_texture_cache :: proc(app: ^App) {
     app.image_texture_cache = nil
 }
 
+// app_ensure_image_cached loads the image at path into app.image_texture_cache if not already present.
+// Returns true when the image is ready (already cached or freshly loaded). Logs on failure.
+app_ensure_image_cached :: proc(app: ^App, path: string) -> bool {
+    if app.image_texture_cache == nil {
+        app.image_texture_cache = make(map[string]^rt.Texture_Image)
+    }
+    if path in app.image_texture_cache { return true }
+    img := new(rt.Texture_Image)
+    img^ = rt.texture_image_init()
+    if !rt.texture_image_load(img, path) {
+        free(img)
+        app_push_log(app, fmt.aprintf("Image load failed: %s", path))
+        return false
+    }
+    app.image_texture_cache[path] = img
+    return true
+}
+
 // app_restart_render replaces the current world with new_world and starts a fresh render.
 // No-op if the current render has not yet finished (finish_render must have been called).
 app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
@@ -270,6 +288,7 @@ App :: struct {
 
     // Named layout presets (built-ins + user-saved)
     layout_presets: [dynamic]persistence.LayoutPreset,
+
 }
 
 g_app: ^App = nil
