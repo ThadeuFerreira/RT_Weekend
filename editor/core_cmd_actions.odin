@@ -133,6 +133,7 @@ cmd_action_view_edit   :: proc(app: ^App) { toggle_panel(app, PANEL_ID_EDIT_VIEW
 cmd_action_view_camera :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA) }
 cmd_action_view_props  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_OBJECT_PROPS) }
 cmd_action_view_preview:: proc(app: ^App) { toggle_panel(app, PANEL_ID_PREVIEW_PORT) }
+cmd_action_view_texture:: proc(app: ^App) { toggle_panel(app, PANEL_ID_TEXTURE_VIEW) }
 
 cmd_checked_view_render :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_RENDER) }
 cmd_checked_view_stats  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_STATS) }
@@ -142,6 +143,7 @@ cmd_checked_view_edit   :: proc(app: ^App) -> bool { return panel_visible(app, P
 cmd_checked_view_camera :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA) }
 cmd_checked_view_props  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_OBJECT_PROPS) }
 cmd_checked_view_preview:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_PREVIEW_PORT) }
+cmd_checked_view_texture:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_TEXTURE_VIEW) }
 
 // ── View preset actions ──────────────────────────────────────────────────────
 
@@ -398,6 +400,7 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_VIEW_CAMERA,  label = "Camera",         action = cmd_action_view_camera,  checked_proc = cmd_checked_view_camera})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PROPS,   label = "Object Props",   action = cmd_action_view_props,   checked_proc = cmd_checked_view_props})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PREVIEW, label = "Preview Port",   action = cmd_action_view_preview, checked_proc = cmd_checked_view_preview})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_TEXTURE, label = "Texture View",   action = cmd_action_view_texture, checked_proc = cmd_checked_view_texture})
 
     // View — presets
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",         action = cmd_action_preset_default})

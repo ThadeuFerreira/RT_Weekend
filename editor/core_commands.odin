@@ -15,6 +15,7 @@ CMD_VIEW_EDIT        :: "view.panel.edit"
 CMD_VIEW_CAMERA      :: "view.panel.camera"
 CMD_VIEW_PROPS       :: "view.panel.props"
 CMD_VIEW_PREVIEW     :: "view.panel.preview"
+CMD_VIEW_TEXTURE     :: "view.panel.texture"
 
 CMD_VIEW_PRESET_DEFAULT :: "view.preset.default"
 CMD_VIEW_PRESET_RENDER  :: "view.preset.render_focus"

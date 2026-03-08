@@ -52,7 +52,7 @@ layout(std140, binding = 0) uniform CameraBlock {
 // =============================================================
 // Binding 1 — Sphere array (SSBO, std430)
 // Matches GPUSphere in raytrace/gpu_types.odin.
-// 128 bytes per sphere (includes texture params for Lambertian).
+// 136 bytes per sphere (std430 align 16; includes texture params + tex_index for Lambertian).
 // =============================================================
 
 // Material type constants — mirror MAT_* in gpu_types.odin.
@@ -67,9 +67,10 @@ const int TEX_CONSTANT = 0;
 const int TEX_CHECKER  = 1;
 const int TEX_IMAGE    = 2;
 
-// Always declared; bound to unit 4 only when the scene has an image texture.
-// When no image texture exists, the sampler is unbound (harmless; drivers handle it).
-uniform sampler2D u_image_tex;
+// Array of image texture samplers (bound to units 4, 5, ...). Each sphere with
+// TEX_IMAGE uses its tex_index to sample from the correct texture.
+const int MAX_IMAGE_TEX = 8;
+uniform sampler2D u_image_tex[MAX_IMAGE_TEX];
 
 // =============================================================
 // Ray / intersection helpers
@@ -90,13 +91,15 @@ struct Sphere {
     int   mat_type;
     float fuzz_or_ior;  // fuzz (metallic) or index of refraction (dielectric)
     float _pad[3];
-    int   tex_type;     // TEX_CONSTANT or TEX_CHECKER (Lambertian only)
+    int   tex_type;     // TEX_CONSTANT, TEX_CHECKER, or TEX_IMAGE (Lambertian only)
     float tex_scale;
     float _pad_tex[2];
     vec3  tex_even;
     float _pad_even;
     vec3  tex_odd;
     float _pad_odd;
+    int   tex_index;    // which u_image_tex[] slot for TEX_IMAGE (0..MAX_IMAGE_TEX-1)
+    float _pad_stride;  // padding so struct size = 136; matches std430 array stride (align 16)
 };
 
 layout(std430, binding = 1) readonly buffer SpheresBlock {
@@ -214,10 +217,11 @@ struct HitRecord {
     vec3  albedo;
     float fuzz_or_ior;
     float ray_time;
-    int   tex_type;   // for Lambertian: TEX_CONSTANT or TEX_CHECKER
+    int   tex_type;   // for Lambertian: TEX_CONSTANT, TEX_CHECKER, or TEX_IMAGE
     float tex_scale;
     vec3  tex_even;
     vec3  tex_odd;
+    int   tex_index;  // which u_image_tex[] slot for TEX_IMAGE
 };
 
 // set_face_normal ensures the stored normal always points against the ray.
@@ -271,6 +275,7 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
     rec.tex_scale   = s.tex_scale;
     rec.tex_even    = s.tex_even;
     rec.tex_odd     = s.tex_odd;
+    rec.tex_index   = s.tex_index;
     return true;
 }
 
@@ -378,7 +383,19 @@ vec3 texture_value_lambertian(HitRecord rec) {
     if (rec.tex_type == TEX_IMAGE) {
         // Sphere UV: v=0 south, v=1 north. Equirect image row 0=north -> flip v.
         vec2 uv = vec2(clamp(rec.u, 0.0, 1.0), 1.0 - clamp(rec.v, 0.0, 1.0));
-        return texture(u_image_tex, uv).rgb;
+        // Index must be constant per texture() call — dynamic indexing is not allowed for samplers.
+        int idx = clamp(rec.tex_index, 0, MAX_IMAGE_TEX - 1);
+        switch (idx) {
+            case 0: return texture(u_image_tex[0], uv).rgb;
+            case 1: return texture(u_image_tex[1], uv).rgb;
+            case 2: return texture(u_image_tex[2], uv).rgb;
+            case 3: return texture(u_image_tex[3], uv).rgb;
+            case 4: return texture(u_image_tex[4], uv).rgb;
+            case 5: return texture(u_image_tex[5], uv).rgb;
+            case 6: return texture(u_image_tex[6], uv).rgb;
+            case 7: return texture(u_image_tex[7], uv).rgb;
+            default: return rec.albedo;
+        }
     }
     return rec.albedo;
 }

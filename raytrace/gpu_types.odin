@@ -32,7 +32,8 @@ GPUBackend :: struct {
     ssbo_bvh:          u32,  // SSBO: [4]i32 header then []LinearBVHNode
     ssbo_output:       u32,  // SSBO: vec4 per pixel (RGB accumulation)
     ubo_camera:        u32,  // UBO: GPUCameraUniforms (std140)
-    image_tex:         u32,  // Optional 2D texture for Lambertian image maps
+    image_texs:        [MAX_GPU_IMAGE_TEXTURES]u32, // 2D textures for Lambertian image maps (units 4..4+N-1)
+    num_image_texs:    int,  // number of image textures actually bound (0..MAX_GPU_IMAGE_TEXTURES)
     width:             int,
     height:            int,
     current_sample:    int,  // number of samples dispatched so far
@@ -86,6 +87,9 @@ TEX_CONSTANT :: i32(0)  // use albedo as-is
 TEX_CHECKER  :: i32(1)  // 3D checker from tex_scale, tex_even, tex_odd
 TEX_IMAGE    :: i32(2)  // sample from bound 2D image texture using sphere UV
 
+// Maximum number of distinct image textures on GPU (each sphere can reference one via tex_index).
+MAX_GPU_IMAGE_TEXTURES :: 8
+
 
 // GPURay mirrors the GLSL `Ray` struct under std430 layout (32 bytes).
 // GLSL vec3 has base alignment 16, so a 4-byte pad is required between
@@ -118,6 +122,8 @@ GPURay :: struct #packed {
 //   _pad_even        : 108 – 111  (4 bytes)
 //   tex_odd          : 112 – 123  (12 bytes)
 //   _pad_odd         : 124 – 127  (4 bytes)
+//   tex_index        : 128 – 131  (4 bytes) — which image texture slot for TEX_IMAGE
+//   _pad_stride      : 132 – 135  (4 bytes) — std430 array stride: struct alignment 16 → stride 136
 GPUSphere :: struct #packed {
     center:      GPURay,
     radius:      f32,
@@ -126,13 +132,15 @@ GPUSphere :: struct #packed {
     mat_type:    i32,
     fuzz_or_ior: f32,
     _pad:        [3]f32,   // _pad[0] = is_moving flag (1.0=moving, 0.0=static)
-    tex_type:    i32,      // TEX_CONSTANT or TEX_CHECKER (Lambertian only)
+    tex_type:    i32,      // TEX_CONSTANT or TEX_CHECKER or TEX_IMAGE (Lambertian only)
     tex_scale:   f32,
     _pad_tex:    [2]f32,   // align tex_even to 16
     tex_even:    [3]f32,
     _pad_even:   f32,
     tex_odd:     [3]f32,
     _pad_odd:    f32,
+    tex_index:   i32,     // image texture slot index for TEX_IMAGE (0 = first bound texture)
+    _pad_stride: [1]f32,  // padding so size = 136; matches GLSL std430 array stride (align 16)
 }
 
 // GPUCameraUniforms is uploaded as a UBO (std140).
@@ -153,12 +161,36 @@ GPUCameraUniforms :: struct #packed {
     _pad:           [3]i32,             // align to 16 bytes
 }
 
+// collect_image_textures_ordered walks the world and returns (1) a list of unique
+// image textures in encounter order and (2) path -> slot index for each path.
+// Used by the GPU backend to upload multiple textures and set GPUSphere.tex_index.
+// Caller must delete the returned dynamic and map.
+collect_image_textures_ordered :: proc(objects: []Object) -> (images: [dynamic]^Texture_Image, path_to_index: map[string]int) {
+    path_to_index = make(map[string]int)
+    images = make([dynamic]^Texture_Image)
+    for o in objects {
+        s, ok := o.(Sphere)
+        if !ok { continue }
+        m, ok_lambertian := s.material.(lambertian)
+        if !ok_lambertian { continue }
+        tex, ok_img := m.albedo.(ImageTextureRuntime)
+        if !ok_img || tex.image == nil || len(tex.path) == 0 { continue }
+        if tex.path not_in path_to_index {
+            path_to_index[tex.path] = len(images)
+            append(&images, tex.image)
+        }
+    }
+    return
+}
+
 // scene_to_gpu_spheres converts the Odin-union Object slice to a flat []GPUSphere
 // suitable for uploading to a GL SSBO.
 //
+// When path_to_index is non-nil, ImageTextureRuntime spheres get tex_index set from
+// it so each object can reference a different image texture on the GPU.
 // Only Sphere objects are included (Cube is not yet supported on the GPU path).
 // The resulting slice must be freed by the caller (delete(result)).
-scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
+scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = nil) -> []GPUSphere {
     // Count spheres first so we allocate exactly.
     count := 0
     for o in objects {
@@ -188,6 +220,7 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
             case ConstantTexture:
                 gpu.tex_type  = TEX_CONSTANT
                 gpu.albedo    = tex.color
+                gpu.tex_index = 0
             case CheckerTexture:
                 // Used when ground or any Lambertian has CheckerTexture (e.g. "Next Week: Checkers Texture" example).
                 gpu.tex_type  = TEX_CHECKER
@@ -199,20 +232,31 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
                 }
                 gpu.tex_even  = tex.even
                 gpu.tex_odd   = tex.odd
+                gpu.tex_index = 0
             case ImageTextureRuntime:
-                gpu.tex_type  = TEX_IMAGE
-                gpu.albedo    = [3]f32{1, 1, 1}
+                if path_to_index != nil && tex.path in path_to_index {
+                    gpu.tex_type   = TEX_IMAGE
+                    gpu.albedo     = [3]f32{1, 1, 1}
+                    gpu.tex_index  = i32(path_to_index[tex.path])
+                } else {
+                    // Path missing from cache or no path_to_index: fallback to grey so we never sample an unbound texture.
+                    gpu.tex_type   = TEX_CONSTANT
+                    gpu.albedo     = [3]f32{0.5, 0.5, 0.5}
+                    gpu.tex_index  = 0
+                }
             }
         case metallic:
             gpu.mat_type    = MAT_METALLIC
             gpu.albedo      = m.albedo
             gpu.fuzz_or_ior = m.fuzz
             gpu.tex_type    = TEX_CONSTANT
+            gpu.tex_index   = 0
         case dielectric:
             gpu.mat_type    = MAT_DIELECTRIC
             gpu.albedo      = [3]f32{1, 1, 1}
             gpu.fuzz_or_ior = m.ref_idx
             gpu.tex_type    = TEX_CONSTANT
+            gpu.tex_index   = 0
         case:
             // Unknown material: default to white Lambertian (constant)
             gpu.mat_type  = MAT_LAMBERTIAN
@@ -221,6 +265,7 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
             gpu.tex_scale = 1.0
             gpu.tex_even  = [3]f32{1, 1, 1}
             gpu.tex_odd   = [3]f32{1, 1, 1}
+            gpu.tex_index = 0
         }
 
         result[idx] = gpu
@@ -229,17 +274,3 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
     return result
 }
 
-// find_first_runtime_image_texture returns the first image texture found in a world.
-// Current GPU path binds one 2D texture for Lambertian image sampling.
-find_first_runtime_image_texture :: proc(objects: []Object) -> ^Texture_Image {
-    for o in objects {
-        s, is_sphere := o.(Sphere)
-        if !is_sphere { continue }
-        m, is_lambertian := s.material.(lambertian)
-        if !is_lambertian { continue }
-        if tex, ok := m.albedo.(ImageTextureRuntime); ok && tex.image != nil {
-            return tex.image
-        }
-    }
-    return nil
-}
