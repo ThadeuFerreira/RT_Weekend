@@ -338,7 +338,7 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 				rt.free_bvh(ev.viz_bvh_root)
 				ev.viz_bvh_root = nil
 			}
-			objects := rt.build_world_from_scene(objs, app_active_ground_texture(app))
+			objects := app_build_world_from_scene(app, objs)
 			defer delete(objects)
 			ev.viz_bvh_root = rt.build_bvh(objects[:])
 			ev.viz_bvh_dirty = false
@@ -1152,7 +1152,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			// Export scene
 			ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			delete(app.r_world)
-			app.r_world = rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
+			app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
 
 			// Parse render settings
 			width, height, res_ok := calculate_render_dimensions(app)

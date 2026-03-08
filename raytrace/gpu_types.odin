@@ -32,6 +32,7 @@ GPUBackend :: struct {
     ssbo_bvh:          u32,  // SSBO: [4]i32 header then []LinearBVHNode
     ssbo_output:       u32,  // SSBO: vec4 per pixel (RGB accumulation)
     ubo_camera:        u32,  // UBO: GPUCameraUniforms (std140)
+    image_tex:         u32,  // Optional 2D texture for Lambertian image maps
     width:             int,
     height:            int,
     current_sample:    int,  // number of samples dispatched so far
@@ -83,6 +84,7 @@ MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
 // Texture type for Lambertian (GPU only; must match raytrace.comp).
 TEX_CONSTANT :: i32(0)  // use albedo as-is
 TEX_CHECKER  :: i32(1)  // 3D checker from tex_scale, tex_even, tex_odd
+TEX_IMAGE    :: i32(2)  // sample from bound 2D image texture using sphere UV
 
 
 // GPURay mirrors the GLSL `Ray` struct under std430 layout (32 bytes).
@@ -183,10 +185,10 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
             gpu.mat_type    = MAT_LAMBERTIAN
             gpu.fuzz_or_ior = 0.0
             switch tex in m.albedo {
-            case core.ConstantTexture:
+            case ConstantTexture:
                 gpu.tex_type  = TEX_CONSTANT
                 gpu.albedo    = tex.color
-            case  core.CheckerTexture:
+            case CheckerTexture:
                 // Used when ground or any Lambertian has CheckerTexture (e.g. "Next Week: Checkers Texture" example).
                 gpu.tex_type  = TEX_CHECKER
                 gpu.albedo    = [3]f32{0, 0, 0}
@@ -197,11 +199,9 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
                 }
                 gpu.tex_even  = tex.even
                 gpu.tex_odd   = tex.odd
-            case:
-                // Future texture types or fallback: sample at origin so GPU gets a single colour; shader uses TEX_CONSTANT.
-                gpu.tex_type  = TEX_CONSTANT
-                //Pinkish color
-                gpu.albedo    = [3]f32{1, 0.5, 0.5}
+            case ImageTextureRuntime:
+                gpu.tex_type  = TEX_IMAGE
+                gpu.albedo    = [3]f32{1, 1, 1}
             }
         case metallic:
             gpu.mat_type    = MAT_METALLIC
@@ -227,4 +227,19 @@ scene_to_gpu_spheres :: proc(objects: []Object) -> []GPUSphere {
         idx += 1
     }
     return result
+}
+
+// find_first_runtime_image_texture returns the first image texture found in a world.
+// Current GPU path binds one 2D texture for Lambertian image sampling.
+find_first_runtime_image_texture :: proc(objects: []Object) -> ^Texture_Image {
+    for o in objects {
+        s, is_sphere := o.(Sphere)
+        if !is_sphere { continue }
+        m, is_lambertian := s.material.(lambertian)
+        if !is_lambertian { continue }
+        if tex, ok := m.albedo.(ImageTextureRuntime); ok && tex.image != nil {
+            return tex.image
+        }
+    }
+    return nil
 }

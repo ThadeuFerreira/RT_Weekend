@@ -10,9 +10,17 @@ CheckerTexture :: struct {
 	odd:   [3]f32,
 }
 
+// ImageTexture references an image file by path. At render time the path
+// is resolved via an image cache (e.g. build_world_from_scene image_cache).
+// Hard-coded or later: import any image as texture.
+ImageTexture :: struct {
+	path: string,
+}
+
 Texture :: union {
 	ConstantTexture,
 	CheckerTexture,
+	ImageTexture,
 }
 
 // MaterialKind is the shared material type used by the edit view (Raylib) and the path tracer.

@@ -14,6 +14,7 @@ import "RT_Weekend:util"
 cmd_action_file_new :: proc(app: ^App) {
     if !app.finished { return }
     app_set_ground_texture(app, nil)
+    app_clear_image_texture_cache(app)
 
     rt.free_session(app.r_session)
     app.r_session = nil
@@ -33,7 +34,7 @@ LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
-    app.r_world = rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
+    app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -70,7 +71,7 @@ cmd_action_file_save :: proc(app: ^App) -> bool {
     if len(app.current_scene_path) == 0 { return false }
     ev := &app.e_edit_view
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    world := rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
+    world := app_build_world_from_scene(app, ev.export_scratch[:])
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(app.current_scene_path, app.r_camera, world) {

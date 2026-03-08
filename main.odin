@@ -87,15 +87,33 @@ main :: proc() {
 
     r_camera: ^raytrace.Camera
     r_world: [dynamic]raytrace.Object
+    earth_img: ^raytrace.Texture_Image = nil
 
     if len(args.ScenePath) > 0 {
-        cam, w, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
-        if !ok {
-            fmt.fprintf(os.stderr, "Failed to load scene: %s\n", args.ScenePath)
-            return
+        if args.ScenePath == "earth" {
+            earth_img = new(raytrace.Texture_Image)
+            earth_img^ = raytrace.texture_image_init()
+            if !raytrace.texture_image_load(earth_img, "assets/textures/earthmap1k.jpg") {
+                fmt.fprintf(os.stderr, "Failed to load earth texture: assets/textures/earthmap1k.jpg\n")
+                free(earth_img)
+                return
+            }
+            when VERBOSE_OUTPUT {
+                fmt.printf("[Main] Earth texture loaded: path=%q size=%dx%d\n",
+                    "assets/textures/earthmap1k.jpg",
+                    raytrace.texture_image_width(earth_img),
+                    raytrace.texture_image_height(earth_img))
+            }
+            r_camera, r_world = raytrace.setup_earth_scene(image_width, image_height, samples_per_pixel, "assets/textures/earthmap1k.jpg", earth_img)
+        } else {
+            cam, w, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
+            if !ok {
+                fmt.fprintf(os.stderr, "Failed to load scene: %s\n", args.ScenePath)
+                return
+            }
+            r_camera = cam
+            r_world = w
         }
-        r_camera = cam
-        r_world = w
     } else {
         r_camera = raytrace.make_camera(image_width, image_height, samples_per_pixel)
         r_world  = make([dynamic]raytrace.Object) // empty; edit view provides the scene
@@ -164,6 +182,10 @@ main :: proc() {
         raytrace.free_session(session)
         delete(r_world)
         free(r_camera)
+        if earth_img != nil {
+            raytrace.texture_image_destroy(earth_img)
+            free(earth_img)
+        }
         return
     }
 
@@ -174,5 +196,9 @@ main :: proc() {
     }
     if initial_presets != nil {
         delete(initial_presets)
+    }
+    if earth_img != nil {
+        raytrace.texture_image_destroy(earth_img)
+        free(earth_img)
     }
 }

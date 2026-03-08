@@ -128,6 +128,38 @@ _camera_to_gpu_uniforms :: proc(cam: ^Camera, total_samples, current_sample: int
     }
 }
 
+@(private)
+_upload_image_texture_2d :: proc(img: ^Texture_Image) -> (tex_id: u32, ok: bool) {
+    if img == nil { return 0, false }
+    w := texture_image_width(img)
+    h := texture_image_height(img)
+    if w <= 0 || h <= 0 { return 0, false }
+    bytes := texture_image_byte_slice(img)
+    if bytes == nil || len(bytes) == 0 { return 0, false }
+
+    gl.GenTextures(1, &tex_id)
+    gl.BindTexture(gl.TEXTURE_2D, tex_id)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, i32(gl.LINEAR))
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(gl.LINEAR))
+    // Equirectangular: S = longitude (wrap 0..1); T = latitude (clamp at poles to avoid sampling past top/bottom).
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, i32(gl.REPEAT))
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, i32(gl.CLAMP_TO_EDGE))
+    gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+    gl.TexImage2D(
+        gl.TEXTURE_2D,
+        0,
+        i32(gl.RGB8),
+        i32(w),
+        i32(h),
+        0,
+        gl.RGB,
+        gl.UNSIGNED_BYTE,
+        raw_data(bytes),
+    )
+    gl.BindTexture(gl.TEXTURE_2D, 0)
+    return tex_id, true
+}
+
 // ── gpu_backend_init ─────────────────────────────────────────────────────────
 
 // gpu_backend_init compiles the compute shader, creates GL buffer objects, and
@@ -189,6 +221,28 @@ gpu_backend_init :: proc(
     b.width         = cam.image_width
     b.height        = cam.image_height
     b.total_samples = samples
+
+    // Upload a single runtime image texture to unit 4 for TEX_IMAGE sampling.
+    // find_first_runtime_image_texture returns only the first image texture in the scene;
+    // if multiple spheres use different image textures, all but the first are ignored on GPU.
+    if img := find_first_runtime_image_texture(objects); img != nil {
+        tex_id, uploaded := _upload_image_texture_2d(img)
+        if uploaded {
+            b.image_tex = tex_id
+            gl.UseProgram(b.program)
+            loc := gl.GetUniformLocation(b.program, cstring("u_image_tex"))
+            if loc >= 0 {
+                gl.Uniform1i(loc, 4)
+            }
+            when VERBOSE_OUTPUT {
+                fmt.printf("[GPU] Uploaded image texture %dx%d to unit 4\n", texture_image_width(img), texture_image_height(img))
+            }
+        } else {
+            when VERBOSE_OUTPUT {
+                fmt.println("[GPU] Failed to upload runtime image texture; TEX_IMAGE spheres will fallback to albedo")
+            }
+        }
+    }
 
     // Allocate four GL buffer objects (one UBO + three SSBOs).
     gl.GenBuffers(1, &b.ubo_camera)
@@ -284,6 +338,10 @@ gpu_backend_dispatch :: proc(b: ^GPUBackend) {
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  1, b.ssbo_spheres)
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  2, b.ssbo_bvh)
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  3, b.ssbo_output)
+    if b.image_tex != 0 {
+        gl.ActiveTexture(gl.TEXTURE0 + 4)
+        gl.BindTexture(gl.TEXTURE_2D, b.image_tex)
+    }
 
     // Dispatch: one 8×8 workgroup per 8×8 pixel tile.
     // Shader discards out-of-bounds invocations (pixel >= width/height).
@@ -361,6 +419,10 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
     gl.DeleteBuffers(1, &b.ssbo_spheres)
     gl.DeleteBuffers(1, &b.ssbo_bvh)
     gl.DeleteBuffers(1, &b.ssbo_output)
+    if b.image_tex != 0 {
+        gl.DeleteTextures(1, &b.image_tex)
+        b.image_tex = 0
+    }
     free(b)
 }
 

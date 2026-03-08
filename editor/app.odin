@@ -111,6 +111,35 @@ app_set_ground_texture :: proc(app: ^App, ground_texture: rt.Texture) {
     app.has_custom_ground_texture = true
 }
 
+// app_build_world_from_scene rebuilds render objects from shared scene spheres, preserving
+// any runtime image textures through app.image_texture_cache when available.
+app_build_world_from_scene :: proc(app: ^App, scene_objects: []core.SceneSphere) -> [dynamic]rt.Object {
+    return rt.build_world_from_scene(scene_objects, app_active_ground_texture(app), app.image_texture_cache)
+}
+
+// app_set_image_texture_cache_from_world refreshes the editor's runtime image cache from a world.
+// The cache owns only the map container; Texture_Image pointers remain owned elsewhere.
+app_set_image_texture_cache_from_world :: proc(app: ^App, world: [dynamic]rt.Object) {
+    if app.image_texture_cache != nil {
+        delete(app.image_texture_cache)
+        app.image_texture_cache = nil
+    }
+    if len(world) == 0 { return }
+    app.image_texture_cache = rt.collect_image_texture_cache(world[:])
+}
+
+// app_clear_image_texture_cache destroys all cached Texture_Image and frees the map.
+// Call before loading a new scene so the previous scene's images are released.
+app_clear_image_texture_cache :: proc(app: ^App) {
+    if app.image_texture_cache == nil { return }
+    for _, img in app.image_texture_cache {
+        rt.texture_image_destroy(img)
+        free(img)
+    }
+    delete(app.image_texture_cache)
+    app.image_texture_cache = nil
+}
+
 // app_restart_render replaces the current world with new_world and starts a fresh render.
 // No-op if the current render has not yet finished (finish_render must have been called).
 app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
@@ -144,7 +173,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
     app.r_session = nil
 
     delete(app.r_world)
-    app.r_world = rt.build_world_from_scene(scene_objects, app_active_ground_texture(app))
+    app.r_world = app_build_world_from_scene(app, scene_objects)
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -171,6 +200,7 @@ App :: struct {
     r_world:       [dynamic]rt.Object,
     custom_ground_texture: rt.Texture,
     has_custom_ground_texture: bool,
+    image_texture_cache: map[string]^rt.Texture_Image,
     c_camera_params: core.CameraParams, // shared camera definition; applied to r_camera before each render
 
     // User's chosen render path (GPU vs CPU). Persists across scene changes and re-renders until toggled.
@@ -436,6 +466,7 @@ run_app :: proc(
         append(&app.layout_presets, import_preset)
     }
     rt.copy_camera_to_scene_params(&app.c_camera_params, r_camera)
+    app_set_image_texture_cache_from_world(&app, r_world)
     init_edit_view(&app.e_edit_view)
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
@@ -447,7 +478,7 @@ run_app :: proc(
     delete(r_world) // edit view is now the source of truth; free the raw rt.Object array
     // Build the startup world from the edit view (always).
     ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
-    app.r_world = rt.build_world_from_scene(app.e_edit_view.export_scratch[:], app_active_ground_texture(&app))
+    app.r_world = app_build_world_from_scene(&app, app.e_edit_view.export_scratch[:])
     app.e_object_props  = ObjectPropsPanelState{prop_drag_idx = -1}
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
@@ -462,6 +493,7 @@ run_app :: proc(
     }
     defer { rt.free_session(app.r_session) }
     defer delete(app.r_world)
+    defer { if app.image_texture_cache != nil { delete(app.image_texture_cache) } }
     defer {
         for p in app.panels { free(p) }
         delete(app.panels)

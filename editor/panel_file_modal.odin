@@ -104,7 +104,8 @@ file_modal_update :: proc(app: ^App) {
 file_import_from_path :: proc(app: ^App, path: string) {
     if len(path) == 0 { return }
     ev := &app.e_edit_view
-    cam, world, ok := persistence.load_scene(path, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel)
+    app_clear_image_texture_cache(app)
+    cam, world, ok := persistence.load_scene(path, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel, &app.image_texture_cache)
     if !ok {
         app_push_log(app, fmt.aprintf("Import failed: %s", path))
         delete(path)
@@ -133,7 +134,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     app.r_session = nil
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
-    app.r_world = rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
+    app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     app.finished     = false
     app.elapsed_secs = 0
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
@@ -158,7 +159,7 @@ file_save_as_path :: proc(app: ^App, path: string) -> bool {
     }
     ev := &app.e_edit_view
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    world := rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
+    world := app_build_world_from_scene(app, ev.export_scratch[:])
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(path, app.r_camera, world) {
