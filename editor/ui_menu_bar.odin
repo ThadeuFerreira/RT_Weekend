@@ -50,6 +50,7 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
         MenuEntryDyn{label = "Camera",         cmd_id = CMD_VIEW_CAMERA,  checked = cmd_is_checked(app, CMD_VIEW_CAMERA)},
         MenuEntryDyn{label = "Object Props",   cmd_id = CMD_VIEW_PROPS,   checked = cmd_is_checked(app, CMD_VIEW_PROPS)},
         MenuEntryDyn{label = "Preview Port",   cmd_id = CMD_VIEW_PREVIEW, checked = cmd_is_checked(app, CMD_VIEW_PREVIEW)},
+        MenuEntryDyn{label = "Texture View",   cmd_id = CMD_VIEW_TEXTURE, checked = cmd_is_checked(app, CMD_VIEW_TEXTURE)},
         MenuEntryDyn{separator = true},
         MenuEntryDyn{label = "Default Layout",        cmd_id = CMD_VIEW_PRESET_DEFAULT},
         MenuEntryDyn{label = "Rendering Focus Layout", cmd_id = CMD_VIEW_PRESET_RENDER},

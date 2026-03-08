@@ -603,7 +603,15 @@ start_render_auto :: proc(
 
     bvh_trace := util.trace_scope_begin("Render.BVH", "render")
     session.timing.bvh_construction = start_timer()
-    world_slice := world[:]
+    // GPU path: BVH and sphere SSBO must use the same object list so leaf indices match.
+    // Build a spheres-only world (cubes not supported on GPU); use it for BVH and upload.
+    sphere_objects := make([dynamic]Object)
+    for o in world {
+        if _, ok := o.(Sphere); ok {
+            append(&sphere_objects, o)
+        }
+    }
+    world_slice := sphere_objects[:]
     when USE_SAH_BVH {
         session.bvh_root = build_bvh_sah(world_slice)
     } else {
@@ -621,7 +629,9 @@ start_render_auto :: proc(
     session.thread_rendering_breakdowns = make([dynamic]ThreadRenderingBreakdown, 0)
 
     // Try to initialise the GPU renderer (platform-aware factory).
+    // world_slice is spheres-only so SSBO sphere indices match BVH leaf object indices.
     renderer := create_gpu_renderer(r_camera, world_slice, session.linear_bvh, r_camera.samples_per_pixel)
+    delete(sphere_objects)
     if renderer != nil {
         session.gpu_renderer = renderer
         session.use_gpu      = true

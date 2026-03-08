@@ -21,6 +21,7 @@ PANEL_ID_EDIT_VIEW   :: "edit_view"
 PANEL_ID_CAMERA        :: "camera"
 PANEL_ID_OBJECT_PROPS  :: "object_props"
 PANEL_ID_PREVIEW_PORT  :: "preview_port"
+PANEL_ID_TEXTURE_VIEW :: "texture_view"
 
 FloatingPanel :: struct {
     id:                 string,
@@ -140,6 +141,24 @@ app_clear_image_texture_cache :: proc(app: ^App) {
     app.image_texture_cache = nil
 }
 
+// app_ensure_image_cached loads the image at path into app.image_texture_cache if not already present.
+// Returns true when the image is ready (already cached or freshly loaded). Logs on failure.
+app_ensure_image_cached :: proc(app: ^App, path: string) -> bool {
+    if app.image_texture_cache == nil {
+        app.image_texture_cache = make(map[string]^rt.Texture_Image)
+    }
+    if path in app.image_texture_cache { return true }
+    img := new(rt.Texture_Image)
+    img^ = rt.texture_image_init()
+    if !rt.texture_image_load(img, path) {
+        free(img)
+        app_push_log(app, fmt.aprintf("Image load failed: %s", path))
+        return false
+    }
+    app.image_texture_cache[path] = img
+    return true
+}
+
 // app_restart_render replaces the current world with new_world and starts a fresh render.
 // No-op if the current render has not yet finished (finish_render must have been called).
 app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
@@ -226,6 +245,7 @@ App :: struct {
     e_camera_panel: CameraPanelState,
     e_menu_bar:     MenuBarState,
     e_object_props: ObjectPropsPanelState,
+    e_texture_view: TextureViewPanelState,
 
     // Preview Port: rasterized view from render camera (app.c_camera_params)
     preview_port_tex: rl.RenderTexture2D,
@@ -270,6 +290,7 @@ App :: struct {
 
     // Named layout presets (built-ins + user-saved)
     layout_presets: [dynamic]persistence.LayoutPreset,
+
 }
 
 g_app: ^App = nil
@@ -483,6 +504,10 @@ run_app :: proc(
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
+    defer {
+        if app.e_texture_view.valid { rl.UnloadTexture(app.e_texture_view.preview_tex) }
+        delete(app.e_texture_view.last_sig)
+    }
     defer delete(app.e_edit_view.export_scratch)
     defer free_scene_manager(app.e_edit_view.scene_mgr)
     defer {
@@ -583,6 +608,16 @@ run_app :: proc(
         detachable   = true,
         draw_content = draw_preview_port_content,
     }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id           = PANEL_ID_TEXTURE_VIEW,
+        title        = "Texture View",
+        rect         = rl.Rectangle{1100, 380, 260, 280},
+        min_size     = rl.Vector2{200, 200},
+        visible      = true,
+        closeable    = true,
+        detachable   = true,
+        draw_content = draw_texture_view_content,
+    }))
 
     if initial_editor_layout != nil {
         apply_editor_layout(&app, initial_editor_layout)
@@ -667,6 +702,9 @@ run_app :: proc(
                 }
                 if rl.IsKeyPressed(.O) {
                     if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil { op.visible = true }
+                }
+                if rl.IsKeyPressed(.T) {
+                    if tv := app_find_panel(&app, PANEL_ID_TEXTURE_VIEW); tv != nil { tv.visible = true }
                 }
             }
 

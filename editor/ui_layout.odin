@@ -148,10 +148,11 @@ layout_build_default :: proc(app: ^App, layout: ^DockLayout) {
     p_cam    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA))
     p_props  := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_OBJECT_PROPS))
     p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_PREVIEW_PORT))
+    p_texture := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_TEXTURE_VIEW))
 
     center_leaf  := layout_add_leaf(layout, []int{p_render, p_edit}, 0)
     upper_right  := layout_add_leaf(layout, []int{p_stats, p_sys}, 0)
-    lower_right  := layout_add_leaf(layout, []int{p_log, p_cam, p_props}, 0)
+    lower_right  := layout_add_leaf(layout, []int{p_log, p_cam, p_props, p_texture}, 0)
     preview_leaf := layout_add_leaf(layout, []int{p_preview}, 0)
 
     // Right column: top = stats/sys, middle = log/camera/props, bottom = Preview Port

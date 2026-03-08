@@ -24,6 +24,7 @@ package raytrace
 import "core:fmt"
 import "core:math"
 import "base:runtime"
+import "core:strings"
 import "core:time"
 import gl "vendor:OpenGL"
 
@@ -222,24 +223,34 @@ gpu_backend_init :: proc(
     b.height        = cam.image_height
     b.total_samples = samples
 
-    // Upload a single runtime image texture to unit 4 for TEX_IMAGE sampling.
-    // find_first_runtime_image_texture returns only the first image texture in the scene;
-    // if multiple spheres use different image textures, all but the first are ignored on GPU.
-    if img := find_first_runtime_image_texture(objects); img != nil {
-        tex_id, uploaded := _upload_image_texture_2d(img)
+    // Collect unique image textures in order and build path -> slot index for scene_to_gpu_spheres.
+    image_list, path_to_index := collect_image_textures_ordered(objects)
+    defer delete(image_list)
+    defer delete(path_to_index)
+
+    n_tex := min(len(image_list), MAX_GPU_IMAGE_TEXTURES)
+    for i in 0 ..< n_tex {
+        tex_id, uploaded := _upload_image_texture_2d(image_list[i])
         if uploaded {
-            b.image_tex = tex_id
-            gl.UseProgram(b.program)
-            loc := gl.GetUniformLocation(b.program, cstring("u_image_tex"))
-            if loc >= 0 {
-                gl.Uniform1i(loc, 4)
-            }
+            b.image_texs[i] = tex_id
             when VERBOSE_OUTPUT {
-                fmt.printf("[GPU] Uploaded image texture %dx%d to unit 4\n", texture_image_width(img), texture_image_height(img))
+                fmt.printf("[GPU] Uploaded image texture %d: %dx%d to unit %d\n",
+                    i, texture_image_width(image_list[i]), texture_image_height(image_list[i]), 4 + i)
             }
         } else {
             when VERBOSE_OUTPUT {
-                fmt.println("[GPU] Failed to upload runtime image texture; TEX_IMAGE spheres will fallback to albedo")
+                fmt.printf("[GPU] Failed to upload image texture %d; sphere(s) using it will fallback to albedo\n", i)
+            }
+        }
+    }
+    b.num_image_texs = n_tex
+    if n_tex > 0 {
+        gl.UseProgram(b.program)
+        for i in 0 ..< n_tex {
+            name := fmt.tprintf("u_image_tex[%d]", i)
+            loc := gl.GetUniformLocation(b.program, strings.unsafe_string_to_cstring(name))
+            if loc >= 0 {
+                gl.Uniform1i(loc, i32(4 + i))
             }
         }
     }
@@ -261,7 +272,7 @@ gpu_backend_init :: proc(
     // ── SSBO: sphere array ────────────────────────────────────────────────
     // Layout: [4]i32 header (sphere_count, pad×3) then []GPUSphere.
     // The header count is read in GLSL as SpheresBlock.sphere_count.
-    spheres := scene_to_gpu_spheres(objects)
+    spheres := scene_to_gpu_spheres(objects, path_to_index)
     defer delete(spheres)
 
     sphere_header    := [4]i32{i32(len(spheres)), 0, 0, 0}
@@ -338,9 +349,11 @@ gpu_backend_dispatch :: proc(b: ^GPUBackend) {
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  1, b.ssbo_spheres)
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  2, b.ssbo_bvh)
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  3, b.ssbo_output)
-    if b.image_tex != 0 {
-        gl.ActiveTexture(gl.TEXTURE0 + 4)
-        gl.BindTexture(gl.TEXTURE_2D, b.image_tex)
+    for i in 0 ..< b.num_image_texs {
+        if b.image_texs[i] != 0 {
+            gl.ActiveTexture(gl.TEXTURE0 + u32(4 + i))
+            gl.BindTexture(gl.TEXTURE_2D, b.image_texs[i])
+        }
     }
 
     // Dispatch: one 8×8 workgroup per 8×8 pixel tile.
@@ -419,10 +432,13 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
     gl.DeleteBuffers(1, &b.ssbo_spheres)
     gl.DeleteBuffers(1, &b.ssbo_bvh)
     gl.DeleteBuffers(1, &b.ssbo_output)
-    if b.image_tex != 0 {
-        gl.DeleteTextures(1, &b.image_tex)
-        b.image_tex = 0
+    for i in 0 ..< b.num_image_texs {
+        if b.image_texs[i] != 0 {
+            gl.DeleteTextures(1, &b.image_texs[i])
+            b.image_texs[i] = 0
+        }
     }
+    b.num_image_texs = 0
     free(b)
 }
 
