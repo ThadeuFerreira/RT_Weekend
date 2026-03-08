@@ -10,6 +10,9 @@
 //   • Iterative BVH traversal (the same flat LinearBVHNode array
 //     built by flatten_bvh in hittable.odin)
 //
+// Texture mapping: HitRecord stores (u,v) in [0,1]. Spheres use sphere_get_uv
+// (theta/phi, RTNW Ch.4). Cubes are CPU-only; GPU path has spheres only.
+//
 // Workgroup: 8×8 threads — 64 threads per tile, matching typical
 // GPU warp/wavefront sizes for good occupancy.
 //
@@ -201,6 +204,7 @@ struct HitRecord {
     vec3  normal;     // outward normal at hit point
     float t;          // ray parameter at hit
     bool  front_face; // true if ray hit the outside of the surface
+    float u, v;       // texture coordinates [0,1] (sphere: theta/phi; cube: CPU-only)
     int   mat_type;
     vec3  albedo;
     float fuzz_or_ior;
@@ -215,6 +219,16 @@ struct HitRecord {
 void set_face_normal(inout HitRecord rec, Ray r, vec3 outward_normal) {
     rec.front_face = dot(r.dir, outward_normal) < 0.0;
     rec.normal = rec.front_face ? outward_normal : -outward_normal;
+}
+
+// Sphere UV mapping (RTNW Ch.4): unit surface point p -> (u,v) in [0,1].
+// theta = acos(-p.y), phi = atan2(-p.z, p.x) + PI; u = phi/(2*PI), v = theta/PI.
+vec2 sphere_get_uv(vec3 p) {
+    float theta = acos(-p.y);
+    float phi   = atan(-p.z, p.x) + 3.14159265359;
+    float u     = phi / (2.0 * 3.14159265359);
+    float v     = theta / 3.14159265359;
+    return vec2(u, v);
 }
 
 // hit_sphere tests a ray against a sphere using the quadratic formula.
@@ -241,6 +255,9 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
     rec.p = ray_at(r, rec.t);
     vec3 outward_normal = (rec.p - sphere_center) / s.radius;
     set_face_normal(rec, r, outward_normal);
+    vec2 uv = sphere_get_uv(outward_normal);
+    rec.u = uv.x;
+    rec.v = uv.y;
     rec.mat_type    = s.mat_type;
     rec.albedo      = s.albedo;
     rec.fuzz_or_ior = s.fuzz_or_ior;
