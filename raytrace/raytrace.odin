@@ -157,18 +157,22 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
 // earth_path is the key used in the image cache (e.g. "assets/images/earthmap1k.jpg").
 // Caller must keep earth_img alive for the duration of rendering; defer texture_image_destroy(earth_img) when done.
 setup_earth_scene :: proc(image_width, image_height, samples_per_pixel: int, earth_path: string, earth_img: ^Texture_Image) -> (^Camera, [dynamic]Object) {
-    scene := []core.SceneSphere{
-        {
-            center        = {0, 0, 0},
-            radius        = 2,
-            material_kind = .Lambertian,
-            albedo        = core.ImageTexture{path = earth_path},
-        },
+    when VERBOSE_OUTPUT {
+        fmt.printf("[EarthScene] Building earth scene with image path=%q size=%dx%d\n",
+            earth_path, texture_image_width(earth_img), texture_image_height(earth_img))
     }
-    cache: map[string]^Texture_Image
-    cache[earth_path] = earth_img
-    world := build_world_from_scene(scene, ConstantTexture{color = {0.5, 0.5, 0.5}}, cache)
-    delete(cache)
+    world := make([dynamic]Object, 0, 1)
+    earth_mat := material(lambertian{
+        albedo = ImageTextureRuntime{
+            path  = earth_path,
+            image = earth_img,
+        },
+    })
+    append(&world, Object(Sphere{
+        center   = {0, 0, 0},
+        radius   = 2,
+        material = earth_mat,
+    }))
 
     cam := make_camera(image_width, image_height, samples_per_pixel)
     cam.vfov = 20

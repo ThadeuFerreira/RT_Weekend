@@ -1,5 +1,6 @@
 package raytrace
 
+import "core:fmt"
 import "RT_Weekend:core"
 
 // convert_world_to_edit_spheres converts rt.Object spheres to core.SceneSphere for the edit view.
@@ -50,6 +51,9 @@ build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture
 	case CheckerTexture:
 		ground_rtex = g
 	case core.ImageTexture:
+		when VERBOSE_OUTPUT {
+			fmt.printf("[SceneBuild] Ground uses core.ImageTexture path=%q; runtime ground image unsupported here, using gray fallback\n", g.path)
+		}
 		ground_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
 	}
 	append(&world, Object(Sphere{
@@ -71,11 +75,21 @@ build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture
 			case core.ImageTexture:
 				if image_cache != nil {
 					if img := image_cache[a.path]; img != nil {
+						when VERBOSE_OUTPUT {
+							fmt.printf("[SceneBuild] Image texture cache hit path=%q (%dx%d)\n",
+								a.path, texture_image_width(img), texture_image_height(img))
+						}
 						albedo_rtex = ImageTextureRuntime{path = a.path, image = img}
 					} else {
+						when VERBOSE_OUTPUT {
+							fmt.printf("[SceneBuild] Image texture cache miss path=%q; using gray fallback\n", a.path)
+						}
 						albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
 					}
 				} else {
+					when VERBOSE_OUTPUT {
+						fmt.printf("[SceneBuild] Image texture has nil cache path=%q; using gray fallback\n", a.path)
+					}
 					albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
 				}
 			case:

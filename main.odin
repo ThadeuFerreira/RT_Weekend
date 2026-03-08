@@ -97,6 +97,12 @@ main :: proc() {
                 free(earth_img)
                 return
             }
+            when VERBOSE_OUTPUT {
+                fmt.printf("[Main] Earth texture loaded: path=%q size=%dx%d\n",
+                    "assets/textures/earthmap1k.jpg",
+                    raytrace.texture_image_width(earth_img),
+                    raytrace.texture_image_height(earth_img))
+            }
             r_camera, r_world = raytrace.setup_earth_scene(image_width, image_height, samples_per_pixel, "assets/textures/earthmap1k.jpg", earth_img)
         } else {
             cam, w, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)

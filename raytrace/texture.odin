@@ -1,7 +1,11 @@
 package raytrace
 
+import "core:fmt"
 import "core:math"
+import "core:sync"
 import "RT_Weekend:core"
+
+IMAGE_TEXTURE_DEBUG_SAMPLES :: 16
 
 ConstantTexture :: core.ConstantTexture
 CheckerTexture :: core.CheckerTexture
@@ -20,6 +24,9 @@ RTexture :: union {
 	CheckerTexture,
 	ImageTextureRuntime,
 }
+
+@(private)
+image_texture_debug_sample_count: i32
 
 texture_value :: proc(tex: Texture, u, v: f32, p: [3]f32) -> [3]f32 {
 	switch t in tex {
@@ -57,10 +64,20 @@ texture_value_runtime :: proc(tex: RTexture, u, v: f32, p: [3]f32) -> [3]f32 {
 		is_even := (sum % 2 + 2) % 2 == 0
 		return is_even ? t.even : t.odd
 	case ImageTextureRuntime:
-		if t.image == nil do return [3]f32{0.5, 0.5, 0.5}
+		if t.image == nil {
+			when VERBOSE_OUTPUT {
+				fmt.printf("[Texture] ImageTextureRuntime has nil image path=%q; returning gray fallback\n", t.path)
+			}
+			return [3]f32{0.5, 0.5, 0.5}
+		}
 		w := texture_image_width(t.image)
 		h := texture_image_height(t.image)
-		if w <= 0 || h <= 0 do return [3]f32{0.5, 0.5, 0.5}
+		if w <= 0 || h <= 0 {
+			when VERBOSE_OUTPUT {
+				fmt.printf("[Texture] Invalid image dimensions path=%q size=%dx%d; returning gray fallback\n", t.path, w, h)
+			}
+			return [3]f32{0.5, 0.5, 0.5}
+		}
 		// Sphere UV: u = longitude [0,1], v = 0 at south pole, v = 1 at north pole (sphere_get_uv).
 		// Equirectangular image: row 0 = north, row h-1 = south → flip v so sphere north maps to image top.
 		ux := math.clamp(u, 0, 1)
@@ -71,10 +88,23 @@ texture_value_runtime :: proc(tex: RTexture, u, v: f32, p: [3]f32) -> [3]f32 {
 		if py >= h do py = h - 1
 		if py < 0 do py = 0
 		ptr := texture_image_pixel_data(t.image, px, py)
-		if ptr == nil do return [3]f32{0.5, 0.5, 0.5}
+		if ptr == nil {
+			when VERBOSE_OUTPUT {
+				fmt.printf("[Texture] Nil pixel pointer path=%q uv=(%.4f, %.4f) px=(%d,%d); returning gray fallback\n", t.path, ux, vx, px, py)
+			}
+			return [3]f32{0.5, 0.5, 0.5}
+		}
 		// LDR bytes -> linear [0,1] (simple scale; pipeline gamma-corrects at output).
-		p := ([^]u8)(ptr)
-		return [3]f32{f32(p[0]) / 255.0, f32(p[1]) / 255.0, f32(p[2]) / 255.0}
+		pix := ([^]u8)(ptr)
+		color := [3]f32{f32(pix[0]) / 255.0, f32(pix[1]) / 255.0, f32(pix[2]) / 255.0}
+		when VERBOSE_OUTPUT {
+			debug_idx := sync.atomic_add(&image_texture_debug_sample_count, 1)
+			if debug_idx < IMAGE_TEXTURE_DEBUG_SAMPLES {
+				fmt.printf("[Texture] Sample #%d path=%q uv=(%.4f, %.4f) px=(%d,%d)/(%d,%d) rgb=(%d,%d,%d)\n",
+					debug_idx + 1, t.path, ux, vx, px, py, w, h, pix[0], pix[1], pix[2])
+			}
+		}
+		return color
 	}
 	return [3]f32{0, 0, 0}
 }

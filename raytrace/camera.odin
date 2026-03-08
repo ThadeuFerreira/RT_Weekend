@@ -223,6 +223,21 @@ sample_square :: proc(rng: ^util.ThreadRNG) -> [3]f32 {
     return [3]f32{util.random_float(rng) -0.5, util.random_float(rng) -0.5, 0}
 }
 
+// GPU path does not support ImageTextureRuntime yet.
+// If any Lambertian uses image textures, force CPU rendering to preserve correctness.
+world_uses_image_textures :: proc(world: []Object) -> bool {
+    for o in world {
+        s, is_sphere := o.(Sphere)
+        if !is_sphere do continue
+        m, is_lambertian := s.material.(lambertian)
+        if !is_lambertian do continue
+        if _, image_ok := m.albedo.(ImageTextureRuntime); image_ok {
+            return true
+        }
+    }
+    return false
+}
+
 generate_tiles :: proc(image_width: int, image_height: int, tile_size: int) -> []Tile {
     tiles := [dynamic]Tile{}
 
@@ -583,6 +598,10 @@ start_render_auto :: proc(
     use_gpu:     bool,
 ) -> ^RenderSession {
     if !use_gpu {
+        return start_render(r_camera, world, num_threads)
+    }
+    if world_uses_image_textures(world[:]) {
+        fmt.println("[GPU] Scene uses image textures (CPU-only for now) — falling back to CPU")
         return start_render(r_camera, world, num_threads)
     }
 
