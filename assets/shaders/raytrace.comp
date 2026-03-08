@@ -65,6 +65,10 @@ const int MAT_DIELECTRIC = 2;
 // Texture type for Lambertian (mirror TEX_* in gpu_types.odin).
 const int TEX_CONSTANT = 0;
 const int TEX_CHECKER  = 1;
+const int TEX_IMAGE    = 2;
+
+// Bound by GPU backend to texture unit 4 when an image texture is present.
+uniform sampler2D u_image_tex;
 
 // =============================================================
 // Ray / intersection helpers
@@ -369,6 +373,11 @@ vec3 texture_value_lambertian(HitRecord rec) {
         int sum = xi + yi + zi;
         int parity = (sum % 2 + 2) % 2; // handle negative sum
         return parity == 0 ? rec.tex_even : rec.tex_odd;
+    }
+    if (rec.tex_type == TEX_IMAGE) {
+        // Sphere UV: v=0 south, v=1 north. Equirect image row 0=north -> flip v.
+        vec2 uv = vec2(clamp(rec.u, 0.0, 1.0), 1.0 - clamp(rec.v, 0.0, 1.0));
+        return texture(u_image_tex, uv).rgb;
     }
     return rec.albedo;
 }

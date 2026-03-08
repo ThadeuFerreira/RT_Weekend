@@ -132,3 +132,26 @@ build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture
 
 	return world
 }
+
+// collect_image_texture_cache extracts runtime image textures from a world so callers
+// can rebuild SceneSphere->Object without losing ImageTextureRuntime pointers.
+// Returned map should be deleted by the caller (it does not own Texture_Image pointers).
+collect_image_texture_cache :: proc(world: []Object) -> map[string]^Texture_Image {
+	cache := make(map[string]^Texture_Image)
+	for obj in world {
+		s, is_sphere := obj.(Sphere)
+		if !is_sphere { continue }
+		m, is_lambertian := s.material.(lambertian)
+		if !is_lambertian { continue }
+		if img_tex, has_image := m.albedo.(ImageTextureRuntime); has_image {
+			if len(img_tex.path) > 0 && img_tex.image != nil {
+				cache[img_tex.path] = img_tex.image
+			}
+		}
+	}
+	if len(cache) == 0 {
+		delete(cache)
+		return nil
+	}
+	return cache
+}

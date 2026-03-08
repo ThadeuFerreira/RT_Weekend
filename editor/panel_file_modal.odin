@@ -111,6 +111,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
         return
     }
     rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
+    app_set_image_texture_cache_from_world(app, world)
     converted := rt.convert_world_to_edit_spheres(world)
     LoadFromSceneSpheres(ev.scene_mgr, converted[:])
     delete(converted)
@@ -133,7 +134,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     app.r_session = nil
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
-    app.r_world = rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
+    app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     app.finished     = false
     app.elapsed_secs = 0
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
@@ -158,7 +159,7 @@ file_save_as_path :: proc(app: ^App, path: string) -> bool {
     }
     ev := &app.e_edit_view
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    world := rt.build_world_from_scene(ev.export_scratch[:], app_active_ground_texture(app))
+    world := app_build_world_from_scene(app, ev.export_scratch[:])
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(path, app.r_camera, world) {
