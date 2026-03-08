@@ -72,7 +72,20 @@
             "request": "launch",
             "preLaunchTask": "build-linux",
             "program": "${workspaceFolder}/build/debug",
-            "args": ["-w", "1600", "-h", "900", "-s", "100", "-c", "8", "-gpu"],
+            "args": ["-w", "1600", "-h", "900", "-s", "100", "-c", "8", "-gpu", "--scene", "resources/scenes/scene_4.json"],
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "TRACE_OUTPUT_FILE", "value": "build" }
+            ],
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Linux) Earth",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "1600", "-h", "900", "-s", "100", "-c", "8", "-gpu", "-scene", "earth"],
             "cwd": "${workspaceFolder}",
             "environment": [
                 { "name": "TRACE_OUTPUT_FILE", "value": "build" }
