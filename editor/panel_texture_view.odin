@@ -5,6 +5,7 @@
 package editor
 
 import "core:fmt"
+import "core:math"
 import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
@@ -50,6 +51,10 @@ texture_view_sig :: proc(app: ^App, tex: core.Texture) -> string {
 			t.scale, t.even[0], t.even[1], t.even[2], t.odd[0], t.odd[1], t.odd[2])
 	case core.ImageTexture:
 		return fmt.aprintf("i %s", t.path)
+	case core.NoiseTexture:
+		return fmt.aprintf("n %.3f", t.scale)
+	case core.MarbleTexture:
+		return fmt.aprintf("m %.3f", t.scale)
 	}
 	return "none"
 }
@@ -97,6 +102,27 @@ texture_view_build_image :: proc(app: ^App, tex: core.Texture) -> (img: rl.Image
 		checks_x := max(1, i32(f32(w) * t.scale / 16))
 		checks_y := max(1, i32(f32(h) * t.scale / 16))
 		img = rl.GenImageChecked(w, h, checks_x, checks_y, even, odd)
+		return img, nil, true
+	case core.NoiseTexture:
+		// Generate noise preview using Raylib's GenImagePerlinNoise (stb_perlin fBm, 6 octaves).
+		safe_scale := t.scale > 0 ? t.scale : 4.0
+		img = rl.GenImagePerlinNoise(w, h, 0, 0, safe_scale)
+		return img, nil, true
+	case core.MarbleTexture:
+		// Generate marble preview using the same CPU turbulence as the ray tracer.
+		safe_scale := t.scale > 0 ? t.scale : 4.0
+		img = rl.GenImageColor(w, h, rl.BLACK)
+		pixels := cast([^]rl.Color)img.data
+		for py in 0..<h {
+			for px in 0..<w {
+				nx := f32(px) * safe_scale / f32(w)
+				ny := f32(py) * safe_scale / f32(h)
+				turb := rt.perlin_turbulence({nx, ny, 1.0})
+				val  := 0.5 * (1.0 + math.sin(safe_scale * ny + 10.0 * turb))
+				bv   := u8(clamp(val, 0.0, 1.0) * 255.0)
+				pixels[py * w + px] = rl.Color{bv, bv, bv, 255}
+			}
+		}
 		return img, nil, true
 	case core.ImageTexture:
 		// Resolve path: use cache if present; else resolve relative to scene dir and load on demand.

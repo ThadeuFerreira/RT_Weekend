@@ -1,12 +1,13 @@
 package editor
 
 import "core:fmt"
+import "core:math"
 import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
-import "RT_Weekend:util"
 import rt "RT_Weekend:raytrace"
+import "RT_Weekend:util"
 
 // Layout constants for the Object Properties panel.
 // Separate from PROP_* in edit_view_panel.odin to fit a narrower panel.
@@ -17,9 +18,58 @@ OP_FH  :: f32(18)                          // field box height
 OP_SP  :: f32(4)                           // spacing after a field group
 OP_COL :: OP_LW + OP_GAP + OP_FW + OP_SP  // = 68 px per column
 
+// NoisePreview caches a generated Perlin/Marble preview texture to avoid per-frame regeneration.
+NoisePreview :: struct {
+	tex:       rl.Texture2D,
+	scale:     f32,
+	is_marble: bool,
+}
+
+// noise_preview_update regenerates the preview texture if the scale or type changed.
+// For NoiseTexture: uses rl.GenImagePerlinNoise (stb_perlin fBm). For MarbleTexture: custom CPU generation.
+noise_preview_update :: proc(np: ^NoisePreview, is_marble: bool, scale: f32) {
+	if np.tex.id != 0 && np.scale == scale && np.is_marble == is_marble { return }
+	if np.tex.id != 0 { rl.UnloadTexture(np.tex) }
+	safe_scale := scale > 0 ? scale : 4.0
+	if is_marble {
+		// Generate marble preview: 0.5*(1+sin(scale*y + 10*turb(x,y,1))).
+		// Uses the same CPU turbulence function as the ray tracer for visual consistency.
+		img := rl.GenImageColor(64, 64, rl.BLACK)
+		pixels := cast([^]rl.Color)img.data
+		for py in 0..<64 {
+			for px in 0..<64 {
+				nx := f32(px) * safe_scale / 64.0
+				ny := f32(py) * safe_scale / 64.0
+				turb := rt.perlin_turbulence({nx, ny, 1.0})
+				val  := 0.5 * (1.0 + math.sin(safe_scale * ny + 10.0 * turb))
+				bv   := u8(clamp(val, 0.0, 1.0) * 255.0)
+				pixels[py * 64 + px] = rl.Color{bv, bv, bv, 255}
+			}
+		}
+		np.tex = rl.LoadTextureFromImage(img)
+		rl.UnloadImage(img)
+	} else {
+		// Use Raylib's GenImagePerlinNoise (stb_perlin fBm, 6 octaves, lacunarity=2, gain=0.5).
+		img := rl.GenImagePerlinNoise(64, 64, 0, 0, safe_scale)
+		np.tex = rl.LoadTextureFromImage(img)
+		rl.UnloadImage(img)
+	}
+	np.scale     = safe_scale
+	np.is_marble = is_marble
+}
+
+// noise_preview_unload frees the cached texture if one exists.
+noise_preview_unload :: proc(np: ^NoisePreview) {
+	if np.tex.id != 0 {
+		rl.UnloadTexture(np.tex)
+		np.tex = {}
+	}
+}
+
 // ObjectPropsPanelState holds per-frame drag state for the Object Properties panel.
 // For sphere: data in app.e_edit_view.objects[selected_idx]. For camera: app.c_camera_params.
 // Drag indices: sphere 0–10 (xyz, radius, motion dX dY dZ, rgb, mat_param); camera 0–11 (from xyz, at xyz, vfov, defocus, focus, max_depth, shutter).
+// Drag index 11 = Noise/Marble scale.
 ObjectPropsPanelState :: struct {
 	prop_drag_idx:       int,
 	prop_drag_start_x:   f32,
@@ -28,6 +78,9 @@ ObjectPropsPanelState :: struct {
 	// Before-state captured at drag start (for undo history)
 	drag_before_sphere: core.SceneSphere,
 	drag_before_c_camera_params: core.CameraParams,
+
+	// Perlin noise preview (cached; regenerated when scale or type changes)
+	noise_preview: NoisePreview,
 }
 
 // OpLayout holds every interactive rectangle for a single frame, computed once
@@ -47,6 +100,16 @@ OpLayout :: struct {
 	// COLOR section (constant texture):
 	boxes_rgb:     [3]rl.Rectangle,
 	swatch:        rl.Rectangle,
+	// NOISE/MARBLE section (Lambertian procedural textures):
+	has_noise:       bool,           // true when NoiseTexture
+	has_marble:      bool,           // true when MarbleTexture
+	box_noise_scale: rl.Rectangle,   // scale drag field (drag index 11)
+	noise_preview:   rl.Rectangle,   // rect for the 64×64 preview image
+	// Texture type buttons (Lambertian only): [Color] [Noise] [Marble]
+	has_tex_btns:    bool,
+	btn_tex_color:   rl.Rectangle,
+	btn_tex_noise:   rl.Rectangle,
+	btn_tex_marble:  rl.Rectangle,
 	// IMAGE TEXTURE section (Lambertian only):
 	btn_browse:    rl.Rectangle,   // "Browse…" button (full-width when no image; left half when image set)
 	btn_clear:     rl.Rectangle,   // "×" clear button (right of browse; only shown when image set)
@@ -106,9 +169,27 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind, al
 	lo.y_color = cy
 	cy += 18
 
-	_, lo.has_image = albedo.(core.ImageTexture)
+	_, lo.has_image  = albedo.(core.ImageTexture)
+	_, lo.has_noise  = albedo.(core.NoiseTexture)
+	_, lo.has_marble = albedo.(core.MarbleTexture)
 
-	if !lo.has_image {
+	// Texture type mini-buttons for Lambertian: [Color] [Noise] [Marble]
+	if mat_kind == .Lambertian {
+		lo.has_tex_btns = true
+		bw3 := (content.width - 16 - 4) / 3.0
+		lo.btn_tex_color  = rl.Rectangle{lo.lx,               cy, bw3, 18}
+		lo.btn_tex_noise  = rl.Rectangle{lo.lx + bw3 + 2,     cy, bw3, 18}
+		lo.btn_tex_marble = rl.Rectangle{lo.lx + 2*(bw3 + 2), cy, bw3, 18}
+		cy += 22
+	}
+
+	if lo.has_noise || lo.has_marble {
+		// Noise / Marble: scale drag field + preview image
+		lo.box_noise_scale = rl.Rectangle{lo.x0, cy, OP_FW, OP_FH}
+		cy += OP_FH + 6
+		lo.noise_preview = rl.Rectangle{lo.lx, cy, 64, 64}
+		cy += 68
+	} else if !lo.has_image {
 		// Constant/Checker: show RGB drag fields + swatch
 		lo.boxes_rgb = [3]rl.Rectangle{
 			{lo.x0,             cy, OP_FW, OP_FH},
@@ -352,12 +433,31 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	// COLOR / IMAGE TEXTURE
 	op_section_label(app, "COLOR", lo.lx, lo.y_color)
 
-	if lo.has_image {
+	// Texture type mini-buttons (Lambertian)
+	if lo.has_tex_btns {
+		is_color  := !lo.has_noise && !lo.has_marble && !lo.has_image
+		op_mat_button(app, "Color",  lo.btn_tex_color,  is_color,       mouse)
+		op_mat_button(app, "Noise",  lo.btn_tex_noise,  lo.has_noise,   mouse)
+		op_mat_button(app, "Marble", lo.btn_tex_marble, lo.has_marble,  mouse)
+	}
+
+	if lo.has_noise || lo.has_marble {
+		// Scale drag field
+		cur_scale: f32 = 4.0
+		if nt, ok2 := sphere.albedo.(core.NoiseTexture);  ok2 { cur_scale = nt.scale }
+		if mt, ok2 := sphere.albedo.(core.MarbleTexture); ok2 { cur_scale = mt.scale }
+		op_drag_field(app, "Sc", cur_scale, lo.box_noise_scale, st.prop_drag_idx == 11, mouse)
+		// Preview image (cached by noise_preview_update in update proc)
+		if st.noise_preview.tex.id != 0 {
+			rl.DrawTexture(st.noise_preview.tex, i32(lo.noise_preview.x), i32(lo.noise_preview.y), rl.WHITE)
+			rl.DrawRectangleLinesEx(lo.noise_preview, 1, BORDER_COLOR)
+		}
+	} else if lo.has_image {
 		// Show basename of the image path
 		if it, ok2 := sphere.albedo.(core.ImageTexture); ok2 {
 			base := filepath.base(it.path)
 			label := fmt.ctprintf("Img: %s", base)
-			draw_ui_text(app, label, i32(lo.lx), i32(lo.y_color) + 18, 10, CONTENT_TEXT_COLOR)
+			draw_ui_text(app, label, i32(lo.lx), i32(lo.y_color) + 40, 10, CONTENT_TEXT_COLOR)
 		}
 	} else {
 		// RGB drag fields + swatch
@@ -664,6 +764,15 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			case 10:
 				sphere.center1[2] = sphere.center[2] + (st.prop_drag_start_val + delta * 0.01)
 				sphere.is_moving = (sphere.center1[0] != sphere.center[0] || sphere.center1[1] != sphere.center[1] || sphere.center1[2] != sphere.center[2])
+			case 11:
+				new_scale := max(st.prop_drag_start_val + delta * 0.02, f32(0.1))
+				switch a in sphere.albedo {
+				case core.NoiseTexture:     sphere.albedo = core.NoiseTexture{scale = new_scale}
+				case core.MarbleTexture:    sphere.albedo = core.MarbleTexture{scale = new_scale}
+				case core.ConstantTexture:  {}
+				case core.CheckerTexture:   {}
+				case core.ImageTexture:     {}
+				}
 			}
 			rl.SetMouseCursor(.RESIZE_EW)
 			// persist changes back to the scene manager
@@ -707,6 +816,46 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			app_push_log(app, strings.clone("Material: Dielectric"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
+		}
+
+		// ── Texture type buttons (Lambertian only)
+		if sphere.material_kind == .Lambertian && lo.has_tex_btns {
+			if rl.CheckCollisionPointRec(mouse, lo.btn_tex_color) {
+				if _, ok3 := sphere.albedo.(core.ConstantTexture); !ok3 {
+					before := sphere
+					sphere.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
+					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+					mark_scene_dirty(app)
+					app_push_log(app, strings.clone("Texture: Solid"))
+				}
+				if g_app != nil { g_app.input_consumed = true }
+				return
+			}
+			if rl.CheckCollisionPointRec(mouse, lo.btn_tex_noise) {
+				if _, ok3 := sphere.albedo.(core.NoiseTexture); !ok3 {
+					before := sphere
+					sphere.albedo = core.NoiseTexture{scale = 4.0}
+					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+					mark_scene_dirty(app)
+					app_push_log(app, strings.clone("Texture: Noise"))
+				}
+				if g_app != nil { g_app.input_consumed = true }
+				return
+			}
+			if rl.CheckCollisionPointRec(mouse, lo.btn_tex_marble) {
+				if _, ok3 := sphere.albedo.(core.MarbleTexture); !ok3 {
+					before := sphere
+					sphere.albedo = core.MarbleTexture{scale = 4.0}
+					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+					mark_scene_dirty(app)
+					app_push_log(app, strings.clone("Texture: Marble"))
+				}
+				if g_app != nil { g_app.input_consumed = true }
+				return
+			}
 		}
 
 		// ── Browse Image button (Lambertian only)
@@ -755,8 +904,15 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if op_try_start_drag(lo.boxes_motion[0], 8, motion_offset[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_motion[1], 9, motion_offset[1], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_motion[2], 10, motion_offset[2], st, mouse, lmb_pressed) { any_hovered = true }
-	// RGB drag only when not an image texture
-	if !lo.has_image {
+	// Noise/Marble scale drag (drag index 11)
+	if lo.has_noise || lo.has_marble {
+		noise_scale: f32 = 4.0
+		if nt, ok := sphere.albedo.(core.NoiseTexture);  ok { noise_scale = nt.scale }
+		if mt, ok := sphere.albedo.(core.MarbleTexture); ok { noise_scale = mt.scale }
+		if op_try_start_drag(lo.box_noise_scale, 11, noise_scale, st, mouse, lmb_pressed) { any_hovered = true }
+	}
+	// RGB drag only when not an image texture and not a procedural texture
+	if !lo.has_image && !lo.has_noise && !lo.has_marble {
 		drag_col := [3]f32{0.5, 0.5, 0.5}
 		if ct, ok := sphere.albedo.(core.ConstantTexture); ok { drag_col = ct.color }
 		else if ct2, ok := sphere.albedo.(core.CheckerTexture); ok { drag_col = ct2.even }
@@ -767,6 +923,15 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if lo.has_mat_param {
 		mat_val := sphere.material_kind == .Metallic ? sphere.fuzz : sphere.ref_idx
 		if op_try_start_drag(lo.box_mat_param, 7, mat_val, st, mouse, lmb_pressed) { any_hovered = true }
+	}
+	// Update noise preview cache when active
+	if lo.has_noise || lo.has_marble {
+		cur_scale: f32 = 4.0
+		if nt, ok := sphere.albedo.(core.NoiseTexture);  ok { cur_scale = nt.scale }
+		if mt, ok := sphere.albedo.(core.MarbleTexture); ok { cur_scale = mt.scale }
+		noise_preview_update(&st.noise_preview, lo.has_marble, cur_scale)
+	} else {
+		noise_preview_unload(&st.noise_preview)
 	}
 	// Capture before-state when a drag starts
 	if lmb_pressed && any_hovered {

@@ -25,6 +25,7 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Next Week: Bouncing Balls",   build = build_next_week_bouncing_scene},
     {label = "Next Week: Checkers Texture", build = build_next_week_texture_checker_scene},
     {label = "Next Week: Quads",            build = build_next_week_quads_scene},
+    {label = "Next Week: Turbulence",       build = build_next_week_turbulence_scene},
 }
 
 WEEKEND_CAMERA :: core.CameraParams{
@@ -237,4 +238,35 @@ build_next_week_quads_scene :: proc() -> (
     }
 
     return nil, result_quads[:], quad_camera, nil, false
+}
+
+TURBULENCE_CAMERA :: core.CameraParams{
+    lookfrom      = {13, 2, 3},
+    lookat        = {0, 0, 0},
+    vup           = {0, 1, 0},
+    vfov          = 20,
+    defocus_angle = 0,
+    focus_dist    = 10,
+    max_depth     = 50,
+    shutter_open  = 0,
+    shutter_close = 1,
+}
+
+// build_next_week_turbulence_scene returns the "perlin spheres" scene from "Ray Tracing: The Next Week".
+// One sphere over a large ground sphere, both with a turbulence (noise) texture. Caller must delete the returned slice.
+build_next_week_turbulence_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+) {
+    result := make([dynamic]core.SceneSphere)
+    append(&result, core.SceneSphere{
+        center        = {0, 2, 0},
+        radius        = 2,
+        material_kind = .Lambertian,
+        albedo        = core.NoiseTexture{scale = 4},
+    })
+    return result[:], nil, TURBULENCE_CAMERA, core.NoiseTexture{scale = 4}, true
 }

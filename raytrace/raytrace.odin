@@ -102,9 +102,11 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
     ground_rtex: RTexture = ConstantTexture{color = {0.5, 0.5, 0.5}}
     if ground_texture != nil {
         switch g in ground_texture^ {
-        case ConstantTexture:   ground_rtex = g
-        case CheckerTexture:    ground_rtex = g
-        case core.ImageTexture: {}
+        case ConstantTexture:    ground_rtex = g
+        case CheckerTexture:     ground_rtex = g
+        case NoiseTexture:       ground_rtex = g
+        case MarbleTexture:      ground_rtex = g
+        case core.ImageTexture:  {}
         }
     }
     ground_material := material(lambertian{albedo = ground_rtex})
