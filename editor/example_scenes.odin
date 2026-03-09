@@ -270,3 +270,4 @@ build_next_week_turbulence_scene :: proc() -> (
     })
     return result[:], nil, TURBULENCE_CAMERA, core.NoiseTexture{scale = 4}, true
 }
+
