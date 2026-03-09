@@ -57,23 +57,30 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})
 	rl.BeginMode3D(cam3d)
 	rl.DrawGrid(20, 1.0)
-
-	ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
-	for s in app.e_edit_view.export_scratch {
-		center := rl.Vector3{s.center[0], s.center[1], s.center[2]}
-		disp_col := [3]f32{0.5, 0.5, 0.5}
-		#partial switch tex in s.albedo {
-		case core.ConstantTexture: disp_col = tex.color
-		case core.CheckerTexture: disp_col = tex.even
+	ev := &app.e_edit_view
+	objs := app.e_edit_view.export_scratch
+	ExportToSceneSpheres(app.e_edit_view.scene_mgr, &objs)
+	for i in 0..<len(objs){
+		s := objs[i]
+		col: rl.Color
+		if ev.selection_kind == .Sphere && i == ev.selected_idx {
+			col = rl.YELLOW
 		}
-		col := rl.Color{
-			u8(clamp(disp_col[0], f32(0), f32(1)) * 255),
-			u8(clamp(disp_col[1], f32(0), f32(1)) * 255),
-			u8(clamp(disp_col[2], f32(0), f32(1)) * 255),
-			255,
+		else {	
+			disp_col := [3]f32{0.5, 0.5, 0.5}
+			#partial switch tex in s.albedo {
+			case core.ConstantTexture: disp_col = tex.color
+			case core.CheckerTexture: disp_col = tex.even
+			}
+			col = rl.Color{
+				u8(clamp(disp_col[0], f32(0), f32(1)) * 255),
+				u8(clamp(disp_col[1], f32(0), f32(1)) * 255),
+				u8(clamp(disp_col[2], f32(0), f32(1)) * 255),
+				255,
+			}
 		}
-		rl.DrawSphere(center, s.radius, col)
-		rl.DrawSphereWires(center, s.radius, 8, 8, rl.Color{30, 30, 30, 180})
+		rl.DrawSphere(s.center, s.radius, col)
+		rl.DrawSphereWires(s.center, s.radius, 4, 4, rl.BLUE)
 	}
 
 	rl.EndMode3D()

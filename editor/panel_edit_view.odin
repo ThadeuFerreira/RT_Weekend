@@ -264,21 +264,21 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 	rl.DrawGrid(20, 1.0)
 
 	for i in 0..<len(objs) {
-		sphere := objs[i]
-		center := rl.Vector3{sphere.center[0], sphere.center[1], sphere.center[2]}
+		s := objs[i]
 		col: rl.Color
 		if ev.selection_kind == .Sphere && i == ev.selected_idx {
 			col = rl.YELLOW
-		} else {
+		} 
+		else {
 			disp_col := [3]f32{0.5, 0.5, 0.5}
-			#partial switch tex in sphere.albedo {
+			#partial switch tex in s.albedo {
 			case core.ConstantTexture: disp_col = tex.color
 			case core.CheckerTexture: disp_col = tex.even
 			}
 			col = rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
 		}
-		rl.DrawSphere(center, sphere.radius, col)
-		rl.DrawSphereWires(center, sphere.radius, 8, 8, rl.Color{30, 30, 30, 180})
+		rl.DrawSphere(s.center, s.radius, col)
+		rl.DrawSphereWires(s.center, s.radius + 0.01, 4, 4, rl.BLACK)
 	}
 
 	// Render camera gizmo (body) and optional frustum / focal indicator
