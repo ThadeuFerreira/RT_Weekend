@@ -126,7 +126,19 @@ EditViewState :: struct {
 	viz_bvh_root:  ^rt.BVHNode,
 	viz_bvh_dirty: bool,
 
+	// Cached mesh+model+texture per sphere for viewport; avoid per-frame GenMeshSphere/LoadModelFromMesh.
+	// Cleared when viewport_sphere_cache_dirty (scene load, add/remove sphere, etc.).
+	viewport_sphere_cache:       [dynamic]ViewportSphereCacheEntry,
+	viewport_sphere_cache_dirty: bool,
+
 	initialized: bool,
+}
+
+ViewportSphereCacheEntry :: struct {
+	model:   rl.Model,
+	tex:     rl.Texture2D,
+	radius:  f32,
+	tex_sig: string,
 }
 
 init_edit_view :: proc(ev: ^EditViewState) {
@@ -145,12 +157,14 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.aabb_selected_only  = false
 	ev.show_bvh_hierarchy  = false
 	ev.aabb_max_depth     = -1
-	ev.viz_bvh_root       = nil
-	ev.viz_bvh_dirty      = true
+	ev.viz_bvh_root             = nil
+	ev.viz_bvh_dirty             = true
+	ev.viewport_sphere_cache_dirty = true
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
 	ev.export_scratch = make([dynamic]core.SceneSphere)
+	ev.viewport_sphere_cache = make([dynamic]ViewportSphereCacheEntry)
 	initial := make([dynamic]core.SceneSphere)
 	append(&initial, core.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.8, 0.2, 0.2}}})
 	append(&initial, core.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = core.ConstantTexture{color={0.2, 0.2, 0.8}}, fuzz = 0.1})
@@ -235,13 +249,52 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 	return
 }
 
-// compute_viewport_ray casts a perspective ray through the given mouse position.
-// When require_inside=true (default) returns false if mouse is outside vp_rect.
+// flip_image_vertical_rgba flips pixel rows in place. buf is width*height*4 bytes (RGBA).
+flip_image_vertical_rgba :: proc(buf: []u8, width, height: int) {
+	if width <= 0 || height <= 1 do return
+	row_bytes := width * 4
+	for y in 0 ..< height / 2 {
+		other := height - 1 - y
+		for x in 0 ..< row_bytes {
+			buf[y * row_bytes + x], buf[other * row_bytes + x] = buf[other * row_bytes + x], buf[y * row_bytes + x]
+		}
+	}
+}
+
+// free_viewport_sphere_cache_entry unloads model and texture for one cache slot; call before overwriting or clearing.
+free_viewport_sphere_cache_entry :: proc(entry: ^ViewportSphereCacheEntry) {
+	if entry.tex.id != 0 {
+		rl.UnloadModel(entry.model)
+		rl.UnloadTexture(entry.tex)
+		delete(entry.tex_sig)
+		entry.tex = {}
+	}
+}
+
+// viewport_texture_from_albedo builds a Raylib texture from core.Texture for use in the 3D viewport.
+// Caller must call rl.UnloadTexture on the returned texture when done.
+// For ImageTexture we flip the image vertically in our buffer (no raylib call) so sphere UV matches
+// the path tracer; rl.ImageFlipVertical must not be used because img.data points to our buffer.
+viewport_texture_from_albedo :: proc(app: ^App, albedo: core.Texture) -> (tex: rl.Texture2D, ok: bool) {
+	img, buf_to_free, ok_build := texture_view_build_image(app, albedo)
+	if !ok_build do return {}, false
+	if _, is_image := albedo.(core.ImageTexture); is_image && len(buf_to_free) > 0 {
+		flip_image_vertical_rgba(buf_to_free, int(img.width), int(img.height))
+	}
+	tex = rl.LoadTextureFromImage(img)
+	#partial switch _ in albedo {
+	case core.ConstantTexture, core.CheckerTexture:
+		rl.UnloadImage(img)
+	case core.ImageTexture:
+		delete(buf_to_free)
+	}
+	return tex, true
+}
+
 // When require_inside=false the UV is clamped to viewport edges — useful during
 // active drags where the mouse may wander outside the panel.
 // NOTE: viewport / picking helpers were moved into the editor package so they
 // can be shared by object implementations without creating package cycles.
-
 draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSphere) {
 	ev := &app.e_edit_view
 	new_w := i32(vp_rect.width)
@@ -258,27 +311,93 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 
 	if ev.tex_w <= 0 || ev.tex_h <= 0 { return }
 
+	// Invalidate viewport sphere cache when scene changed (load, add/remove sphere, etc.)
+	if ev.viewport_sphere_cache_dirty {
+		for i in 0..<len(ev.viewport_sphere_cache) {
+			free_viewport_sphere_cache_entry(&ev.viewport_sphere_cache[i])
+		}
+		clear(&ev.viewport_sphere_cache)
+		ev.viewport_sphere_cache_dirty = false
+	}
+
+	// Ensure cache has one slot per sphere; shrink and free evicted entries if sphere count dropped
+	for len(ev.viewport_sphere_cache) > len(objs) {
+		free_viewport_sphere_cache_entry(&ev.viewport_sphere_cache[len(ev.viewport_sphere_cache) - 1])
+		pop(&ev.viewport_sphere_cache)
+	}
+	for len(ev.viewport_sphere_cache) < len(objs) {
+		append(&ev.viewport_sphere_cache, ViewportSphereCacheEntry{})
+	}
+
+	// Pre-pass: build mesh+model+texture for any cache miss *before* we enter render target / 3D mode.
+	// Creating and uploading mesh/model inside BeginTextureMode/BeginMode3D can prevent the texture from showing.
+	N_RINGS :: 64
+	N_SLICES :: 64
+	for i in 0 ..< len(objs) {
+		sphere := objs[i]
+		entry := &ev.viewport_sphere_cache[i]
+		tex_sig := texture_view_sig(app, sphere.albedo)
+		cache_hit := entry.tex.id != 0 && entry.radius == sphere.radius && entry.tex_sig == tex_sig
+		if cache_hit do continue
+		if tex, tex_ok := viewport_texture_from_albedo(app, sphere.albedo); tex_ok {
+			free_viewport_sphere_cache_entry(entry)
+			sphere_mesh := rl.GenMeshSphere(sphere.radius, N_RINGS, N_SLICES)
+			uvs := transmute([]rl.Vector2)(sphere_mesh.texcoords[:sphere_mesh.vertexCount])
+			// Match path-tracer sphere_get_uv: u = longitude [0,1], v = 0 south / 1 north.
+			// Raylib/par_shapes sphere: swap u<->v then flip v so north/south matches viewport texture (flipped in viewport_texture_from_albedo).
+			for &uv in uvs {
+				uv.x, uv.y = uv.y, uv.x
+				uv.y = 1.0 - uv.y
+			}
+			rl.UpdateMeshBuffer(sphere_mesh, 1, raw_data(uvs), i32(len(uvs) * size_of(rl.Vector2)), 0)
+			model := rl.LoadModelFromMesh(sphere_mesh)
+			rl.SetMaterialTexture(&model.materials[0], rl.MaterialMapIndex.ALBEDO, tex)
+			entry.model   = model
+			entry.tex     = tex
+			entry.radius  = sphere.radius
+			entry.tex_sig = strings.clone(tex_sig)
+		}
+	}
+
 	rl.BeginTextureMode(ev.viewport_tex)
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})
 	rl.BeginMode3D(ev.cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	for i in 0..<len(objs) {
+	Y_UP :: rl.Vector3{0, 1, 0}
+	Y_DOWN :: rl.Vector3{0, -1, 0}
+	X_RIGHT :: rl.Vector3{1, 0, 0}
+	X_LEFT :: rl.Vector3{-1, 0, 0}
+	Z_FORWARD :: rl.Vector3{0, 0, 1}
+	Z_BACKWARD :: rl.Vector3{0, 0, -1}
+	SCALE_ONE :: rl.Vector3{1, 1, 1}
+
+	for i in 0 ..< len(objs) {
 		sphere := objs[i]
 		center := rl.Vector3{sphere.center[0], sphere.center[1], sphere.center[2]}
-		col: rl.Color
-		if ev.selection_kind == .Sphere && i == ev.selected_idx {
-			col = rl.YELLOW
+		selected := ev.selection_kind == .Sphere && i == ev.selected_idx
+		wire_col := rl.Color{30, 30, 30, 180}
+		if selected { wire_col = rl.Color{255, 220, 0, 200} }
+
+		entry := &ev.viewport_sphere_cache[i]
+		cache_hit := entry.tex.id != 0 && entry.radius == sphere.radius && entry.tex_sig == texture_view_sig(app, sphere.albedo)
+
+		if cache_hit {
+			tint := rl.WHITE
+			if selected { tint = rl.YELLOW }
+			rl.DrawModelEx(entry.model, center, Y_UP, -90.0, SCALE_ONE, tint)
+			rl.DrawSphereWires(center, sphere.radius, 8, 8, wire_col)
 		} else {
 			disp_col := [3]f32{0.5, 0.5, 0.5}
-			#partial switch tex in sphere.albedo {
-			case core.ConstantTexture: disp_col = tex.color
-			case core.CheckerTexture: disp_col = tex.even
+			#partial switch t in sphere.albedo {
+			case core.ConstantTexture: disp_col = t.color
+			case core.CheckerTexture: disp_col = t.even
 			}
-			col = rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
+			col := rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
+			if selected { col = rl.YELLOW }
+			rl.DrawSphere(center, sphere.radius, col)
+			rl.DrawSphereWires(center, sphere.radius, 8, 8, wire_col)
 		}
-		rl.DrawSphere(center, sphere.radius, col)
-		rl.DrawSphereWires(center, sphere.radius, 8, 8, rl.Color{30, 30, 30, 180})
 	}
 
 	// Render camera gizmo (body) and optional frustum / focal indicator
