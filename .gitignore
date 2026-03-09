@@ -9,3 +9,5 @@ scenes/*
 
 # Memory leak reports
 logs/
+# Test output artifacts
+tests/output/
