@@ -159,7 +159,10 @@ GPUSphere :: struct #packed {
 // GPUQuad mirrors the GLSL Quad struct for the compute shader (std430).
 // Geometry: Q, u, v, w, normal, D. Material: same as GPUSphere (mat_type, albedo, fuzz_or_ior, tex_*).
 // Quads support Lambertian (constant/checker only), Metallic, Dielectric. No motion blur.
-// 160 bytes: 6×vec3 (16 each) + D(4)+mat(4)+pad(8) + albedo(16) + fuzz(4)+tex_type(4)+tex_scale(4)+pad(4) + tex_even(16) + tex_odd(16).
+//
+// std430: vec3 has base alignment 16. After _pad7[2] we are at offset 132; next 16-byte boundary is 144,
+// so GLSL inserts 12 bytes implicit padding before tex_even. We must match that so mat_type/albedo/tex_*
+// are read at the same offsets. Struct size = 176 bytes (array stride).
 GPUQuad :: struct #packed {
     Q:         [3]f32,
     _pad0:     f32,
@@ -180,6 +183,7 @@ GPUQuad :: struct #packed {
     tex_type:  i32,
     tex_scale: f32,
     _pad7:     [2]f32,
+    _pad_align_tex: [3]f32, // 12 bytes: matches GLSL implicit padding so tex_even starts at offset 144
     tex_even:  [3]f32,
     _pad8:     f32,
     tex_odd:   [3]f32,
