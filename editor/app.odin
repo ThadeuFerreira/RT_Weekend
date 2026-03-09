@@ -522,6 +522,7 @@ run_app :: proc(
         delete(app.e_texture_view.last_sig)
     }
     defer delete(app.e_edit_view.export_scratch)
+    defer viewport_cache_free(&app.e_edit_view.viewport_sphere_cache)
     defer free_scene_manager(app.e_edit_view.scene_mgr)
     defer {
         if app.e_edit_view.viz_bvh_root != nil {

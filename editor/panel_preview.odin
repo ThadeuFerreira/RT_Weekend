@@ -61,19 +61,44 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	ev := &app.e_edit_view
 	sm := ev.scene_mgr
 	if sm != nil {
+		viewport_cache_ensure_len(&ev.viewport_sphere_cache, len(sm.objects))
+
 		for i in 0..<len(sm.objects) {
 			selected := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i
 			#partial switch o in sm.objects[i] {
 			case core.SceneSphere:
 				s := o
-				col: rl.Color
-				if selected { col = rl.YELLOW }
-				else {
-					disp_col := [3]f32{0.5, 0.5, 0.5}
-					#partial switch tex in s.albedo {
-					case core.ConstantTexture: disp_col = tex.color
-					case core.CheckerTexture: disp_col = tex.even
+				center := s.center
+				wire_col := rl.Color{0, 120, 220, 180}
+				if selected { wire_col = rl.Color{255, 220, 0, 200} }
+
+				_, is_img := s.albedo.(core.ImageTexture)
+				if is_img {
+					entry := &ev.viewport_sphere_cache[i]
+					sig := texture_view_sig(app, s.albedo)
+					cache_hit := entry.tex.id != 0 && entry.radius == s.radius && entry.tex_sig == sig
+					if !cache_hit {
+						viewport_sphere_entry_free(entry)
+						entry^ = viewport_sphere_entry_build(app, s)
 					}
+					delete(sig)
+					if entry.tex.id != 0 {
+						tint := rl.WHITE
+						if selected { tint = rl.YELLOW }
+						rl.DrawModelEx(entry.model, center, {0, 1, 0}, -90.0, {1, 1, 1}, tint)
+						rl.DrawSphereWires(center, s.radius + 0.01, 8, 8, wire_col)
+						continue
+					}
+				}
+
+				// Fallback: solid colour
+				disp_col := [3]f32{0.5, 0.5, 0.5}
+				#partial switch tex in s.albedo {
+				case core.ConstantTexture: disp_col = tex.color
+				case core.CheckerTexture:  disp_col = tex.even
+				}
+				col: rl.Color
+				if selected { col = rl.YELLOW } else {
 					col = rl.Color{
 						u8(clamp(disp_col[0], 0.0, 1.0) * 255),
 						u8(clamp(disp_col[1], 0.0, 1.0) * 255),
@@ -81,13 +106,12 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 						255,
 					}
 				}
-				rl.DrawSphere(s.center, s.radius, col)
-				rl.DrawSphereWires(s.center, s.radius, 4, 4, rl.BLUE)
+				rl.DrawSphere(center, s.radius, col)
+				rl.DrawSphereWires(center, s.radius, 4, 4, rl.BLUE)
 			case rt.Quad:
 				q := o
 				col: rl.Color
-				if selected { col = rl.YELLOW }
-				else {
+				if selected { col = rl.YELLOW } else {
 					dc := rt.material_display_color(q.material)
 					col = rl.Color{
 						u8(clamp(dc[0], 0.0, 1.0) * 255),
