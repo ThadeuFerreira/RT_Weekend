@@ -30,3 +30,10 @@ interval_clamp :: proc(i : Interval, x : f32) -> f32 {
     }
     return x
 }
+
+// interval_expand expands the interval by delta (half on each side) so the new size is size + delta.
+// Used to pad zero-thickness AABB dimensions to avoid numerical issues with flat quads.
+interval_expand :: proc(i: Interval, delta: f32) -> Interval {
+    half := delta * 0.5
+    return Interval{min = i.min - half, max = i.max + half}
+}

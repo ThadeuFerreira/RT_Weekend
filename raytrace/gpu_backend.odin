@@ -164,14 +164,19 @@ _upload_image_texture_2d :: proc(img: ^Texture_Image) -> (tex_id: u32, ok: bool)
 // ── gpu_backend_init ─────────────────────────────────────────────────────────
 
 // gpu_backend_init compiles the compute shader, creates GL buffer objects, and
-// uploads all static scene data (camera, spheres, BVH).  The output accumulation
+// uploads all static scene data (camera, spheres, quads, BVH).  The output accumulation
 // SSBO is zeroed so the first dispatch produces a correct sample.
 //
+// objects is the full world (for collect_image_textures_ordered only).
+// spheres and quads are the GPU arrays from scene_to_gpu_spheres / scene_to_gpu_quads.
+// lin_bvh must be built with flatten_bvh_for_gpu so leaves use LEAF_SPHERE/LEAF_QUAD.
 // Must be called after rl.InitWindow() (a current GL context is required).
 // Returns (nil, false) on any failure — caller falls back to the CPU path.
 gpu_backend_init :: proc(
     cam:     ^Camera,
     objects: []Object,
+    spheres: []GPUSphere,
+    quads:   []GPUQuad,
     lin_bvh: []LinearBVHNode,
     samples: int,
 ) -> (^GPUBackend, bool) {
@@ -223,7 +228,7 @@ gpu_backend_init :: proc(
     b.height        = cam.image_height
     b.total_samples = samples
 
-    // Collect unique image textures in order and build path -> slot index for scene_to_gpu_spheres.
+    // Collect unique image textures in order (from spheres in the world).
     image_list, path_to_index := collect_image_textures_ordered(objects)
     defer delete(image_list)
     defer delete(path_to_index)
@@ -255,9 +260,10 @@ gpu_backend_init :: proc(
         }
     }
 
-    // Allocate four GL buffer objects (one UBO + three SSBOs).
+    // Allocate UBO + SSBOs (camera, spheres, quads, BVH, output).
     gl.GenBuffers(1, &b.ubo_camera)
     gl.GenBuffers(1, &b.ssbo_spheres)
+    gl.GenBuffers(1, &b.ssbo_quads)
     gl.GenBuffers(1, &b.ssbo_bvh)
     gl.GenBuffers(1, &b.ssbo_output)
 
@@ -270,11 +276,6 @@ gpu_backend_init :: proc(
     gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
 
     // ── SSBO: sphere array ────────────────────────────────────────────────
-    // Layout: [4]i32 header (sphere_count, pad×3) then []GPUSphere.
-    // The header count is read in GLSL as SpheresBlock.sphere_count.
-    spheres := scene_to_gpu_spheres(objects, path_to_index)
-    defer delete(spheres)
-
     sphere_header    := [4]i32{i32(len(spheres)), 0, 0, 0}
     sphere_body_size := len(spheres) * size_of(GPUSphere)
     sphere_total     := size_of([4]i32) + sphere_body_size
@@ -284,6 +285,18 @@ gpu_backend_init :: proc(
     gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, 0, size_of([4]i32), &sphere_header)
     if sphere_body_size > 0 {
         gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, size_of([4]i32), sphere_body_size, raw_data(spheres))
+    }
+
+    // ── SSBO: quad array ───────────────────────────────────────────────────
+    quad_header    := [4]i32{i32(len(quads)), 0, 0, 0}
+    quad_body_size := len(quads) * size_of(GPUQuad)
+    quad_total     := size_of([4]i32) + quad_body_size
+
+    gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, b.ssbo_quads)
+    gl.BufferData(gl.SHADER_STORAGE_BUFFER, quad_total, nil, gl.STATIC_DRAW)
+    gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, 0, size_of([4]i32), &quad_header)
+    if quad_body_size > 0 {
+        gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, size_of([4]i32), quad_body_size, raw_data(quads))
     }
 
     // ── SSBO: BVH node array ──────────────────────────────────────────────
@@ -312,8 +325,8 @@ gpu_backend_init :: proc(
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 
     when VERBOSE_OUTPUT {
-        fmt.printf("[GPU] Buffers ready — %d spheres, %d BVH nodes, %dx%d px\n",
-            len(spheres), len(lin_bvh), cam.image_width, cam.image_height)
+        fmt.printf("[GPU] Buffers ready — %d spheres, %d quads, %d BVH nodes, %dx%d px\n",
+            len(spheres), len(quads), len(lin_bvh), cam.image_width, cam.image_height)
     }
     return b, true
 }
@@ -349,6 +362,7 @@ gpu_backend_dispatch :: proc(b: ^GPUBackend) {
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  1, b.ssbo_spheres)
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  2, b.ssbo_bvh)
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  3, b.ssbo_output)
+    gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  4, b.ssbo_quads)
     for i in 0 ..< b.num_image_texs {
         if b.image_texs[i] != 0 {
             gl.ActiveTexture(gl.TEXTURE0 + u32(4 + i))
@@ -430,6 +444,7 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
     gl.DeleteProgram(b.program)
     gl.DeleteBuffers(1, &b.ubo_camera)
     gl.DeleteBuffers(1, &b.ssbo_spheres)
+    gl.DeleteBuffers(1, &b.ssbo_quads)
     gl.DeleteBuffers(1, &b.ssbo_bvh)
     gl.DeleteBuffers(1, &b.ssbo_output)
     for i in 0 ..< b.num_image_texs {
@@ -445,8 +460,8 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
 // ── OpenGL backend vtable registration ───────────────────────────────────────
 
 @(private)
-_ogl_init :: proc(cam: ^Camera, world: []Object, bvh: []LinearBVHNode, total: int) -> (rawptr, bool) {
-    b, ok := gpu_backend_init(cam, world, bvh, total)
+_ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, total: int) -> (rawptr, bool) {
+    b, ok := gpu_backend_init(cam, world, spheres, quads, bvh, total)
     return b, ok
 }
 @(private) _ogl_dispatch    :: proc(s: rawptr) { gpu_backend_dispatch((^GPUBackend)(s)) }

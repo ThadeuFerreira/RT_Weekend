@@ -106,69 +106,32 @@ hit_sphere :: proc (sphere : Sphere, r : ray,  ray_t : Interval, rec : ^hit_reco
     return true
 }
 
-// hit_cube tests a ray against an axis-aligned cube (center ± radius). Uses slab method,
-// records the entry face and sets rec.u, rec.v via cube_get_uv (face-projected).
-hit_cube :: proc(cube: Cube, r: ray, ray_t: Interval, rec: ^hit_record) -> bool {
-    box_min := [3]f32{
-        cube.center[0] - cube.radius,
-        cube.center[1] - cube.radius,
-        cube.center[2] - cube.radius,
-    }
-    box_max := [3]f32{
-        cube.center[0] + cube.radius,
-        cube.center[1] + cube.radius,
-        cube.center[2] + cube.radius,
-    }
-    inv_dir := [3]f32{
-        1.0 / r.dir[0],
-        1.0 / r.dir[1],
-        1.0 / r.dir[2],
-    }
-    t_min := ray_t.min
-    t_max := ray_t.max
-    norm_axis := 0
-    norm_sign: f32 = 1.0
-
-    for i in 0 ..< 3 {
-        t_lo := (box_min[i] - r.origin[i]) * inv_dir[i]
-        t_hi := (box_max[i] - r.origin[i]) * inv_dir[i]
-        if inv_dir[i] < 0 {
-            t_lo, t_hi = t_hi, t_lo
-        }
-        if t_lo > t_min {
-            t_min = t_lo
-            norm_axis = i
-            norm_sign = -1.0 if inv_dir[i] >= 0 else 1.0
-        }
-        if t_hi < t_max {
-            t_max = t_hi
-        }
-        if t_min > t_max {
-            return false
-        }
-    }
-
-    // Only accept entry hit (t_min) in the ray interval.
-    if t_min > ray_t.max || t_max < ray_t.min {
+// hit_quad tests a ray against a planar quad (Q + α*u + β*v, α,β in [0,1]).
+// Matches RTNW: ray-plane intersection then interior test using cached w.
+hit_quad :: proc(q: Quad, r: ray, ray_t: Interval, rec: ^hit_record) -> bool {
+    denom := dot(q.normal, r.dir)
+    if math.abs(denom) < 1e-8 {
         return false
     }
-    if t_min < ray_t.min {
+    t := (q.D - dot(q.normal, r.origin)) / denom
+    if t < ray_t.min || t > ray_t.max {
         return false
     }
-    t := t_min
-    if !interval_surrounds(ray_t, t) {
+    intersection := ray_at(r, t)
+    planar_hitpt := intersection - q.Q
+
+    alpha := dot(q.w, cross(planar_hitpt, q.v))
+    beta  := dot(q.w, cross(q.u, planar_hitpt))
+    if alpha < 0 || alpha > 1 || beta < 0 || beta > 1 {
         return false
     }
 
-    rec.material = cube.material
     rec.t = t
-    rec.p = ray_at(r, rec.t)
-    outward_normal := [3]f32{0, 0, 0}
-    outward_normal[norm_axis] = norm_sign
-
-    set_face_normal(rec, r, outward_normal)
-    rec.u, rec.v = cube_get_uv(rec.p, outward_normal, cube.center, cube.radius)
-
+    rec.p = intersection
+    rec.material = q.material
+    set_face_normal(rec, r, q.normal)
+    rec.u = alpha
+    rec.v = beta
     return true
 }
 

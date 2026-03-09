@@ -38,10 +38,11 @@ calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool)
 EDIT_TOOLBAR_H :: f32(32)
 EDIT_PROPS_H   :: f32(120)
 
-// Selection kind: none, a sphere (index in objects), or the render camera (non-deletable).
+// Selection kind: none, a sphere, a quad (index in objects), or the render camera (non-deletable).
 EditViewSelectionKind :: enum {
 	None,
 	Sphere,
+	Quad,
 	Camera,
 }
 
@@ -74,7 +75,7 @@ EditViewState :: struct {
 	scene_mgr:      ^SceneManager,
 	export_scratch: [dynamic]core.SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
 	selection_kind: EditViewSelectionKind,      // what is selected
-	selected_idx:   int,                   // when Sphere: index into objects; else -1
+	selected_idx:   int,                   // when Sphere/Quad: index into objects; else -1
 
 	// Drag-float property fields (sphere only)
 	// prop_drag_idx: -1=none  0=cx  1=cy  2=cz  3=radius
@@ -82,11 +83,12 @@ EditViewState :: struct {
 	prop_drag_start_x:   f32,
 	prop_drag_start_val: f32,
 
-	// Viewport left-drag to move selected object (sphere only)
-	drag_obj_active: bool,
-	drag_plane_y:    f32,    // Y of the horizontal movement plane
-	drag_offset_xz:  [2]f32, // grab-point offset in world XZ so the object doesn't snap
-	drag_before:     core.SceneSphere, // sphere state captured at viewport-drag start
+	// Viewport left-drag to move selected object (sphere or quad)
+	drag_obj_active:   bool,
+	drag_plane_y:      f32,    // Y of the horizontal movement plane
+	drag_offset_xz:   [2]f32, // grab-point offset in world XZ so the object doesn't snap
+	drag_before:      core.SceneSphere, // sphere state captured at viewport-drag start
+	drag_before_quad: rt.Quad,          // quad state captured at viewport-drag start
 
 	// Keyboard nudge history tracking
 	nudge_active: bool,             // true while any nudge key is held
@@ -125,6 +127,8 @@ EditViewState :: struct {
 	// Cached BVH for hierarchy viz; rebuilt only when scene changes (viz_bvh_dirty).
 	viz_bvh_root:  ^rt.BVHNode,
 	viz_bvh_dirty: bool,
+
+	add_dropdown_open: bool, // "Add Object" dropdown expanded
 
 	initialized: bool,
 }
@@ -242,8 +246,24 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 // NOTE: viewport / picking helpers were moved into the editor package so they
 // can be shared by object implementations without creating package cycles.
 
-draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSphere) {
+// draw_quad_3d draws a quad as two triangles. Call inside BeginMode3D.
+draw_quad_3d :: proc(q: rt.Quad, color: rl.Color) {
+	v0 := rl.Vector3{q.Q[0], q.Q[1], q.Q[2]}
+	v1 := rl.Vector3{q.Q[0] + q.u[0], q.Q[1] + q.u[1], q.Q[2] + q.u[2]}
+	v2 := rl.Vector3{q.Q[0] + q.u[0] + q.v[0], q.Q[1] + q.u[1] + q.v[1], q.Q[2] + q.u[2] + q.v[2]}
+	v3 := rl.Vector3{q.Q[0] + q.v[0], q.Q[1] + q.v[1], q.Q[2] + q.v[2]}
+	rl.DrawTriangle3D(v0, v1, v2, color)
+	rl.DrawTriangle3D(v0, v2, v3, color)
+	rl.DrawLine3D(v0, v1, rl.BLACK)
+	rl.DrawLine3D(v1, v2, rl.BLACK)
+	rl.DrawLine3D(v2, v3, rl.BLACK)
+	rl.DrawLine3D(v3, v0, rl.BLACK)
+}
+
+draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	ev := &app.e_edit_view
+	sm := ev.scene_mgr
+	if sm == nil { return }
 	new_w := i32(vp_rect.width)
 	new_h := i32(vp_rect.height)
 
@@ -263,22 +283,38 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 	rl.BeginMode3D(ev.cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	for i in 0..<len(objs) {
-		s := objs[i]
-		col: rl.Color
-		if ev.selection_kind == .Sphere && i == ev.selected_idx {
-			col = rl.YELLOW
-		} 
-		else {
-			disp_col := [3]f32{0.5, 0.5, 0.5}
-			#partial switch tex in s.albedo {
-			case core.ConstantTexture: disp_col = tex.color
-			case core.CheckerTexture: disp_col = tex.even
+	for i in 0..<len(sm.objects) {
+		selected := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i
+		#partial switch o in sm.objects[i] {
+		case core.SceneSphere:
+			s := o
+			col: rl.Color
+			if selected { col = rl.YELLOW }
+			else {
+				disp_col := [3]f32{0.5, 0.5, 0.5}
+				#partial switch tex in s.albedo {
+				case core.ConstantTexture: disp_col = tex.color
+				case core.CheckerTexture: disp_col = tex.even
+				}
+				col = rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
 			}
-			col = rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
+			rl.DrawSphere(s.center, s.radius, col)
+			rl.DrawSphereWires(s.center, s.radius + 0.01, 4, 4, rl.BLACK)
+		case rt.Quad:
+			q := o
+			col: rl.Color
+			if selected { col = rl.YELLOW }
+			else {
+				dc := rt.material_display_color(q.material)
+				col = rl.Color{
+					u8(clamp(dc[0], 0.0, 1.0) * 255),
+					u8(clamp(dc[1], 0.0, 1.0) * 255),
+					u8(clamp(dc[2], 0.0, 1.0) * 255),
+					255,
+				}
+			}
+			draw_quad_3d(q, col)
 		}
-		rl.DrawSphere(s.center, s.radius, col)
-		rl.DrawSphereWires(s.center, s.radius + 0.01, 4, 4, rl.BLACK)
 	}
 
 	// Render camera gizmo (body) and optional frustum / focal indicator
@@ -309,36 +345,47 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle, objs: []core.SceneSph
 
 	// Draw a move indicator on the selected sphere during drag
 	if ev.drag_obj_active && ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
-		if ev.selected_idx >= 0 && ev.selected_idx < len(objs) {
-			sphere := objs[ev.selected_idx]
+		if sphere, ok := GetSceneSphere(sm, ev.selected_idx); ok {
 			c := rl.Vector3{sphere.center[0], sphere.center[1], sphere.center[2]}
 			rl.DrawCircle3D(c, sphere.radius + 0.08, rl.Vector3{1, 0, 0}, 90, rl.Color{255, 220, 0, 200})
+		}
+	}
+	// Draw a move indicator on the selected quad during drag
+	if ev.drag_obj_active && ev.selection_kind == .Quad && ev.selected_idx >= 0 {
+		if quad, ok := GetSceneQuad(sm, ev.selected_idx); ok {
+			draw_quad_3d(quad, rl.Color{255, 220, 0, 220})
 		}
 	}
 
 	// --- AABB Visualization ---
 	if ev.show_aabbs {
-		for i in 0..<len(objs) {
-			if ev.aabb_selected_only && !(ev.selection_kind == .Sphere && ev.selected_idx == i) {
+		for i in 0..<len(sm.objects) {
+			if ev.aabb_selected_only && !((ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i) {
 				continue
 			}
-			aabb  := compute_scene_sphere_aabb(objs[i])
 			color := rl.Color{100, 220, 100, 150}
-			if ev.selection_kind == .Sphere && ev.selected_idx == i {
+			if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i {
 				color = rl.Color{255, 220, 0, 200}
 			}
-			draw_aabb_wireframe(aabb, color)
+			#partial switch o in sm.objects[i] {
+			case core.SceneSphere:
+				draw_aabb_wireframe(compute_scene_sphere_aabb(o), color)
+			case rt.Quad:
+				draw_aabb_wireframe(rt.quad_bounding_box(o), color)
+			}
 		}
 	}
 
 	// --- BVH Hierarchy Visualization (cached; rebuild only when scene changes) ---
-	if ev.show_bvh_hierarchy && len(objs) > 0 {
+	if ev.show_bvh_hierarchy && SceneManagerLen(sm) > 0 {
 		if ev.viz_bvh_dirty {
 			if ev.viz_bvh_root != nil {
 				rt.free_bvh(ev.viz_bvh_root)
 				ev.viz_bvh_root = nil
 			}
-			objects := app_build_world_from_scene(app, objs)
+			ExportToSceneSpheres(sm, &ev.export_scratch)
+			objects := app_build_world_from_scene(app, ev.export_scratch[:])
+			AppendQuadsToWorld(sm, &objects)
 			defer delete(objects)
 			ev.viz_bvh_root = rt.build_bvh(objects[:])
 			ev.viz_bvh_dirty = false
@@ -481,6 +528,36 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 		return
 	}
 
+	if ev.selection_kind == .Quad {
+		if quad, ok := GetSceneQuad(ev.scene_mgr, ev.selected_idx); ok {
+			dc := rt.material_display_color(quad.material)
+			mat_label := "Lambertian"
+			#partial switch _ in quad.material {
+			case rt.metallic:   mat_label = "Metallic"
+			case rt.dielectric: mat_label = "Dielectric"
+			}
+			draw_ui_text(app, "Quad selected",
+				i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
+			draw_ui_text(app, fmt.ctprintf("Material: %s", mat_label),
+				i32(rect.x) + 8, i32(rect.y) + 28, 11, rl.Color{160, 170, 190, 220})
+			swatch := rl.Rectangle{rect.x + 8, rect.y + 48, 24, 18}
+			swatch_col := rl.Color{
+				u8(clamp(dc[0], 0.0, 1.0) * 255),
+				u8(clamp(dc[1], 0.0, 1.0) * 255),
+				u8(clamp(dc[2], 0.0, 1.0) * 255),
+				255,
+			}
+			rl.DrawRectangleRec(swatch, swatch_col)
+			rl.DrawRectangleLinesEx(swatch, 1, BORDER_COLOR)
+			draw_ui_text(app, "Edit material in Object Properties panel",
+				i32(rect.x) + 8, i32(rect.y) + 72, 10, rl.Color{120, 130, 148, 180})
+		} else {
+			draw_ui_text(app, "Quad selected",
+				i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
+		}
+		return
+	}
+
 	if ev.selection_kind == .Camera {
 		RAD2DEG :: f32(180.0 / math.PI)
 		cp := &app.c_camera_params
@@ -517,9 +594,10 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 		return
 	}
 
-	// Sphere selected
-	if ev.selected_idx < 0 || ev.selected_idx >= len(objs) { return }
-	sphere := objs[ev.selected_idx]
+	// Sphere selected (use scene_mgr so index matches when scene has quads)
+	if ev.selected_idx < 0 { return }
+	sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+	if !ok { return }
 	fields := prop_field_rects(rect)
 
 	// Row 0 — position X Y Z
@@ -553,6 +631,7 @@ CTX_MENU_W :: f32(160)
 ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {
 	items := make([dynamic]MenuEntryDyn, context.temp_allocator)
 	append(&items, MenuEntryDyn{label = "Add Sphere"})
+	append(&items, MenuEntryDyn{label = "Add Quad"})
 	if ev.ctx_menu_hit_idx >= 0 {
 		append(&items, MenuEntryDyn{separator = true})
 		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = !cmd_is_enabled(app, CMD_EDIT_COPY),      shortcut = "Ctrl+C"})
@@ -639,13 +718,30 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.DrawRectangleRec(toolbar_rect, rl.Color{40, 42, 58, 255})
 	rl.DrawRectangleLinesEx(toolbar_rect, 1, BORDER_COLOR)
 
-	btn_add   := rl.Rectangle{content.x + 8, content.y + 5, 90, 22}
+	btn_add   := rl.Rectangle{content.x + 8, content.y + 5, 92, 22}
 	add_hover := rl.CheckCollisionPointRec(mouse, btn_add)
 	rl.DrawRectangleRec(btn_add, add_hover ? rl.Color{80, 130, 200, 255} : rl.Color{55, 85, 140, 255})
-	draw_ui_text(app, "Add Sphere", i32(btn_add.x) + 6, i32(btn_add.y) + 4, 12, rl.RAYWHITE)
+	draw_ui_text(app, "Add Object", i32(btn_add.x) + 6, i32(btn_add.y) + 4, 12, rl.RAYWHITE)
+	draw_ui_text(app, "\u25BC", i32(btn_add.x) + 72, i32(btn_add.y) + 4, 10, rl.RAYWHITE) // dropdown arrow
 
-	// Delete only for sphere selection (camera is non-deletable)
-	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
+	// Add Object dropdown (Sphere / Quad)
+	if ev.add_dropdown_open {
+		dd_h := f32(52)
+		dd_rect := rl.Rectangle{btn_add.x, btn_add.y + btn_add.height + 2, 92, dd_h}
+		rl.DrawRectangleRec(dd_rect, rl.Color{50, 52, 70, 255})
+		rl.DrawRectangleLinesEx(dd_rect, 1, BORDER_COLOR)
+		sphere_item := rl.Rectangle{dd_rect.x, dd_rect.y, dd_rect.width, 24}
+		quad_item   := rl.Rectangle{dd_rect.x, dd_rect.y + 26, dd_rect.width, 24}
+		sphere_hov  := rl.CheckCollisionPointRec(mouse, sphere_item)
+		quad_hov    := rl.CheckCollisionPointRec(mouse, quad_item)
+		if sphere_hov { rl.DrawRectangleRec(sphere_item, rl.Color{60, 65, 95, 255}) }
+		if quad_hov   { rl.DrawRectangleRec(quad_item,   rl.Color{60, 65, 95, 255}) }
+		draw_ui_text(app, "Sphere", i32(sphere_item.x) + 8, i32(sphere_item.y) + 4, 12, rl.RAYWHITE)
+		draw_ui_text(app, "Quad",   i32(quad_item.x) + 8,   i32(quad_item.y) + 4,   12, rl.RAYWHITE)
+	}
+
+	// Delete for sphere or quad selection (camera is non-deletable)
+	if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 {
 		btn_del   := rl.Rectangle{content.x + 106, content.y + 5, 60, 22}
 		del_hover := rl.CheckCollisionPointRec(mouse, btn_del)
 		rl.DrawRectangleRec(btn_del, del_hover ? rl.Color{200, 60, 60, 255} : rl.Color{140, 40, 40, 255})
@@ -748,7 +844,7 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		content.height - EDIT_TOOLBAR_H - EDIT_PROPS_H,
 	}
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-	draw_viewport_3d(app, vp_rect, ev.export_scratch[:])
+	draw_viewport_3d(app, vp_rect)
 
 	// Properties strip
 	props_rect := rl.Rectangle{
@@ -859,12 +955,27 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 								app_push_log(app, strings.clone("Add sphere"))
 							}
 							app.r_render_pending = true
+						} else if entry.label == "Add Quad" {
+							AppendDefaultQuad(ev.scene_mgr)
+							new_idx := SceneManagerLen(ev.scene_mgr) - 1
+							ev.selection_kind = .Quad
+							ev.selected_idx   = new_idx
+							if new_quad, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
+								edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = new_quad})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Add quad"))
+							}
+							app.r_render_pending = true
 						} else if entry.label == "Delete" {
 							del_idx := ev.ctx_menu_hit_idx
 							if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
 								edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
 								mark_scene_dirty(app)
 								app_push_log(app, strings.clone("Delete sphere"))
+							} else if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
+								edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Delete quad"))
 							}
 							OrderedRemove(ev.scene_mgr, del_idx)
 							ev.selection_kind = .None
@@ -1025,7 +1136,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		return
 	}
 
-	// ── Priority 2: active viewport object drag (sphere only) ─────────────
+	// ── Priority 2: active viewport object drag (sphere or quad) ───────────
 	if ev.drag_obj_active {
 		if !lmb {
 			ev.drag_obj_active = false
@@ -1041,6 +1152,17 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 					app_push_log(app, strings.clone("Move sphere"))
 					app.r_render_pending = true
 				}
+			} else if ev.selection_kind == .Quad && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
+				if quad, ok := GetSceneQuad(ev.scene_mgr, ev.selected_idx); ok {
+					edit_history_push(&app.edit_history, ModifyQuadAction{
+						idx    = ev.selected_idx,
+						before = ev.drag_before_quad,
+						after  = quad,
+					})
+					mark_scene_dirty(app)
+					app_push_log(app, strings.clone("Move quad"))
+					app.r_render_pending = true
+				}
 			}
 		} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 			// require_inside=false: keep dragging even when mouse leaves viewport
@@ -1050,6 +1172,16 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 						sphere.center[0] = xz.x - ev.drag_offset_xz[0]
 						sphere.center[2] = xz.y - ev.drag_offset_xz[1]
 						SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+					}
+				}
+			}
+		} else if ev.selection_kind == .Quad && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
+			if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
+				if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+					if quad, ok3 := GetSceneQuad(ev.scene_mgr, ev.selected_idx); ok3 {
+						quad.Q[0] = xz.x - ev.drag_offset_xz[0]
+						quad.Q[2] = xz.y - ev.drag_offset_xz[1]
+						SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
 					}
 				}
 			}
@@ -1102,30 +1234,72 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
-		if rl.CheckCollisionPointRec(mouse, btn_add) {
-			AppendDefaultSphere(ev.scene_mgr)
-			new_idx := SceneManagerLen(ev.scene_mgr) - 1
-			ev.selection_kind = .Sphere
-			ev.selected_idx   = new_idx
-			// Record add in history
-			if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
-				edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
-				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Add sphere"))
+		// Add Object dropdown: if open, handle item clicks or close on outside click
+		dd_rect      := rl.Rectangle{btn_add.x, btn_add.y + btn_add.height + 2, 92, 52}
+		sphere_item  := rl.Rectangle{dd_rect.x, dd_rect.y, dd_rect.width, 24}
+		quad_item    := rl.Rectangle{dd_rect.x, dd_rect.y + 26, dd_rect.width, 24}
+		in_dropdown  := rl.CheckCollisionPointRec(mouse, dd_rect)
+		in_btn_add   := rl.CheckCollisionPointRec(mouse, btn_add)
+
+		if ev.add_dropdown_open {
+			if rl.IsMouseButtonPressed(.LEFT) {
+				if rl.CheckCollisionPointRec(mouse, sphere_item) {
+					ev.add_dropdown_open = false
+					AppendDefaultSphere(ev.scene_mgr)
+					new_idx := SceneManagerLen(ev.scene_mgr) - 1
+					ev.selection_kind = .Sphere
+					ev.selected_idx   = new_idx
+					if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
+						edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
+						mark_scene_dirty(app)
+						app_push_log(app, strings.clone("Add sphere"))
+					}
+					app.r_render_pending = true
+					if g_app != nil { g_app.input_consumed = true }
+					return
+				} else if rl.CheckCollisionPointRec(mouse, quad_item) {
+					ev.add_dropdown_open = false
+					AppendDefaultQuad(ev.scene_mgr)
+					new_idx := SceneManagerLen(ev.scene_mgr) - 1
+					ev.selection_kind = .Quad
+					ev.selected_idx   = new_idx
+					if new_quad, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
+						edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = new_quad})
+						mark_scene_dirty(app)
+						app_push_log(app, strings.clone("Add quad"))
+					}
+					app.r_render_pending = true
+					if g_app != nil { g_app.input_consumed = true }
+					return
+				} else if !in_dropdown && !in_btn_add {
+					ev.add_dropdown_open = false
+				}
 			}
-			app.r_render_pending = true
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
-		// Delete only for sphere (camera is non-deletable)
-		if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, btn_del) {
+		if rl.CheckCollisionPointRec(mouse, btn_add) {
+			ev.add_dropdown_open = true
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		// Delete for sphere or quad (camera is non-deletable)
+		if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, btn_del) {
 			del_idx := ev.selected_idx
-			if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
-				edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
-				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Delete sphere"))
+			if ev.selection_kind == .Sphere {
+				if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+					edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+					mark_scene_dirty(app)
+					app_push_log(app, strings.clone("Delete sphere"))
+				}
+			} else if ev.selection_kind == .Quad {
+				if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
+					edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
+					mark_scene_dirty(app)
+					app_push_log(app, strings.clone("Delete quad"))
+				}
 			}
-OrderedRemove(ev.scene_mgr, del_idx)
+			OrderedRemove(ev.scene_mgr, del_idx)
 			ev.selection_kind = .None
 			ev.selected_idx   = -1
 			app.r_render_pending = true
@@ -1153,6 +1327,7 @@ OrderedRemove(ev.scene_mgr, del_idx)
 			ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			delete(app.r_world)
 			app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
+			AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
 
 			// Parse render settings
 			width, height, res_ok := calculate_render_dimensions(app)
@@ -1272,15 +1447,16 @@ OrderedRemove(ev.scene_mgr, del_idx)
 	}
 	if rmb_release && mouse_in_vp && ev.rmb_drag_dist < RMB_DRAG_THRESHOLD {
 		// Short click → open context menu
+		update_orbit_camera(ev)
 		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect, false); ok {
-			hit_idx := PickSphereInManager(ev.scene_mgr, ray)
-			if hit_idx >= 0 {
-				ev.selection_kind = .Sphere
-				ev.selected_idx   = hit_idx
+			pick_kind, pick_idx, _ := PickClosestObject(ev.scene_mgr, ray)
+			if pick_idx >= 0 {
+				ev.selection_kind = pick_kind
+				ev.selected_idx   = pick_idx
 			}
 			ev.ctx_menu_open    = true
 			ev.ctx_menu_pos     = mouse
-			ev.ctx_menu_hit_idx = hit_idx
+			ev.ctx_menu_hit_idx = pick_idx
 			app.input_consumed  = true
 		}
 	}
@@ -1293,8 +1469,9 @@ OrderedRemove(ev.scene_mgr, del_idx)
 		ev.orbit_distance -= rl.GetMouseWheelMove() * 0.8
 	}
 
-	// Left-click: select and begin drag (camera rotation ring / body / sphere)
+	// Left-click: select and begin drag (camera rotation ring / body / sphere/quad)
 	if lmb_pressed && mouse_in_vp {
+		update_orbit_camera(ev) // use current camera for pick ray (e.g. after scroll this frame)
 		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, vp_rect); ok {
 			cam_lookfrom := app.c_camera_params.lookfrom
 			cam_pos_v3   := rl.Vector3{cam_lookfrom[0], cam_lookfrom[1], cam_lookfrom[2]}
@@ -1325,17 +1502,32 @@ OrderedRemove(ev.scene_mgr, del_idx)
 						ev.cam_drag_start_hit_xz = {xz.x, xz.y}
 					}
 				} else {
-					// Try sphere
-					picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
-					if picked_sphere >= 0 {
+					// Try closest object (sphere or quad)
+					pick_kind, pick_idx, _ := PickClosestObject(ev.scene_mgr, ray)
+					if pick_idx >= 0 && pick_kind == .Sphere {
 						ev.selection_kind  = .Sphere
-						ev.selected_idx    = picked_sphere
+						ev.selected_idx    = pick_idx
 						ev.drag_obj_active = true
-						if sphere, ok3 := GetSceneSphere(ev.scene_mgr, picked_sphere); ok3 {
+						if sphere, ok3 := GetSceneSphere(ev.scene_mgr, pick_idx); ok3 {
 							ev.drag_before  = sphere
 							ev.drag_plane_y = sphere.center[1]
 							if xz, ok4 := ray_hit_plane_y(ray, ev.drag_plane_y); ok4 {
 								ev.drag_offset_xz = {xz.x - sphere.center[0], xz.y - sphere.center[2]}
+							}
+						}
+					} else if pick_idx >= 0 && pick_kind == .Quad {
+						ev.selection_kind  = .Quad
+						ev.selected_idx    = pick_idx
+						ev.drag_obj_active = true
+						if quad, ok3 := GetSceneQuad(ev.scene_mgr, pick_idx); ok3 {
+							ev.drag_before_quad = quad
+							ev.drag_plane_y     = quad.Q[1]
+							// Use the same horizontal plane intersection method used during drag updates
+							// so click-to-select does not cause a snap/reset on the first drag frame.
+							if xz, ok4 := ray_hit_plane_y(ray, ev.drag_plane_y); ok4 {
+								ev.drag_offset_xz = {xz.x - quad.Q[0], xz.y - quad.Q[2]}
+							} else {
+								ev.drag_offset_xz = {0, 0}
 							}
 						}
 					} else {
@@ -1344,17 +1536,31 @@ OrderedRemove(ev.scene_mgr, del_idx)
 					}
 				}
 			} else {
-				// Camera not selected: sphere first, then camera body
-				picked_sphere := PickSphereInManager(ev.scene_mgr, ray)
-				if picked_sphere >= 0 {
+				// Camera not selected: closest object first, then camera body
+				pick_kind, pick_idx, _ := PickClosestObject(ev.scene_mgr, ray)
+				if pick_idx >= 0 && pick_kind == .Sphere {
 					ev.selection_kind  = .Sphere
-					ev.selected_idx    = picked_sphere
+					ev.selected_idx    = pick_idx
 					ev.drag_obj_active = true
-					if sphere, ok3 := GetSceneSphere(ev.scene_mgr, picked_sphere); ok3 {
+					if sphere, ok3 := GetSceneSphere(ev.scene_mgr, pick_idx); ok3 {
 						ev.drag_before  = sphere
 						ev.drag_plane_y = sphere.center[1]
 						if xz, ok4 := ray_hit_plane_y(ray, ev.drag_plane_y); ok4 {
 							ev.drag_offset_xz = {xz.x - sphere.center[0], xz.y - sphere.center[2]}
+						}
+					}
+				} else if pick_idx >= 0 && pick_kind == .Quad {
+					ev.selection_kind  = .Quad
+					ev.selected_idx    = pick_idx
+					ev.drag_obj_active = true
+					if quad, ok3 := GetSceneQuad(ev.scene_mgr, pick_idx); ok3 {
+						ev.drag_before_quad = quad
+						ev.drag_plane_y     = quad.Q[1]
+						// Keep drag-start and drag-update math consistent to avoid click snapping.
+						if xz, ok4 := ray_hit_plane_y(ray, ev.drag_plane_y); ok4 {
+							ev.drag_offset_xz = {xz.x - quad.Q[0], xz.y - quad.Q[2]}
+						} else {
+							ev.drag_offset_xz = {0, 0}
 						}
 					}
 				} else if pick_camera(ray, cam_lookfrom) {

@@ -29,6 +29,7 @@ import "RT_Weekend:core"
 GPUBackend :: struct {
     program:           u32,  // linked compute shader program
     ssbo_spheres:      u32,  // SSBO: [4]i32 header then []GPUSphere
+    ssbo_quads:        u32,  // SSBO: [4]i32 header then []GPUQuad
     ssbo_bvh:          u32,  // SSBO: [4]i32 header then []LinearBVHNode
     ssbo_output:       u32,  // SSBO: vec4 per pixel (RGB accumulation)
     ubo_camera:        u32,  // UBO: GPUCameraUniforms (std140)
@@ -60,6 +61,12 @@ GPUBackend :: struct {
 // The flat array produced by flatten_bvh is traversed iteratively
 // by bvh_hit_linear — no pointer chasing, no recursion.
 //
+// Leaf sentinels for GPU BVH traversal (must match raytrace.comp).
+// left_idx == LEAF_SPHERE => right_or_obj_idx = -(sphere_index + 1)
+// left_idx == LEAF_QUAD   => right_or_obj_idx = -(quad_index + 1)
+LEAF_SPHERE :: i32(-1)
+LEAF_QUAD   :: i32(-2)
+
 // Extensibility note:
 //   To add TriangleMesh leaves, add a second sentinel value for
 //   left_idx (e.g. -2) and store the triangle index in
@@ -149,6 +156,36 @@ GPUSphere :: struct #packed {
     _pad_stride: [3]f32,  // pads struct to 144 bytes = ceil(136/16)*16; matches std430 array stride
 }
 
+// GPUQuad mirrors the GLSL Quad struct for the compute shader (std430).
+// Geometry: Q, u, v, w, normal, D. Material: same as GPUSphere (mat_type, albedo, fuzz_or_ior, tex_*).
+// Quads support Lambertian (constant/checker only), Metallic, Dielectric. No motion blur.
+// 160 bytes: 6×vec3 (16 each) + D(4)+mat(4)+pad(8) + albedo(16) + fuzz(4)+tex_type(4)+tex_scale(4)+pad(4) + tex_even(16) + tex_odd(16).
+GPUQuad :: struct #packed {
+    Q:         [3]f32,
+    _pad0:     f32,
+    u:         [3]f32,
+    _pad1:     f32,
+    v:         [3]f32,
+    _pad2:     f32,
+    w:         [3]f32,
+    _pad3:     f32,
+    normal:    [3]f32,
+    _pad4:     f32,
+    D:         f32,
+    mat_type:  i32,
+    _pad5:     [2]f32,
+    albedo:    [3]f32,
+    _pad6:     f32,
+    fuzz_or_ior: f32,
+    tex_type:  i32,
+    tex_scale: f32,
+    _pad7:     [2]f32,
+    tex_even:  [3]f32,
+    _pad8:     f32,
+    tex_odd:   [3]f32,
+    _pad9:     f32,
+}
+
 // GPUCameraUniforms is uploaded as a UBO (std140).
 // Padding fields keep each vec3 on a 16-byte boundary as required by std140.
 // Must match the layout(std140) CameraBlock in raytrace.comp exactly.
@@ -194,9 +231,10 @@ collect_image_textures_ordered :: proc(objects: []Object) -> (images: [dynamic]^
 //
 // When path_to_index is non-nil, ImageTextureRuntime spheres get tex_index set from
 // it so each object can reference a different image texture on the GPU.
-// Only Sphere objects are included (Cube is not yet supported on the GPU path).
+// When world_to_sphere_gpu is non-nil and len(world_to_sphere_gpu)==len(objects),
+// each element is set to the GPU sphere index (0..count-1) for spheres or -1 for non-spheres.
 // The resulting slice must be freed by the caller (delete(result)).
-scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = nil) -> []GPUSphere {
+scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = nil, world_to_sphere_gpu: []int = nil) -> []GPUSphere {
     // Count spheres first so we allocate exactly.
     count := 0
     for o in objects {
@@ -205,9 +243,15 @@ scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = 
 
     result := make([]GPUSphere, count)
     idx := 0
-    for o in objects {
+    for i in 0..<len(objects) {
+        o := objects[i]
         s, ok := o.(Sphere)
-        if !ok { continue }
+        if !ok {
+            if world_to_sphere_gpu != nil && len(world_to_sphere_gpu) == len(objects) {
+                world_to_sphere_gpu[i] = -1
+            }
+            continue
+        }
 
         gpu := GPUSphere{}
         gpu.center = GPURay{
@@ -275,6 +319,76 @@ scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = 
         }
 
         result[idx] = gpu
+        if world_to_sphere_gpu != nil && len(world_to_sphere_gpu) == len(objects) {
+            world_to_sphere_gpu[i] = idx
+        }
+        idx += 1
+    }
+    return result
+}
+
+// scene_to_gpu_quads converts Quad objects from the Object slice to a flat []GPUQuad.
+// When world_to_quad_gpu is non-nil and len(world_to_quad_gpu)==len(objects), each element
+// is set to the GPU quad index for quads or -1 for non-quads.
+// Caller must delete(result).
+scene_to_gpu_quads :: proc(objects: []Object, world_to_quad_gpu: []int = nil) -> []GPUQuad {
+    count := 0
+    for o in objects {
+        if _, ok := o.(Quad); ok { count += 1 }
+    }
+    result := make([]GPUQuad, count)
+    idx := 0
+    for i in 0..<len(objects) {
+        q, ok := objects[i].(Quad)
+        if !ok {
+            if world_to_quad_gpu != nil && len(world_to_quad_gpu) == len(objects) {
+                world_to_quad_gpu[i] = -1
+            }
+            continue
+        }
+        gpu := GPUQuad{
+            Q = q.Q, u = q.u, v = q.v, w = q.w, normal = q.normal, D = q.D,
+        }
+        switch m in q.material {
+        case lambertian:
+            gpu.mat_type    = MAT_LAMBERTIAN
+            gpu.fuzz_or_ior = 0.0
+            switch tex in m.albedo {
+            case ConstantTexture:
+                gpu.tex_type  = TEX_CONSTANT
+                gpu.albedo    = tex.color
+                gpu.tex_scale = 1.0
+            case CheckerTexture:
+                gpu.tex_type  = TEX_CHECKER
+                gpu.albedo    = [3]f32{0, 0, 0}
+                gpu.tex_scale = tex.scale
+                if gpu.tex_scale == 0 { gpu.tex_scale = 1.0 }
+                gpu.tex_even  = tex.even
+                gpu.tex_odd   = tex.odd
+            case ImageTextureRuntime:
+                gpu.tex_type  = TEX_CONSTANT
+                gpu.albedo    = [3]f32{0.5, 0.5, 0.5}
+                gpu.tex_scale = 1.0
+            }
+        case metallic:
+            gpu.mat_type    = MAT_METALLIC
+            gpu.albedo      = m.albedo
+            gpu.fuzz_or_ior = m.fuzz
+            gpu.tex_type    = TEX_CONSTANT
+        case dielectric:
+            gpu.mat_type    = MAT_DIELECTRIC
+            gpu.albedo      = [3]f32{1, 1, 1}
+            gpu.fuzz_or_ior = m.ref_idx
+            gpu.tex_type    = TEX_CONSTANT
+        case:
+            gpu.mat_type  = MAT_LAMBERTIAN
+            gpu.albedo    = [3]f32{0.7, 0.7, 0.7}
+            gpu.tex_type  = TEX_CONSTANT
+        }
+        result[idx] = gpu
+        if world_to_quad_gpu != nil && len(world_to_quad_gpu) == len(objects) {
+            world_to_quad_gpu[i] = idx
+        }
         idx += 1
     }
     return result

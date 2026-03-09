@@ -577,6 +577,14 @@ finish_render :: proc(session: ^RenderSession) {
 //
 // CPU path (use_gpu=false or GPU init failure):
 //   Identical to calling start_render directly.
+// world_has_quads returns true if the world contains any Quad (GPU path does not support quads).
+world_has_quads :: proc(world: [dynamic]Object) -> bool {
+    for o in world {
+        if _, ok := o.(Quad); ok { return true }
+    }
+    return false
+}
+
 start_render_auto :: proc(
     r_camera:    ^Camera,
     world:       [dynamic]Object,
@@ -603,21 +611,25 @@ start_render_auto :: proc(
 
     bvh_trace := util.trace_scope_begin("Render.BVH", "render")
     session.timing.bvh_construction = start_timer()
-    // GPU path: BVH and sphere SSBO must use the same object list so leaf indices match.
-    // Build a spheres-only world (cubes not supported on GPU); use it for BVH and upload.
-    sphere_objects := make([dynamic]Object)
-    for o in world {
-        if _, ok := o.(Sphere); ok {
-            append(&sphere_objects, o)
-        }
-    }
-    world_slice := sphere_objects[:]
+    world_slice := world[:]
     when USE_SAH_BVH {
         session.bvh_root = build_bvh_sah(world_slice)
     } else {
         session.bvh_root = build_bvh(world_slice)
     }
-    session.linear_bvh = flatten_bvh(session.bvh_root, world_slice)
+    // GPU path: build sphere/quad arrays and BVH with LEAF_SPHERE/LEAF_QUAD encoding.
+    world_to_sphere_gpu := make([]int, len(world))
+    world_to_quad_gpu   := make([]int, len(world))
+    defer delete(world_to_sphere_gpu)
+    defer delete(world_to_quad_gpu)
+    image_list, path_to_index := collect_image_textures_ordered(world_slice)
+    defer delete(image_list)
+    defer delete(path_to_index)
+    gpu_spheres := scene_to_gpu_spheres(world_slice, path_to_index, world_to_sphere_gpu)
+    defer delete(gpu_spheres)
+    gpu_quads   := scene_to_gpu_quads(world_slice, world_to_quad_gpu)
+    defer delete(gpu_quads)
+    session.linear_bvh = flatten_bvh_for_gpu(session.bvh_root, world_slice, world_to_sphere_gpu, world_to_quad_gpu)
     stop_timer(&session.timing.bvh_construction)
     util.trace_scope_end(bvh_trace)
 
@@ -628,10 +640,7 @@ start_render_auto :: proc(
     session.thread_tile_counts          = make([dynamic]int, 0)
     session.thread_rendering_breakdowns = make([dynamic]ThreadRenderingBreakdown, 0)
 
-    // Try to initialise the GPU renderer (platform-aware factory).
-    // world_slice is spheres-only so SSBO sphere indices match BVH leaf object indices.
-    renderer := create_gpu_renderer(r_camera, world_slice, session.linear_bvh, r_camera.samples_per_pixel)
-    delete(sphere_objects)
+    renderer := create_gpu_renderer(r_camera, world_slice, gpu_spheres, gpu_quads, session.linear_bvh, r_camera.samples_per_pixel)
     if renderer != nil {
         session.gpu_renderer = renderer
         session.use_gpu      = true

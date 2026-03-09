@@ -2,6 +2,7 @@ package editor
 
 import rl "vendor:raylib"
 import "RT_Weekend:core"
+import rt "RT_Weekend:raytrace"
 
 // get_render_aspect returns the aspect ratio (width/height) used by the render from app.r_aspect_ratio.
 get_render_aspect :: proc(app: ^App) -> f32 {
@@ -12,7 +13,7 @@ get_render_aspect :: proc(app: ^App) -> f32 {
 }
 
 // draw_preview_port_content renders a rasterized 3D preview from the render camera
-// (app.c_camera_params) and scene (via scene manager export) into the panel content area.
+// (app.c_camera_params) and scene (via scene manager) into the panel content area.
 // The preview uses the same aspect ratio as the ray-traced render (4:3 or 16:9) and letterboxes
 // within the panel so the framing matches the final output.
 draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
@@ -58,29 +59,46 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.BeginMode3D(cam3d)
 	rl.DrawGrid(20, 1.0)
 	ev := &app.e_edit_view
-	objs := app.e_edit_view.export_scratch
-	ExportToSceneSpheres(app.e_edit_view.scene_mgr, &objs)
-	for i in 0..<len(objs){
-		s := objs[i]
-		col: rl.Color
-		if ev.selection_kind == .Sphere && i == ev.selected_idx {
-			col = rl.YELLOW
-		}
-		else {	
-			disp_col := [3]f32{0.5, 0.5, 0.5}
-			#partial switch tex in s.albedo {
-			case core.ConstantTexture: disp_col = tex.color
-			case core.CheckerTexture: disp_col = tex.even
+	sm := ev.scene_mgr
+	if sm != nil {
+		for i in 0..<len(sm.objects) {
+			selected := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i
+			#partial switch o in sm.objects[i] {
+			case core.SceneSphere:
+				s := o
+				col: rl.Color
+				if selected { col = rl.YELLOW }
+				else {
+					disp_col := [3]f32{0.5, 0.5, 0.5}
+					#partial switch tex in s.albedo {
+					case core.ConstantTexture: disp_col = tex.color
+					case core.CheckerTexture: disp_col = tex.even
+					}
+					col = rl.Color{
+						u8(clamp(disp_col[0], 0.0, 1.0) * 255),
+						u8(clamp(disp_col[1], 0.0, 1.0) * 255),
+						u8(clamp(disp_col[2], 0.0, 1.0) * 255),
+						255,
+					}
+				}
+				rl.DrawSphere(s.center, s.radius, col)
+				rl.DrawSphereWires(s.center, s.radius, 4, 4, rl.BLUE)
+			case rt.Quad:
+				q := o
+				col: rl.Color
+				if selected { col = rl.YELLOW }
+				else {
+					dc := rt.material_display_color(q.material)
+					col = rl.Color{
+						u8(clamp(dc[0], 0.0, 1.0) * 255),
+						u8(clamp(dc[1], 0.0, 1.0) * 255),
+						u8(clamp(dc[2], 0.0, 1.0) * 255),
+						255,
+					}
+				}
+				draw_quad_3d(q, col)
 			}
-			col = rl.Color{
-				u8(clamp(disp_col[0], f32(0), f32(1)) * 255),
-				u8(clamp(disp_col[1], f32(0), f32(1)) * 255),
-				u8(clamp(disp_col[2], f32(0), f32(1)) * 255),
-				255,
-			}
 		}
-		rl.DrawSphere(s.center, s.radius, col)
-		rl.DrawSphereWires(s.center, s.radius, 4, 4, rl.BLUE)
 	}
 
 	rl.EndMode3D()

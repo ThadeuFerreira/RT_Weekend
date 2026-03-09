@@ -324,12 +324,17 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
             if !file_save_as_path(app, path) { return false } // save failed, don't load
         }
     }
-    spheres, cam, ground_tex := EXAMPLE_SCENES[scene_idx].build()
+    spheres, quads, cam, ground_tex, include_ground := EXAMPLE_SCENES[scene_idx].build()
     defer delete(spheres)
+    defer delete(quads)
     app_set_ground_texture(app, ground_tex)
+    app.include_ground_plane = include_ground
     app_clear_image_texture_cache(app)
     ev := &app.e_edit_view
     LoadFromSceneSpheres(ev.scene_mgr, spheres)
+    for q in quads {
+        InsertQuadAt(ev.scene_mgr, SceneManagerLen(ev.scene_mgr), q)
+    }
     ev.selection_kind = .None
     ev.selected_idx   = -1
     app.c_camera_params = cam
@@ -344,6 +349,7 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
+    AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
     app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()

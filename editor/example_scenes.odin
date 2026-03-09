@@ -6,17 +6,25 @@ import "RT_Weekend:raytrace"
 import "RT_Weekend:util"
 
 // ExampleScene is a named scene builder used by the Examples menu.
-// build() returns (spheres, camera, ground_texture). When ground_texture is nil, build_world_from_scene uses default grey ground.
+// build() returns (spheres, quads, camera, ground_texture, include_ground).
+// When ground_texture is nil, build_world_from_scene uses default grey ground.
 ExampleScene :: struct {
     label: string,
-    build: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: raytrace.Texture),
+    build: proc() -> (
+        spheres: []core.SceneSphere,
+        quads: []raytrace.Quad,
+        camera: core.CameraParams,
+        ground_texture: raytrace.Texture,
+        include_ground: bool,
+    ),
 }
 
 // EXAMPLE_SCENES is the static registry of built-in example scenes.
 EXAMPLE_SCENES := []ExampleScene{
-    {label = "Weekend Final Scene",       build = build_weekend_final_scene},
-    {label = "Next Week: Bouncing Balls", build = build_next_week_bouncing_scene},
+    {label = "Weekend Final Scene",         build = build_weekend_final_scene},
+    {label = "Next Week: Bouncing Balls",   build = build_next_week_bouncing_scene},
     {label = "Next Week: Checkers Texture", build = build_next_week_texture_checker_scene},
+    {label = "Next Week: Quads",            build = build_next_week_quads_scene},
 }
 
 WEEKEND_CAMERA :: core.CameraParams{
@@ -109,26 +117,44 @@ place_weekend_grid_spheres :: proc(rng: ^util.ThreadRNG, result: ^[dynamic]core.
 // build_weekend_final_scene returns the final scene from "Ray Tracing in One Weekend".
 // Uses a fixed seed (42) for deterministic output. Caller must delete the returned slice.
 // Ground plane is NOT included — build_world_from_scene auto-prepends it.
-build_weekend_final_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: raytrace.Texture) {
+build_weekend_final_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+) {
     rng := util.create_thread_rng(42)
     result := make([dynamic]core.SceneSphere)
     place_weekend_grid_spheres(&rng, &result, WeekendGridParams{})
-    return result[:], WEEKEND_CAMERA, nil
+    return result[:], nil, WEEKEND_CAMERA, nil, true
 }
 
 // build_next_week_bouncing_scene returns the bouncing balls scene from "Ray Tracing: The Next Week" Chapter 2.
 // Lambertian small spheres are moving (motion blur); metallic and dielectric are static.
 // Uses the same fixed seed (42) and grid as build_weekend_final_scene. Caller must delete the returned slice.
-build_next_week_bouncing_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: raytrace.Texture) {
+build_next_week_bouncing_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+) {
     rng := util.create_thread_rng(42)
     result := make([dynamic]core.SceneSphere)
     place_weekend_grid_spheres(&rng, &result, WeekendGridParams{lambertian_moving = true})
-    return result[:], WEEKEND_CAMERA, nil
+    return result[:], nil, WEEKEND_CAMERA, nil, true
 }
 
 // build_next_week_texture_checker_scene returns the same grid with a checker ground texture.
 // Caller must delete the returned slice.
-build_next_week_texture_checker_scene :: proc() -> (spheres: []core.SceneSphere, camera: core.CameraParams, ground_texture: raytrace.Texture) {
+build_next_week_texture_checker_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+) {
     rng := util.create_thread_rng(42)
     result := make([dynamic]core.SceneSphere)
     place_weekend_grid_spheres(&rng, &result, WeekendGridParams{})
@@ -137,5 +163,78 @@ build_next_week_texture_checker_scene :: proc() -> (spheres: []core.SceneSphere,
         even  = {0.2, 0.3, 0.1},
         odd   = {0.9, 0.9, 0.9},
     }
-    return result[:], WEEKEND_CAMERA, gt
+    return result[:], nil, WEEKEND_CAMERA, gt, true
+}
+
+// build_next_week_quads_scene returns the RTNW quad demo scene:
+// five colored quads and a camera framing them.
+build_next_week_quads_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+) {
+    result_quads := make([dynamic]raytrace.Quad)
+
+    left_red := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {1.0, 0.2, 0.2}},
+    })
+    back_green := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.2, 1.0, 0.2}},
+    })
+    right_blue := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.2, 0.2, 1.0}},
+    })
+    upper_orange := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {1.0, 0.5, 0.0}},
+    })
+    lower_teal := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.2, 0.8, 0.8}},
+    })
+
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{-3, -2, 5},
+        [3]f32{0, 0, -4},
+        [3]f32{0, 4, 0},
+        left_red,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{-2, -2, 0},
+        [3]f32{4, 0, 0},
+        [3]f32{0, 4, 0},
+        back_green,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{3, -2, 1},
+        [3]f32{0, 0, 4},
+        [3]f32{0, 4, 0},
+        right_blue,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{-2, 3, 1},
+        [3]f32{4, 0, 0},
+        [3]f32{0, 0, 4},
+        upper_orange,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{-2, -3, 5},
+        [3]f32{4, 0, 0},
+        [3]f32{0, 0, -4},
+        lower_teal,
+    ))
+
+    quad_camera := core.CameraParams{
+        lookfrom      = {0, 0, 9},
+        lookat        = {0, 0, 0},
+        vup           = {0, 1, 0},
+        vfov          = 80,
+        defocus_angle = 0,
+        focus_dist    = 10,
+        max_depth     = 50,
+        shutter_open  = 0,
+        shutter_close = 1,
+    }
+
+    return nil, result_quads[:], quad_camera, nil, false
 }

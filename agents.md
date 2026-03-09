@@ -78,7 +78,7 @@ The project is split across five Odin packages (build with `-collection:RT_Weeke
 | File | Responsibility |
 |------|----------------|
 | `camera.odin` | `Camera`, `RenderSession`, parallel tile rendering, `start_render_auto`, `get_render_progress`, `finish_render` |
-| `hittable.odin` | `Sphere`/`Cube`, AABB, `BVHNode` (recursive), `flatten_bvh`, `bvh_hit_linear` (iterative flat BVH) |
+| `hittable.odin` | `Sphere`/`Quad`, AABB, `BVHNode` (recursive), `flatten_bvh`, `bvh_hit_linear` (iterative flat BVH) |
 | `material.odin` | `lambertian`, `metallic`, `dielectric` unions; `scatter` procedure |
 | `vector3.odin` | Vec3 math, `ray`, `ray_color_linear` (iterative, used by CPU workers) |
 | `interval.odin` | `Interval` struct for ray `t`-range and AABB overlap |

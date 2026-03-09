@@ -10,9 +10,9 @@ when !VERBOSE_OUTPUT {
 }
 
 // convert_world_to_edit_spheres converts rt.Object spheres to core.SceneSphere for the edit view.
-// Skips the ground plane (center.y < -100) and Cube objects.
+// Skips the ground plane (center.y < -100) and Quad objects (quads are not editable as spheres).
 // Caller must delete the returned array.
-convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.SceneSphere {
+convert_world_to_edit_spheres :: proc(world: []Object) -> [dynamic]core.SceneSphere {
 	result := make([dynamic]core.SceneSphere)
 	for obj in world {
 		s, ok := obj.(Sphere)
@@ -44,29 +44,37 @@ convert_world_to_edit_spheres :: proc(world: [dynamic]Object) -> [dynamic]core.S
 }
 
 // build_world_from_scene converts shared scene spheres to raytrace Objects.
-// Prepends a ground plane using the given ground_texture (value). Caller passes default grey (e.g. ConstantTexture{0.5,0.5,0.5}) when no custom ground is desired.
+// When include_ground is true, prepends a ground plane using the given ground_texture (value).
+// Caller passes default grey (e.g. ConstantTexture{0.5,0.5,0.5}) when no custom ground is desired.
 // image_cache: when a sphere's albedo is core.ImageTexture(path), it is looked up here; if present, Lambertian gets ImageTextureRuntime(path, ptr). If nil or path missing, fallback to grey ConstantTexture.
 // Caller owns and must delete the returned dynamic array.
-build_world_from_scene :: proc(scene_objects: []core.SceneSphere, ground_texture: Texture, image_cache: map[string]^Texture_Image = nil) -> [dynamic]Object {
+build_world_from_scene :: proc(
+	scene_objects: []core.SceneSphere,
+	ground_texture: Texture,
+	image_cache: map[string]^Texture_Image = nil,
+	include_ground: bool = true,
+) -> [dynamic]Object {
 	world := make([dynamic]Object)
 
-	ground_rtex: RTexture
-	switch g in ground_texture {
-	case ConstantTexture:
-		ground_rtex = g
-	case CheckerTexture:
-		ground_rtex = g
-	case core.ImageTexture:
-		when VERBOSE_OUTPUT {
-			fmt.printf("[SceneBuild] Ground uses core.ImageTexture path=%q; runtime ground image unsupported here, using gray fallback\n", g.path)
+	if include_ground {
+		ground_rtex: RTexture
+		switch g in ground_texture {
+		case ConstantTexture:
+			ground_rtex = g
+		case CheckerTexture:
+			ground_rtex = g
+		case core.ImageTexture:
+			when VERBOSE_OUTPUT {
+				fmt.printf("[SceneBuild] Ground uses core.ImageTexture path=%q; runtime ground image unsupported here, using gray fallback\n", g.path)
+			}
+			ground_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
 		}
-		ground_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+		append(&world, Object(Sphere{
+			center   = {0, -1000, 0},
+			radius   = 1000,
+			material = lambertian{albedo = ground_rtex},
+		}))
 	}
-	append(&world, Object(Sphere{
-		center   = {0, -1000, 0},
-		radius   = 1000,
-		material = lambertian{albedo = ground_rtex},
-	}))
 
 	for s in scene_objects {
 		mat: material

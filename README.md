@@ -75,7 +75,7 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 ├── util/                   CLI args, system info, Xoshiro256++ RNG
 ├── raytrace/               Core path tracer (CPU + GPU)
 │   ├── camera.odin         Parallel render session, tile dispatch, start_render_auto
-│   ├── hittable.odin       Sphere/Cube, AABB, recursive + flat BVH
+│   ├── hittable.odin       Sphere/Quad, AABB, recursive + flat BVH
 │   ├── material.odin       Lambertian, Metallic, Dielectric scatter
 │   ├── vector3.odin        Vec3 math, ray, ray_color_linear
 │   ├── gpu_types.odin      GPUBackend, GPUSphere, LinearBVHNode, GPUCameraUniforms

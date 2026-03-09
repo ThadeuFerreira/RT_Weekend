@@ -11,7 +11,7 @@
 //     built by flatten_bvh in hittable.odin)
 //
 // Texture mapping: HitRecord stores (u,v) in [0,1]. Spheres use sphere_get_uv
-// (theta/phi, RTNW Ch.4). Cubes are CPU-only; GPU path has spheres only.
+// (theta/phi, RTNW Ch.4). Quads are CPU-only; GPU path has spheres only.
 //
 // Workgroup: 8×8 threads — 64 threads per tile, matching typical
 // GPU warp/wavefront sizes for good occupancy.
@@ -25,6 +25,7 @@
 //   binding=1  SpheresBlock  (SSBO, std430) — sphere array
 //   binding=2  BVHBlock      (SSBO, std430) — LinearBVHNode array
 //   binding=3  OutputBlock   (SSBO, std430) — vec4 accumulation buffer
+//   binding=4  QuadsBlock    (SSBO, std430) — quad array (Q, u, v, w, normal, D, material)
 // ─────────────────────────────────────────────────────────────
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -111,12 +112,50 @@ layout(std430, binding = 1) readonly buffer SpheresBlock {
 };
 
 // =============================================================
+// Binding 4 — Quad array (SSBO, std430)
+// Matches GPUQuad in raytrace/gpu_types.odin. 160 bytes per quad.
+// =============================================================
+struct Quad {
+    vec3  Q;
+    float _pad0;
+    vec3  u;
+    float _pad1;
+    vec3  v;
+    float _pad2;
+    vec3  w;
+    float _pad3;
+    vec3  normal;
+    float _pad4;
+    float D;
+    int   mat_type;
+    float _pad5[2];
+    vec3  albedo;
+    float _pad6;
+    float fuzz_or_ior;
+    int   tex_type;
+    float tex_scale;
+    float _pad7[2];
+    vec3  tex_even;
+    float _pad8;
+    vec3  tex_odd;
+    float _pad9;
+};
+
+layout(std430, binding = 4) readonly buffer QuadsBlock {
+    int   quad_count;
+    int   _quad_pad[3];
+    Quad  quads[];
+};
+
+// =============================================================
 // Binding 2 — Linear BVH nodes (SSBO, std430)
 // Matches LinearBVHNode in raytrace/gpu_types.odin.
 // 32 bytes per node.
-// Leaf:     left_idx = -1,  right_or_obj_idx = -(obj_index + 1)
+// Leaf:     left_idx = -1 (sphere) or -2 (quad),  right_or_obj_idx = -(gpu_array_index + 1)
 // Internal: left_idx = left child, right_or_obj_idx = right child
 // =============================================================
+const int LEAF_SPHERE = -1;
+const int LEAF_QUAD   = -2;
 struct BVHNode {
     vec3 aabb_min;
     int  right_or_obj_idx;
@@ -214,7 +253,7 @@ struct HitRecord {
     vec3  normal;     // outward normal at hit point
     float t;          // ray parameter at hit
     bool  front_face; // true if ray hit the outside of the surface
-    float u, v;       // texture coordinates [0,1] (sphere: theta/phi; cube: CPU-only)
+    float u, v;       // texture coordinates [0,1] (sphere: theta/phi; quad: CPU-only)
     int   mat_type;
     vec3  albedo;
     float fuzz_or_ior;
@@ -281,6 +320,39 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
     return true;
 }
 
+// hit_quad tests a ray against a planar quad (RTNW: Q + alpha*u + beta*v, alpha/beta in [0,1]).
+// Uses plane intersection then interior test with cached w.
+bool hit_quad(Quad q, Ray r, float t_min, float t_max, out HitRecord rec) {
+    float denom = dot(q.normal, r.dir);
+    if (abs(denom) < 1e-8) return false;
+
+    float t = (q.D - dot(q.normal, r.origin)) / denom;
+    if (t < t_min || t > t_max) return false;
+
+    vec3 intersection = ray_at(r, t);
+    vec3 planar_hitpt = intersection - q.Q;
+
+    float alpha = dot(q.w, cross(planar_hitpt, q.v));
+    float beta  = dot(q.w, cross(q.u, planar_hitpt));
+    if (alpha < 0.0 || alpha > 1.0 || beta < 0.0 || beta > 1.0) return false;
+
+    rec.t = t;
+    rec.p = intersection;
+    set_face_normal(rec, r, q.normal);
+    rec.u = alpha;
+    rec.v = beta;
+    rec.mat_type    = q.mat_type;
+    rec.albedo      = q.albedo;
+    rec.fuzz_or_ior = q.fuzz_or_ior;
+    rec.ray_time    = r.time;
+    rec.tex_type    = q.tex_type;
+    rec.tex_scale   = q.tex_scale;
+    rec.tex_even    = q.tex_even;
+    rec.tex_odd     = q.tex_odd;
+    rec.tex_index   = 0;
+    return true;
+}
+
 // =============================================================
 // AABB overlap test
 // =============================================================
@@ -288,14 +360,25 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
 // per ray instead of one per AABB.  Modern GPUs handle 1/0 = ±Inf
 // correctly with IEEE 754, so no special-case for parallel rays.
 
-bool aabb_hit_fast(vec3 aabb_min, vec3 aabb_max, vec3 inv_dir, vec3 origin, float t_min, float t_max) {
-    vec3 t0 = (aabb_min - origin) * inv_dir;
-    vec3 t1 = (aabb_max - origin) * inv_dir;
-    vec3 tlo = min(t0, t1);
-    vec3 thi = max(t0, t1);
-    t_min = max(t_min, max(tlo.x, max(tlo.y, tlo.z)));
-    t_max = min(t_max, min(thi.x, min(thi.y, thi.z)));
-    return t_max > t_min;
+bool aabb_hit_fast(vec3 aabb_min, vec3 aabb_max, vec3 dir, vec3 inv_dir, vec3 origin, float t_min, float t_max) {
+    for (int axis = 0; axis < 3; axis++) {
+        float d  = dir[axis];
+        float mn = aabb_min[axis];
+        float mx = aabb_max[axis];
+        float o  = origin[axis];
+        if (abs(d) < 1e-8) {
+            if (o < mn || o > mx) return false;
+            continue;
+        }
+        float invD = inv_dir[axis];
+        float t0 = (mn - o) * invD;
+        float t1 = (mx - o) * invD;
+        if (t0 > t1) { float tmp = t0; t0 = t1; t1 = tmp; }
+        t_min = max(t_min, t0);
+        t_max = min(t_max, t1);
+        if (t_max <= t_min) return false;
+    }
+    return true;
 }
 
 // =============================================================
@@ -332,15 +415,25 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
         BVHNode node = bvh_nodes[idx];
 
         // AABB test: skip this subtree if the ray misses the bounding box.
-        if (!aabb_hit_fast(node.aabb_min, node.aabb_max, inv_dir, r.origin, t_min, closest)) continue;
+        if (!aabb_hit_fast(node.aabb_min, node.aabb_max, r.dir, inv_dir, r.origin, t_min, closest)) continue;
 
-        if (node.left_idx == -1) {
-            // ── Leaf node ──
-            // Decode sphere index: stored as -(obj_index + 1).
+        if (node.left_idx == LEAF_SPHERE) {
+            // ── Sphere leaf ── right_or_obj_idx = -(sphere_index + 1)
             int obj_idx = -(node.right_or_obj_idx + 1);
             if (obj_idx >= 0 && obj_idx < sphere_count) {
                 HitRecord rec;
                 if (hit_sphere(spheres[obj_idx], r, t_min, closest, rec)) {
+                    closest     = rec.t;
+                    closest_rec = rec;
+                    hit_anything = true;
+                }
+            }
+        } else if (node.left_idx == LEAF_QUAD) {
+            // ── Quad leaf ── right_or_obj_idx = -(quad_index + 1)
+            int obj_idx = -(node.right_or_obj_idx + 1);
+            if (obj_idx >= 0 && obj_idx < quad_count) {
+                HitRecord rec;
+                if (hit_quad(quads[obj_idx], r, t_min, closest, rec)) {
                     closest     = rec.t;
                     closest_rec = rec;
                     hit_anything = true;
