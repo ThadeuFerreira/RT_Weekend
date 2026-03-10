@@ -144,6 +144,8 @@ init_edit_view :: proc(ev: ^EditViewState) {
 
 	update_orbit_camera(ev)
 	ev.initialized = true
+	// app is not available here; nil is safe — trace event fires if capturing, log panel skipped.
+	ui_log_lifecycle(nil, "EditView", "Create")
 }
 
 update_orbit_camera :: proc(ev: ^EditViewState) {

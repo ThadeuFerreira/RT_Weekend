@@ -80,6 +80,7 @@ button_hover :: proc(rect: rl.Rectangle, mouse: rl.Vector2) -> bool {
 }
 
 // draw_button draws the button and returns whether it is hovered. When disabled, uses dimmer bg.
+// Emits a UI.Mouse.Hover trace event and optional stderr line when hovered (debug builds only).
 draw_button :: proc(app: ^App, b: Button, mouse: rl.Vector2) -> (hovered: bool) {
 	hovered = b.enabled && button_hover(b.rect, mouse)
 	bg := b.style.bg
@@ -92,6 +93,7 @@ draw_button :: proc(app: ^App, b: Button, mouse: rl.Vector2) -> (hovered: bool) 
 		}
 	} else if hovered {
 		bg = b.style.bg_hover
+		ui_log_hover(app, b.label, mouse.x, mouse.y)
 	}
 	rl.DrawRectangleRec(b.rect, bg)
 	rl.DrawRectangleLinesEx(b.rect, 1, b.style.border)
@@ -144,6 +146,7 @@ toggle_hover :: proc(rect: rl.Rectangle, mouse: rl.Vector2) -> bool {
 }
 
 // draw_toggle draws the toggle (on/off state) and returns whether it is hovered.
+// Emits a UI.Mouse.Hover trace event and optional stderr line when hovered (debug builds only).
 draw_toggle :: proc(app: ^App, t: Toggle, mouse: rl.Vector2) -> (hovered: bool) {
 	hovered = toggle_hover(t.rect, mouse)
 	bg: rl.Color
@@ -155,6 +158,7 @@ draw_toggle :: proc(app: ^App, t: Toggle, mouse: rl.Vector2) -> (hovered: bool) 
 		bg     = hovered ? t.style.bg_off_hover : t.style.bg_off
 		border = t.style.border_off
 	}
+	if hovered { ui_log_hover(app, t.label, mouse.x, mouse.y) }
 	rl.DrawRectangleRec(t.rect, bg)
 	rl.DrawRectangleLinesEx(t.rect, 1, border)
 	draw_ui_text(app, t.label, i32(t.rect.x) + 4, i32(t.rect.y) + 4, t.style.font_size, t.style.text)
@@ -184,10 +188,12 @@ draw_dropdown_panel :: proc(panel_rect: rl.Rectangle) {
 }
 
 // draw_dropdown_item draws one item (background if hovered, then label). Returns true if this item is hovered.
+// Emits a UI.Mouse.Hover trace event when hovered (debug builds only).
 draw_dropdown_item :: proc(app: ^App, item_rect: rl.Rectangle, label: cstring, mouse: rl.Vector2) -> (hovered: bool) {
 	hovered = rl.CheckCollisionPointRec(mouse, item_rect)
 	if hovered {
 		rl.DrawRectangleRec(item_rect, DROPDOWN_ITEM_HOVER)
+		ui_log_hover(app, label, mouse.x, mouse.y)
 	}
 	draw_ui_text(app, label, i32(item_rect.x) + 8, i32(item_rect.y) + 4, 12, rl.RAYWHITE)
 	return hovered

@@ -61,29 +61,49 @@ EditViewInputPhase :: enum {
 }
 
 get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) -> EditViewInputPhase {
-	if ev.ctx_menu_open { return .ContextMenu }
-	if ev.cam_rot_drag_axis >= 0 { return .CamRotDrag }
-	if ev.cam_drag_active { return .CamBodyDrag }
-	if ev.cam_prop_drag_idx >= 0 { return .CamPropDrag }
-	if ev.prop_drag_idx >= 0 { return .SpherePropDrag }
-	if ev.drag_obj_active { return .ViewportObjectDrag }
-	if ev.bg_drag_idx >= 0 { return .Toolbar }
-	if lmb_pressed {
-		if rl.CheckCollisionPointRec(mouse, rects.btn_bg) { return .Toolbar }
-		if ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_frustum) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_focal) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_aabb) { return .Toolbar }
-		if ev.show_aabbs && rl.CheckCollisionPointRec(mouse, rects.btn_sel) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_bvh) { return .Toolbar }
-		if ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_plus) { return .Toolbar }
-		if ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_minus) { return .Toolbar }
+	switch true {
+	case ev.ctx_menu_open:
+		return .ContextMenu
+	case ev.cam_rot_drag_axis >= 0:
+		return .CamRotDrag
+	case ev.cam_drag_active:
+		return .CamBodyDrag
+	case ev.cam_prop_drag_idx >= 0:
+		return .CamPropDrag
+	case ev.prop_drag_idx >= 0:
+		return .SpherePropDrag
+	case ev.drag_obj_active:
+		return .ViewportObjectDrag
+	case ev.bg_drag_idx >= 0:
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_bg):
+		return .Toolbar
+	case lmb_pressed && ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg):
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_frustum):
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_focal):
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_aabb):
+		return .Toolbar
+	case lmb_pressed && ev.show_aabbs && rl.CheckCollisionPointRec(mouse, rects.btn_sel):
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_bvh):
+		return .Toolbar
+	case lmb_pressed && ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_plus):
+		return .Toolbar
+	case lmb_pressed && ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_minus):
+		return .Toolbar
+	case lmb_pressed:
 		dd_rect, _, _ := edit_view_add_dropdown_rects(rects.btn_add)
-		if ev.add_dropdown_open && rl.CheckCollisionPointRec(mouse, dd_rect) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_add) { return .Toolbar }
-		if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.btn_del) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_fromview) { return .Toolbar }
-		if app.finished && rl.CheckCollisionPointRec(mouse, rects.btn_render) { return .Toolbar }
+		switch true {
+		case ev.add_dropdown_open && rl.CheckCollisionPointRec(mouse, dd_rect),
+		     rl.CheckCollisionPointRec(mouse, rects.btn_add),
+		     (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.btn_del),
+		     rl.CheckCollisionPointRec(mouse, rects.btn_fromview),
+		     app.finished && rl.CheckCollisionPointRec(mouse, rects.btn_render):
+			return .Toolbar
+		}
 	}
 	if ev.selection_kind == .Camera && rl.CheckCollisionPointRec(mouse, rects.props_rect) && lmb_pressed {
 		fields := cam_orbit_prop_rects(rects.props_rect)
@@ -101,6 +121,7 @@ get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 }
 
 handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2) {
+	_ts := ui_trace_handler_begin("handle_context_menu_input"); defer ui_trace_handler_end(_ts)
 	app.input_consumed = true
 	if rl.IsMouseButtonPressed(.LEFT) {
 		items := ctx_menu_build_items(app, ev)
@@ -166,7 +187,9 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 }
 
 handle_cam_rot_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb: bool) {
+	_ts := ui_trace_handler_begin("handle_cam_rot_drag"); defer ui_trace_handler_end(_ts)
 	if !lmb {
+		ui_log_drag_end(app, "CamRotation")
 		edit_history_push(&app.edit_history, ModifyCameraAction{
 			before = ev.cam_drag_before_params,
 			after  = app.c_camera_params,
@@ -197,7 +220,9 @@ handle_cam_rot_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lm
 }
 
 handle_cam_body_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb: bool, rects: ^EditViewRects) {
+	_ts := ui_trace_handler_begin("handle_cam_body_drag"); defer ui_trace_handler_end(_ts)
 	if !lmb {
+		ui_log_drag_end(app, "CamBody")
 		edit_history_push(&app.edit_history, ModifyCameraAction{
 			before = ev.cam_drag_before_params,
 			after  = app.c_camera_params,
@@ -220,8 +245,10 @@ handle_cam_body_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, l
 }
 
 handle_cam_prop_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb: bool) {
+	_ts := ui_trace_handler_begin("handle_cam_prop_drag"); defer ui_trace_handler_end(_ts)
 	DEG2RAD :: f32(math.PI / 180.0)
 	if !lmb {
+		ui_log_drag_end(app, "CamProp")
 		edit_history_push(&app.edit_history, ModifyCameraAction{
 			before = ev.cam_drag_before_params,
 			after  = app.c_camera_params,
@@ -273,7 +300,9 @@ handle_cam_prop_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, l
 }
 
 handle_sphere_prop_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb: bool) {
+	_ts := ui_trace_handler_begin("handle_sphere_prop_drag"); defer ui_trace_handler_end(_ts)
 	if !lmb {
+		ui_log_drag_end(app, "SphereProp")
 		ev.prop_drag_idx = -1
 		rl.SetMouseCursor(.DEFAULT)
 	} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
@@ -294,10 +323,12 @@ handle_sphere_prop_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2
 }
 
 handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb: bool, rects: ^EditViewRects) {
+	_ts := ui_trace_handler_begin("handle_viewport_object_drag"); defer ui_trace_handler_end(_ts)
 	if !lmb {
 		ev.drag_obj_active = false
 		if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 			if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+				ui_log_drag_end(app, "Sphere")
 				edit_history_push(&app.edit_history, ModifySphereAction{
 					idx = ev.selected_idx, before = ev.drag_before, after = sphere,
 				})
@@ -307,6 +338,7 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 			}
 		} else if ev.selection_kind == .Quad && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 			if quad, ok := GetSceneQuad(ev.scene_mgr, ev.selected_idx); ok {
+				ui_log_drag_end(app, "Quad")
 				edit_history_push(&app.edit_history, ModifyQuadAction{
 					idx = ev.selected_idx, before = ev.drag_before_quad, after = quad,
 				})
@@ -339,6 +371,7 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 }
 
 handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, rects: ^EditViewRects) {
+	_ts := ui_trace_handler_begin("handle_toolbar_input"); defer ui_trace_handler_end(_ts)
 	lmb := rl.IsMouseButtonDown(.LEFT)
 	lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
 
@@ -394,14 +427,19 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 	switch {
 	case rl.CheckCollisionPointRec(mouse, rects.btn_frustum):
 		ev.show_frustum_gizmo = !ev.show_frustum_gizmo
+		ui_log_click(app, "Frustum")
 	case rl.CheckCollisionPointRec(mouse, rects.btn_focal):
 		ev.show_focal_indicator = !ev.show_focal_indicator
+		ui_log_click(app, "Focal")
 	case rl.CheckCollisionPointRec(mouse, rects.btn_aabb):
 		ev.show_aabbs = !ev.show_aabbs
+		ui_log_click(app, "AABB")
 	case ev.show_aabbs && rl.CheckCollisionPointRec(mouse, rects.btn_sel):
 		ev.aabb_selected_only = !ev.aabb_selected_only
+		ui_log_click(app, "AABB Sel")
 	case rl.CheckCollisionPointRec(mouse, rects.btn_bvh):
 		ev.show_bvh_hierarchy = !ev.show_bvh_hierarchy
+		ui_log_click(app, "BVH")
 		if !ev.show_bvh_hierarchy && ev.viz_bvh_root != nil {
 			rt.free_bvh(ev.viz_bvh_root)
 			ev.viz_bvh_root = nil
@@ -468,6 +506,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 			ev.selected_idx   = -1
 			app.r_render_pending = true
 		} else if rl.CheckCollisionPointRec(mouse, rects.btn_fromview) {
+			ui_log_click(app, "FromView")
 			before := app.c_camera_params
 			lookfrom, lookat := get_orbit_camera_pose(ev)
 			app.c_camera_params.lookfrom = lookfrom
@@ -476,6 +515,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 			mark_scene_dirty(app)
 			app.r_render_pending = true
 		} else if app.finished && rl.CheckCollisionPointRec(mouse, rects.btn_render) {
+			ui_log_click(app, "Render")
 			ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 			delete(app.r_world)
 			app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
@@ -510,6 +550,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 }
 
 handle_prop_field_camera_start :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) {
+	_ts := ui_trace_handler_begin("handle_prop_field_camera_start"); defer ui_trace_handler_end(_ts)
 	fields := cam_orbit_prop_rects(rects.props_rect)
 	any_hovered := false
 	for i in 0..<7 {
@@ -525,6 +566,7 @@ handle_prop_field_camera_start :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 				if i == 6 {
 					ev.cam_prop_drag_start_val = roll_from_vup(cp.lookfrom, cp.lookat, cp.vup)
 				}
+				ui_log_drag_start(app, "CamProp")
 				rl.SetMouseCursor(.RESIZE_EW)
 				return
 			}
@@ -534,6 +576,7 @@ handle_prop_field_camera_start :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 }
 
 handle_prop_field_sphere_start :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) {
+	_ts := ui_trace_handler_begin("handle_prop_field_sphere_start"); defer ui_trace_handler_end(_ts)
 	fields := prop_field_rects(rects.props_rect)
 	if tmp, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 		vals := [4]f32{tmp.center[0], tmp.center[1], tmp.center[2], tmp.radius}
@@ -545,6 +588,7 @@ handle_prop_field_sphere_start :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 					ev.prop_drag_idx       = i
 					ev.prop_drag_start_x   = mouse.x
 					ev.prop_drag_start_val = vals[i]
+					ui_log_drag_start(app, "SphereProp")
 					rl.SetMouseCursor(.RESIZE_EW)
 					app.r_render_pending = true
 					return
@@ -558,6 +602,7 @@ handle_prop_field_sphere_start :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 }
 
 handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) {
+	_ts := ui_trace_handler_begin("handle_viewport_orbit_and_pick"); defer ui_trace_handler_end(_ts)
 	mouse_in_vp := rl.CheckCollisionPointRec(mouse, rects.vp_rect)
 	rmb_pressed := rl.IsMouseButtonPressed(.RIGHT)
 	rmb_down    := rl.IsMouseButtonDown(.RIGHT)
@@ -619,6 +664,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 					cp := &app.c_camera_params
 					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
 					ev.cam_drag_start_lookat   = {cp.lookat[0], cp.lookat[1], cp.lookat[2]}
+					ui_log_drag_start(app, "CamRotation")
 					rl.SetMouseCursor(.RESIZE_ALL)
 				case pick_camera(ray, cam_lookfrom):
 					cp := &app.c_camera_params
@@ -630,6 +676,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 					if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
 						ev.cam_drag_start_hit_xz = {xz.x, xz.y}
 					}
+					ui_log_drag_start(app, "CamBody")
 				case:
 					pick_kind, pick_idx, _ := PickClosestObject(ev.scene_mgr, ray)
 					switch {
@@ -644,6 +691,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 								ev.drag_offset_xz = {xz.x - sphere.center[0], xz.y - sphere.center[2]}
 							}
 						}
+						ui_log_drag_start(app, "Sphere")
 					case pick_idx >= 0 && pick_kind == .Quad:
 						ev.selection_kind  = .Quad
 						ev.selected_idx    = pick_idx
@@ -655,6 +703,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 								ev.drag_offset_xz = {xz.x - quad.Q[0], xz.y - quad.Q[2]}
 							} else { ev.drag_offset_xz = {0, 0} }
 						}
+						ui_log_drag_start(app, "Quad")
 					case:
 						ev.selection_kind = .None
 						ev.selected_idx   = -1
@@ -674,6 +723,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 							ev.drag_offset_xz = {xz.x - sphere.center[0], xz.y - sphere.center[2]}
 						}
 					}
+					ui_log_drag_start(app, "Sphere")
 				case pick_idx >= 0 && pick_kind == .Quad:
 					ev.selection_kind  = .Quad
 					ev.selected_idx    = pick_idx
@@ -685,6 +735,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 							ev.drag_offset_xz = {xz.x - quad.Q[0], xz.y - quad.Q[2]}
 						} else { ev.drag_offset_xz = {0, 0} }
 					}
+					ui_log_drag_start(app, "Quad")
 				case pick_camera(ray, cam_lookfrom):
 					cp := &app.c_camera_params
 					ev.cam_drag_before_params  = app.c_camera_params
@@ -697,6 +748,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 					if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
 						ev.cam_drag_start_hit_xz = {xz.x, xz.y}
 					}
+					ui_log_drag_start(app, "CamBody")
 				case:
 					ev.selection_kind = .None
 					ev.selected_idx   = -1

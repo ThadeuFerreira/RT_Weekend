@@ -59,6 +59,27 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 
 **Selection kind:** `EditViewSelectionKind` lives in **core_scene.odin** (used by picking and panels).
 
+## UI event logging and tracing (`ui_event_log.odin`)
+
+Centralized debug-only logging for UI mouse events, drag transitions, handler scopes, and lifecycle events.
+
+**Build-time flag:** `UI_EVENT_LOG_ENABLED :: #config(UI_EVENT_LOG_ENABLED, ODIN_DEBUG)` — compiled out entirely in release builds (`#force_inline` + `when`).
+
+**Runtime toggle:** `app.ui_event_log_enabled` (default `false`) — enables Log-panel and stderr output without rebuilding. Chrome trace output is controlled independently by `TRACE_CAPTURE_ENABLED` + the benchmark capture toggle (Render menu).
+
+**Three output channels:**
+| Channel | Content | When active |
+|---------|---------|-------------|
+| Chrome trace instant (`ui.mouse`) | Hover, Click, DragStart, DragEnd | While benchmark capture is running |
+| Chrome trace duration (`ui.handler`) | Handler function scopes | While benchmark capture is running |
+| Chrome trace instant (`ui.lifecycle`) | Create/Destroy | While benchmark capture is running |
+| Log panel (`[ui] …`) | Click, DragStart/End, Lifecycle | `app.ui_event_log_enabled = true` |
+| stderr | Hover per-frame (component + position) | `app.ui_event_log_enabled = true` |
+
+**Grep prefixes:** `UI.Mouse.*`, `UI.Drag.*`, `UI.Lifecycle.*`; Chrome cat filters: `ui.mouse`, `ui.handler`, `ui.lifecycle`.
+
+**Call sites:** `draw_button`, `draw_toggle`, `draw_dropdown_item` emit hover traces. All `handle_*` procs in `edit_view_input.odin` are wrapped with `ui_trace_handler_begin/end`. Drag start/end are logged at transition points in `edit_view_input.odin`, `edit_view_nudge.odin`.
+
 ## Naming / scope
 
 Use idiomatic Odin names for editor types/functions. Use scoped variable/field prefixes: `e_` for editor state (e.g. `e_edit_view`, `e_menu_bar`, `e_object_props`, `e_camera_panel`), `r_` for render state (`app.r_camera`, `app.r_session`, `app.r_world`), and `c_` for core params (`app.c_camera_params`).

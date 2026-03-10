@@ -218,6 +218,25 @@ trace_scope_end :: proc(scope: TraceScope) {
 	}
 }
 
+// trace_instant records an instant ("i") event at the current timestamp.
+// Use for one-shot occurrences with no duration: mouse clicks, state transitions, etc.
+// No-op when TRACE_CAPTURE_ENABLED=false or when no capture is currently active.
+trace_instant :: proc(name, cat: string, tid: int = 0) {
+	when TRACE_CAPTURE_ENABLED {
+		sync.mutex_lock(&_trace_state.mu)
+		defer sync.mutex_unlock(&_trace_state.mu)
+		if !_trace_state.capturing { return }
+		append_event(TraceEvent{
+			name = strings.clone(name),
+			cat  = strings.clone(cat),
+			ph   = "i",
+			ts   = capture_timestamp_us(),
+			pid  = _trace_state.pid,
+			tid  = tid,
+		})
+	}
+}
+
 sort_events_by_ts :: proc(events: ^[dynamic]TraceEvent) {
 	if len(events^) <= 1 { return }
 	slice.sort_by(events[:], proc(a, b: TraceEvent) -> bool { return a.ts < b.ts })
@@ -257,6 +276,7 @@ trace_stop_capture :: proc() -> ([]u8, bool) {
 		if err != nil {
 			return nil, false
 		}
+		clear_events()
 		return data, true
 	} else {
 		return nil, false

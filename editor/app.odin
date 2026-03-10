@@ -273,6 +273,12 @@ App :: struct {
     // Keyboard state: updated once per frame by keyboard_update; use instead of rl.IsKeyDown in features (nudge, etc.)
     keyboard: KeyboardState,
 
+    // UI event logging: when true (and UI_EVENT_LOG_ENABLED is set at build time), click/drag/hover
+    // events are written to the Log panel and stderr. Chrome trace output is controlled separately
+    // by TRACE_CAPTURE_ENABLED + the benchmark capture toggle in the Render menu.
+    // Default: false — enable via View menu or set directly in code for a debug session.
+    ui_event_log_enabled: bool,
+
     // Input consumption: reset each frame, set by menu bar/modal first, prevents click bleed
     input_consumed: bool,
 
@@ -670,6 +676,12 @@ run_app :: proc(
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     util.trace_register_thread(0, "MainThread")
+    // In debug builds, auto-start trace capture so UI events are recorded from the first frame
+    // without requiring manual Render → Start Benchmark. Auto-saved on exit below.
+    when UI_EVENT_LOG_ENABLED {
+        app.ui_event_log_enabled = true
+        cmd_action_benchmark_start(&app)
+    }
     app.r_session      = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
     app.render_start = time.now()
 
@@ -824,6 +836,13 @@ run_app :: proc(
             delete(config.editor.panels)
             free(config.editor)
         }
+    }
+
+    // Auto-save any in-progress trace capture in debug builds (started automatically at launch).
+    // If the user already stopped capture manually via the menu, this is a no-op (stop_capture
+    // returns false when not capturing).
+    when UI_EVENT_LOG_ENABLED {
+        cmd_action_benchmark_stop(&app)
     }
 
     g_app = nil
