@@ -37,6 +37,13 @@ Texture :: union {
 	MarbleTexture,
 }
 
+// TextureKind selects the Lambertian texture type for persistence and scene build.
+TextureKind :: enum {
+	Constant,
+	Checker,
+	Image,
+}
+
 // MaterialKind is the shared material type used by the edit view (Raylib) and the path tracer.
 // Both sides use this enum so no package needs to depend on the other's material representation.
 MaterialKind :: enum {
@@ -47,15 +54,21 @@ MaterialKind :: enum {
 
 // SceneSphere is the canonical in-memory representation of a sphere for the editor and the renderer.
 // The edit view stores these; raytrace.build_world_from_scene converts them to raytrace.Object.
+// For Lambertian: texture_kind and optional checker_* / image_path define the texture (albedo = even/constant color).
 SceneSphere :: struct {
-	center:        [3]f32,
-	center1:       [3]f32, // end position for motion blur (t=1); only used when is_moving
-	radius:        f32,
-	material_kind: MaterialKind,
-	albedo:        Texture,
-	fuzz:          f32, // used for Metallic (default 0.1)
-	ref_idx:       f32, // used for Dielectric (default 1.5)
-	is_moving:     bool,
+	center:            [3]f32,
+	center1:           [3]f32, // end position for motion blur (t=1); only used when is_moving
+	radius:            f32,
+	material_kind:     MaterialKind,
+	albedo:            Texture,
+	// Lambertian texture (used when material_kind == .Lambertian)
+	texture_kind:      TextureKind,  // default .Constant
+	checker_scale:     f32,          // for .Checker (default 1)
+	checker_color_odd: [3]f32,       // for .Checker; even = albedo
+	image_path:        string,       // for .Image; path (absolute or relative to scene file)
+	fuzz:              f32,          // used for Metallic (default 0.1)
+	ref_idx:           f32,          // used for Dielectric (default 1.5)
+	is_moving:         bool,
 }
 
 // CameraParams is the shared camera definition used by the edit view (and camera panel) and the path tracer.

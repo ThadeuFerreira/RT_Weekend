@@ -824,6 +824,8 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				if _, ok3 := sphere.albedo.(core.ConstantTexture); !ok3 {
 					before := sphere
 					sphere.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
+					sphere.texture_kind = .Constant
+					sphere.image_path = ""
 					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 					mark_scene_dirty(app)
@@ -836,6 +838,8 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				if _, ok3 := sphere.albedo.(core.NoiseTexture); !ok3 {
 					before := sphere
 					sphere.albedo = core.NoiseTexture{scale = 4.0}
+					sphere.texture_kind = .Constant
+					sphere.image_path = ""
 					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 					mark_scene_dirty(app)
@@ -848,6 +852,8 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				if _, ok3 := sphere.albedo.(core.MarbleTexture); !ok3 {
 					before := sphere
 					sphere.albedo = core.MarbleTexture{scale = 4.0}
+					sphere.texture_kind = .Constant
+					sphere.image_path = ""
 					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 					mark_scene_dirty(app)
@@ -866,6 +872,8 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			if ok2 {
 				before := sphere
 				sphere.albedo = core.ImageTexture{path = img_path}
+				sphere.texture_kind = .Image
+				sphere.image_path = img_path
 				app_ensure_image_cached(app, img_path)
 				SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 				edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
@@ -880,6 +888,8 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		if sphere.material_kind == .Lambertian && lo.has_image && rl.CheckCollisionPointRec(mouse, lo.btn_clear) {
 			before := sphere
 			sphere.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
+			sphere.texture_kind = .Constant
+			sphere.image_path = ""
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			mark_scene_dirty(app)

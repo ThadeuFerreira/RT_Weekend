@@ -1,6 +1,7 @@
 package raytrace
 
 import "core:fmt"
+import "core:strings"
 import "RT_Weekend:core"
 when !VERBOSE_OUTPUT {
 	@(private)
@@ -11,6 +12,7 @@ when !VERBOSE_OUTPUT {
 
 // sphere_to_scene_sphere converts a single Sphere to core.SceneSphere (material, albedo, etc.).
 // Used by LoadFromWorld to preserve world order when rebuilding the editor object list.
+// Sets texture_kind, checker_scale, checker_color_odd, image_path for Lambertian persistence.
 sphere_to_scene_sphere :: proc(s: Sphere) -> core.SceneSphere {
 	ss := core.SceneSphere{center = s.center, center1 = s.center1, radius = s.radius, is_moving = s.is_moving}
 	switch m in s.material {
@@ -18,14 +20,22 @@ sphere_to_scene_sphere :: proc(s: Sphere) -> core.SceneSphere {
 		ss.material_kind = .Lambertian
 		switch a in m.albedo {
 		case ConstantTexture:
+			ss.texture_kind = .Constant
 			ss.albedo = core.Texture(a)
 		case CheckerTexture:
+			ss.texture_kind = .Checker
+			ss.checker_scale = a.scale
+			ss.checker_color_odd = a.odd
 			ss.albedo = core.Texture(a)
 		case ImageTextureRuntime:
+			ss.texture_kind = .Image
+			ss.image_path = a.path
 			ss.albedo = core.ImageTexture{path = a.path}
 		case NoiseTexture:
+			ss.texture_kind = .Constant
 			ss.albedo = core.Texture(core.NoiseTexture(a))
 		case MarbleTexture:
+			ss.texture_kind = .Constant
 			ss.albedo = core.Texture(core.MarbleTexture(a))
 		}
 	case metallic:
@@ -60,12 +70,12 @@ convert_world_to_edit_spheres :: proc(world: []Object) -> [dynamic]core.SceneSph
 // build_world_from_scene converts shared scene spheres to raytrace Objects.
 // When include_ground is true, prepends a ground plane using the given ground_texture (value).
 // Caller passes default grey (e.g. ConstantTexture{0.5,0.5,0.5}) when no custom ground is desired.
-// image_cache: when a sphere's albedo is core.ImageTexture(path), it is looked up here; if present, Lambertian gets ImageTextureRuntime(path, ptr). If nil or path missing, fallback to grey ConstantTexture.
+// image_cache: when non-nil, Lambertian .Image textures are looked up here; on miss we try to load and insert. If nil or load fails, use magenta fallback.
 // Caller owns and must delete the returned dynamic array.
 build_world_from_scene :: proc(
 	scene_objects: []core.SceneSphere,
 	ground_texture: Texture,
-	image_cache: map[string]^Texture_Image = nil,
+	image_cache: ^map[string]^Texture_Image = nil,
 	include_ground: bool = true,
 ) -> [dynamic]Object {
 	world := make([dynamic]Object)
@@ -94,42 +104,112 @@ build_world_from_scene :: proc(
 		}))
 	}
 
+	MAGENTA_FALLBACK :: [3]f32{1, 0, 1}
+
 	for s in scene_objects {
 		mat: material
 		switch s.material_kind {
 		case .Lambertian:
 			albedo_rtex: RTexture
-			switch a in s.albedo {
-			case ConstantTexture:
-				albedo_rtex = a
-			case CheckerTexture:
-				albedo_rtex = a
-			case core.NoiseTexture:
-				albedo_rtex = NoiseTexture(a)
-			case core.MarbleTexture:
-				albedo_rtex = MarbleTexture(a)
-			case core.ImageTexture:
-				if image_cache != nil {
-					if img := image_cache[a.path]; img != nil {
+			// Prefer texture_kind for scene-driven conversion; fall back to albedo union for legacy/Noise/Marble.
+			switch s.texture_kind {
+			case .Constant:
+				switch a in s.albedo {
+				case ConstantTexture:
+					albedo_rtex = a
+				case CheckerTexture:
+					albedo_rtex = ConstantTexture{color = a.even}
+				case core.NoiseTexture:
+					albedo_rtex = NoiseTexture(a)
+				case core.MarbleTexture:
+					albedo_rtex = MarbleTexture(a)
+				case core.ImageTexture:
+					albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+				case:
+					albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+				}
+			case .Checker:
+				even := [3]f32{0.5, 0.5, 0.5}
+				switch a in s.albedo {
+				case ConstantTexture:     even = a.color
+				case CheckerTexture:      even = a.even
+				case core.NoiseTexture:   {}
+				case core.MarbleTexture:  {}
+				case core.ImageTexture:   {}
+				case:                     {}
+				}
+				scale := s.checker_scale
+				if scale <= 0 { scale = 1.0 }
+				albedo_rtex = CheckerTexture{scale = scale, even = even, odd = s.checker_color_odd}
+			case .Image:
+				path := s.image_path
+				if len(path) == 0 {
+					if a, ok := s.albedo.(core.ImageTexture); ok { path = a.path }
+				}
+				if image_cache != nil && len(path) > 0 {
+					if img := image_cache[path]; img != nil {
 						when VERBOSE_OUTPUT {
 							fmt.printf("[SceneBuild] Image texture cache hit path=%q (%dx%d)\n",
-								a.path, texture_image_width(img), texture_image_height(img))
+								path, texture_image_width(img), texture_image_height(img))
 						}
-						albedo_rtex = ImageTextureRuntime{path = a.path, image = img}
+						albedo_rtex = ImageTextureRuntime{path = path, image = img}
 					} else {
-						when VERBOSE_OUTPUT {
-							fmt.printf("[SceneBuild] Image texture cache miss path=%q; using gray fallback\n", a.path)
+						img := new(Texture_Image)
+						img^ = texture_image_init()
+						if texture_image_load(img, path) {
+							image_cache[strings.clone(path)] = img
+							albedo_rtex = ImageTextureRuntime{path = path, image = img}
+						} else {
+							when VERBOSE_OUTPUT {
+								fmt.printf("[SceneBuild] Image texture load failed path=%q; using magenta fallback\n", path)
+							}
+							texture_image_destroy(img)
+							free(img)
+							albedo_rtex = ConstantTexture{color = MAGENTA_FALLBACK}
 						}
-						albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
 					}
 				} else {
 					when VERBOSE_OUTPUT {
-						fmt.printf("[SceneBuild] Image texture has nil cache path=%q; using gray fallback\n", a.path)
+						if image_cache == nil {
+							fmt.printf("[SceneBuild] Image texture nil cache path=%q; using magenta fallback\n", path)
+						}
 					}
-					albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+					albedo_rtex = ConstantTexture{color = MAGENTA_FALLBACK}
 				}
 			case:
-				albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+				// Legacy: derive from albedo union
+				switch a in s.albedo {
+				case ConstantTexture:
+					albedo_rtex = a
+				case CheckerTexture:
+					albedo_rtex = a
+				case core.NoiseTexture:
+					albedo_rtex = NoiseTexture(a)
+				case core.MarbleTexture:
+					albedo_rtex = MarbleTexture(a)
+				case core.ImageTexture:
+					path := a.path
+					if image_cache != nil && len(path) > 0 {
+						if img := image_cache[path]; img != nil {
+							albedo_rtex = ImageTextureRuntime{path = path, image = img}
+						} else {
+							img := new(Texture_Image)
+							img^ = texture_image_init()
+							if texture_image_load(img, path) {
+								image_cache[strings.clone(path)] = img
+								albedo_rtex = ImageTextureRuntime{path = path, image = img}
+							} else {
+								texture_image_destroy(img)
+								free(img)
+								albedo_rtex = ConstantTexture{color = MAGENTA_FALLBACK}
+							}
+						}
+					} else {
+						albedo_rtex = ConstantTexture{color = MAGENTA_FALLBACK}
+					}
+				case:
+					albedo_rtex = ConstantTexture{color = {0.5, 0.5, 0.5}}
+				}
 			}
 			mat = material(lambertian{albedo = albedo_rtex})
 		case .Metallic:

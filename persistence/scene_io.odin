@@ -22,15 +22,16 @@ SceneCamera :: struct {
 }
 
 SceneMaterial :: struct {
-	material_type: string  `json:"type"`,
-	albedo:        [3]f32  `json:"albedo,omitempty"`,
-	image_path:    string  `json:"image_path,omitempty"`,
-	// texture_kind selects the Lambertian procedural texture: "constant" (default), "noise", "marble".
-	// When empty, behaviour falls back: if image_path non-empty → image, else → constant colour.
-	texture_kind:  string  `json:"texture_kind,omitempty"`,
-	noise_scale:   f32    `json:"noise_scale,omitempty"`,
-	fuzz:          f32    `json:"fuzz,omitempty"`,
-	ref_idx:       f32    `json:"ref_idx,omitempty"`,
+	material_type:     string  `json:"type"`,
+	albedo:            [3]f32  `json:"albedo,omitempty"`,
+	image_path:        string  `json:"image_path,omitempty"`,
+	// texture_kind: "constant" (default), "checker", "image", "noise", "marble". Missing → constant (backward compat).
+	texture_kind:      string  `json:"texture_kind,omitempty"`,
+	checker_scale:     f32     `json:"checker_scale,omitempty"`,
+	checker_color_odd: [3]f32  `json:"checker_color_odd,omitempty"`,
+	noise_scale:       f32     `json:"noise_scale,omitempty"`,
+	fuzz:              f32     `json:"fuzz,omitempty"`,
+	ref_idx:           f32     `json:"ref_idx,omitempty"`,
 }
 
 SceneObject :: struct {
@@ -186,8 +187,11 @@ load_scene :: proc(
 scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_cache: ^map[string]^rt.Texture_Image = nil) -> rt.material {
 	switch s.material_type {
 	case "lambertian":
-		// texture_kind overrides when present; otherwise fall back to legacy image_path logic.
+		// texture_kind: missing or "constant" → constant (backward compat); "checker", "image", "noise", "marble".
 		switch s.texture_kind {
+		case "checker":
+			scale := s.checker_scale != 0 ? s.checker_scale : 1.0
+			return rt.material(rt.lambertian{albedo = rt.CheckerTexture{scale = scale, even = s.albedo, odd = s.checker_color_odd}})
 		case "noise":
 			scale := s.noise_scale != 0 ? s.noise_scale : 4.0
 			return rt.material(rt.lambertian{albedo = rt.NoiseTexture{scale = scale}})
@@ -195,7 +199,7 @@ scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_c
 			scale := s.noise_scale != 0 ? s.noise_scale : 4.0
 			return rt.material(rt.lambertian{albedo = rt.MarbleTexture{scale = scale}})
 		}
-		// Legacy / image path
+		// "image" or legacy: image_path non-empty → image if cache has it
 		if len(s.image_path) > 0 && image_cache != nil {
 			resolved := _scene_resolve_image_path(scene_dir, s.image_path)
 			defer delete(resolved)
@@ -204,6 +208,7 @@ scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_c
 				return rt.material(rt.lambertian{albedo = rt.ImageTextureRuntime{path = strings.clone(resolved), image = img}})
 			}
 		}
+		// constant (default) or image miss: solid colour
 		return rt.material(rt.lambertian{albedo = rt.ConstantTexture{color = s.albedo}})
 	case "metal":
 		return rt.material(rt.metallic{albedo = s.albedo, fuzz = s.fuzz})
@@ -236,6 +241,9 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 	}
 	defer delete(scene.objects)
 
+	scene_dir := filepath.dir(path)
+	defer delete(scene_dir)
+
 	for obj in r_world {
 		switch o in obj {
 		case rt.Sphere:
@@ -244,7 +252,7 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 				center      = o.center,
 				center1     = o.center1,
 				radius      = o.radius,
-				material    = material_to_scene_material(o.material),
+				material    = material_to_scene_material(o.material, scene_dir),
 				is_moving   = o.is_moving,
 			})
 		case rt.Quad:
@@ -253,7 +261,7 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 				q           = o.Q,
 				u           = o.u,
 				v           = o.v,
-				material    = material_to_scene_material(o.material),
+				material    = material_to_scene_material(o.material, scene_dir),
 			})
 		}
 	}
@@ -265,6 +273,12 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 	}
 	defer delete(data)
 
+	for &obj in scene.objects {
+		if len(obj.material.image_path) > 0 {
+			delete(obj.material.image_path)
+		}
+	}
+
 	f, open_err := os.open(path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
 	if open_err != os.ERROR_NONE {
 		fmt.fprintf(os.stderr, "Scene write error: %s\n", path)
@@ -275,7 +289,9 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 	return true
 }
 
-material_to_scene_material :: proc(m: rt.material) -> SceneMaterial {
+// material_to_scene_material converts rt.material to JSON-friendly SceneMaterial.
+// scene_dir is the directory of the scene file; image paths are stored relative to it (absolute paths → basename).
+material_to_scene_material :: proc(m: rt.material, scene_dir: string) -> SceneMaterial {
 	switch mat in m {
 	case rt.lambertian:
 		switch tex in mat.albedo {
@@ -283,24 +299,42 @@ material_to_scene_material :: proc(m: rt.material) -> SceneMaterial {
 			return SceneMaterial{material_type = "lambertian", texture_kind = "noise", noise_scale = tex.scale}
 		case rt.MarbleTexture:
 			return SceneMaterial{material_type = "lambertian", texture_kind = "marble", noise_scale = tex.scale}
+		case rt.CheckerTexture:
+			return SceneMaterial{
+				material_type     = "lambertian",
+				texture_kind      = "checker",
+				albedo            = tex.even,
+				checker_scale     = tex.scale,
+				checker_color_odd = tex.odd,
+			}
 		case rt.ImageTextureRuntime:
 			if len(tex.path) > 0 {
+				// Store path relative to scene file; absolute or unrelated → basename.
+				rel_path := tex.path
+				if len(scene_dir) > 0 {
+					if rel, rel_err := filepath.rel(scene_dir, tex.path); rel_err == nil {
+						rel_path = rel
+					} else {
+						rel_path = filepath.base(tex.path)
+					}
+				}
 				return SceneMaterial{
 					material_type = "lambertian",
+					texture_kind  = "image",
 					albedo        = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0}),
-					image_path    = tex.path,
+					image_path    = rel_path,
 				}
 			}
-		case rt.ConstantTexture: // handled by fallthrough below
-		case rt.CheckerTexture:  // handled by fallthrough below
+		case rt.ConstantTexture:
+			return SceneMaterial{material_type = "lambertian", texture_kind = "constant", albedo = tex.color}
 		}
-		// ConstantTexture / CheckerTexture / fallback: sample at origin for a representative colour.
-		return SceneMaterial{material_type = "lambertian", albedo = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0})}
+		// fallback
+		return SceneMaterial{material_type = "lambertian", texture_kind = "constant", albedo = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0})}
 	case rt.metallic:
 		return SceneMaterial{material_type = "metal", albedo = mat.albedo, fuzz = mat.fuzz}
 	case rt.dielectric:
 		return SceneMaterial{material_type = "dielectric", ref_idx = mat.ref_idx}
 	case:
-		return SceneMaterial{material_type = "lambertian", albedo = [3]f32{0.5, 0.5, 0.5}}
+		return SceneMaterial{material_type = "lambertian", texture_kind = "constant", albedo = [3]f32{0.5, 0.5, 0.5}}
 	}
 }
