@@ -32,7 +32,7 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 
 | File | Panel |
 |---|---|
-| `panel_render.odin` | Render Preview; also `get_render_aspect(app)`, `get_aspect_ratio(idx)`, resolution bounds. |
+| `panel_render.odin` | Render Preview; also `get_render_aspect(app)`, `get_aspect_ratio(idx)`, `calculate_render_dimensions(app)`, resolution bounds. |
 | `panel_stats.odin` | Stats |
 | `panel_log.odin` | Log |
 | `panel_system_info.odin` | System Info |
@@ -52,7 +52,7 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 | `edit_view_properties.odin` | Property strip: `EDIT_PROPS_H`, `PROP_*`, `cam_orbit_prop_rects`, `prop_field_rects`, `draw_drag_field`, `draw_edit_properties`. |
 | `edit_view_context_menu.odin` | Context menu: `ctx_menu_build_items`, `ctx_menu_screen_rect`, `draw_edit_view_context_menu`. |
 | `edit_view_toolbar.odin` | Toolbar layout: `EDIT_TOOLBAR_H`, `edit_view_aabb_toolbar_rects`, `edit_view_add_dropdown_rects`, `ADD_DROPDOWN_*`. |
-| `ui_viewport_scene.odin` | Shared 3D scene drawing: `draw_quad_3d`, `sphere_solid_color_from_albedo`, `draw_sphere_solid`, `draw_quad_with_material_color`, `draw_scene_objects_simple` (used by Edit View and Preview). |
+| `ui_viewport_scene.odin` | Shared 3D scene drawing and viewport cache: `draw_quad_3d`, `sphere_solid_color_from_albedo`, `draw_sphere_solid`, `draw_quad_with_material_color`, `flip_image_vertical_rgba`, `free_viewport_sphere_cache_entry`, `viewport_texture_from_albedo`, `ensure_viewport_sphere_cache_filled`, `draw_viewport_scene_objects`, `draw_viewport_camera_gizmos` (used by Edit View and Preview). |
 
 **Selection kind:** `EditViewSelectionKind` lives in **core_scene.odin** (used by picking and panels).
 

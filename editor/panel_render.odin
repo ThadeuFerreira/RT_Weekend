@@ -40,6 +40,26 @@ MAX_RENDER_HEIGHT :: 16384
 MIN_RENDER_WIDTH :: 1280  // 720p at 16:9 is 1280x720
 MAX_RENDER_WIDTH :: 16384
 
+// calculate_render_dimensions computes width and height from app settings.
+// Returns false if dimensions are out of bounds (16k max, 720p min).
+calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool) {
+	h, h_ok := strconv.parse_int(strings.trim_space(app.r_height_input))
+	if !h_ok || h <= 0 {
+		return 0, 0, false
+	}
+	aspect := get_render_aspect(app)
+	w := int(f32(h) * aspect)
+
+	if h < MIN_RENDER_HEIGHT || h > MAX_RENDER_HEIGHT {
+		return w, h, false
+	}
+	if w < MIN_RENDER_WIDTH || w > MAX_RENDER_WIDTH {
+		return w, h, false
+	}
+
+	return w, h, true
+}
+
 // render_settings_height returns the height of the settings area above the render preview.
 render_settings_height :: proc() -> f32 {
     return RENDER_ROW_H + 8 // input row + padding
