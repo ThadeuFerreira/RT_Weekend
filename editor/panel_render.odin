@@ -13,6 +13,11 @@ get_aspect_ratio :: proc(idx: int) -> f32 {
     return 16.0 / 9.0
 }
 
+// get_render_aspect returns the aspect ratio (width/height) used by the render from app.r_aspect_ratio.
+get_render_aspect :: proc(app: ^App) -> f32 {
+    return get_aspect_ratio(app.r_aspect_ratio)
+}
+
 // Input field constants
 RENDER_INPUT_H :: f32(22)
 RENDER_INPUT_W :: f32(70)
@@ -34,6 +39,26 @@ MIN_RENDER_HEIGHT :: 720
 MAX_RENDER_HEIGHT :: 16384
 MIN_RENDER_WIDTH :: 1280  // 720p at 16:9 is 1280x720
 MAX_RENDER_WIDTH :: 16384
+
+// calculate_render_dimensions computes width and height from app settings.
+// Returns false if dimensions are out of bounds (16k max, 720p min).
+calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool) {
+	h, h_ok := strconv.parse_int(strings.trim_space(app.r_height_input))
+	if !h_ok || h <= 0 {
+		return 0, 0, false
+	}
+	aspect := get_render_aspect(app)
+	w := int(f32(h) * aspect)
+
+	if h < MIN_RENDER_HEIGHT || h > MAX_RENDER_HEIGHT {
+		return w, h, false
+	}
+	if w < MIN_RENDER_WIDTH || w > MAX_RENDER_WIDTH {
+		return w, h, false
+	}
+
+	return w, h, true
+}
 
 // render_settings_height returns the height of the settings area above the render preview.
 render_settings_height :: proc() -> f32 {

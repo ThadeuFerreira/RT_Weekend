@@ -4,6 +4,14 @@ import rl "vendor:raylib"
 import "RT_Weekend:core"
 import rt "RT_Weekend:raytrace"
 
+// Selection kind when picking in the viewport: none, sphere, quad, or camera (used by Edit View).
+EditViewSelectionKind :: enum {
+	None,
+	Sphere,
+	Quad,
+	Camera,
+}
+
 // SceneManager is a thin wrapper around the editor-side object list.
 // Stores core.SceneSphere directly in EditorObject; no conversion on Get/Set.
 // Single place to add adapters later (EditorObject polymorphism).

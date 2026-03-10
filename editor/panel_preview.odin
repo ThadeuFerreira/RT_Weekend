@@ -1,22 +1,13 @@
 package editor
 
 import rl "vendor:raylib"
-import "RT_Weekend:core"
-import rt "RT_Weekend:raytrace"
-
-// get_render_aspect returns the aspect ratio (width/height) used by the render from app.r_aspect_ratio.
-get_render_aspect :: proc(app: ^App) -> f32 {
-	if app.r_aspect_ratio == 0 {
-		return 4.0 / 3.0
-	}
-	return 16.0 / 9.0
-}
 
 // draw_preview_port_content renders a rasterized 3D preview from the render camera
 // (app.c_camera_params) and scene (via scene manager) into the panel content area.
 // The preview uses the same aspect ratio as the ray-traced render (4:3 or 16:9) and letterboxes
-// within the panel so the framing matches the final output.
+// within the panel so the framing matches the final output. Uses shared scene drawing (no interactions).
 draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
+	if content.width <= 0 || content.height <= 0 { return }
 	aspect := get_render_aspect(app)
 	content_aspect := content.width / content.height
 	preview_w, preview_h: f32
@@ -54,51 +45,14 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 		projection = .PERSPECTIVE,
 	}
 
+	// Use same textured scene drawing as Edit View (shared cache); no selection highlight.
+	ev := &app.e_edit_view
+	ensure_viewport_sphere_cache_filled(app, ev)
 	rl.BeginTextureMode(app.preview_port_tex)
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})
 	rl.BeginMode3D(cam3d)
 	rl.DrawGrid(20, 1.0)
-	sm := app.e_edit_view.scene_mgr
-	if sm != nil {
-		ev := &app.e_edit_view
-		for i in 0..<len(sm.objects) {
-			selected := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i
-			#partial switch o in sm.objects[i] {
-			case core.SceneSphere:
-				s := o
-				center := s.center
-				disp_col := [3]f32{0.5, 0.5, 0.5}
-				#partial switch tex in s.albedo {
-				case core.ConstantTexture: disp_col = tex.color
-				case core.CheckerTexture:  disp_col = tex.even
-				}
-				col: rl.Color
-				if selected { col = rl.YELLOW } else {
-					col = rl.Color{
-						u8(clamp(disp_col[0], 0.0, 1.0) * 255),
-						u8(clamp(disp_col[1], 0.0, 1.0) * 255),
-						u8(clamp(disp_col[2], 0.0, 1.0) * 255),
-						255,
-					}
-				}
-				rl.DrawSphere(center, s.radius, col)
-				rl.DrawSphereWires(center, s.radius, 8, 8, rl.Color{30, 30, 30, 180})
-			case rt.Quad:
-				q := o
-				col: rl.Color
-				if selected { col = rl.YELLOW } else {
-					dc := rt.material_display_color(q.material)
-					col = rl.Color{
-						u8(clamp(dc[0], 0.0, 1.0) * 255),
-						u8(clamp(dc[1], 0.0, 1.0) * 255),
-						u8(clamp(dc[2], 0.0, 1.0) * 255),
-						255,
-					}
-				}
-				draw_quad_3d(q, col)
-			}
-		}
-	}
+	draw_viewport_scene_objects(app, ev, .None, -1)
 
 	rl.EndMode3D()
 	rl.EndTextureMode()
