@@ -1,4 +1,4 @@
-.PHONY: debug release test test-release test-all
+.PHONY: debug release run run_gpu test test-release test-all
 
 debug:
 	mkdir -p build
@@ -14,6 +14,12 @@ release:
 		-define:TRACE_CAPTURE_ENABLED=false \
 		-define:TRACK_ALLOCATIONS=false \
 		-out:build/release
+
+run: debug
+	./build/debug
+
+run_gpu: debug
+	./build/debug -gpu
 
 test: debug
 	chmod +x tests/run_tests.sh && ./tests/run_tests.sh debug

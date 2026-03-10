@@ -58,22 +58,22 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})
 	rl.BeginMode3D(cam3d)
 	rl.DrawGrid(20, 1.0)
-	ev := &app.e_edit_view
-	sm := ev.scene_mgr
+	sm := app.e_edit_view.scene_mgr
 	if sm != nil {
+		ev := &app.e_edit_view
 		for i in 0..<len(sm.objects) {
 			selected := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i
 			#partial switch o in sm.objects[i] {
 			case core.SceneSphere:
 				s := o
+				center := s.center
+				disp_col := [3]f32{0.5, 0.5, 0.5}
+				#partial switch tex in s.albedo {
+				case core.ConstantTexture: disp_col = tex.color
+				case core.CheckerTexture:  disp_col = tex.even
+				}
 				col: rl.Color
-				if selected { col = rl.YELLOW }
-				else {
-					disp_col := [3]f32{0.5, 0.5, 0.5}
-					#partial switch tex in s.albedo {
-					case core.ConstantTexture: disp_col = tex.color
-					case core.CheckerTexture: disp_col = tex.even
-					}
+				if selected { col = rl.YELLOW } else {
 					col = rl.Color{
 						u8(clamp(disp_col[0], 0.0, 1.0) * 255),
 						u8(clamp(disp_col[1], 0.0, 1.0) * 255),
@@ -81,13 +81,12 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 						255,
 					}
 				}
-				rl.DrawSphere(s.center, s.radius, col)
-				rl.DrawSphereWires(s.center, s.radius, 4, 4, rl.BLUE)
+				rl.DrawSphere(center, s.radius, col)
+				rl.DrawSphereWires(center, s.radius, 8, 8, rl.Color{30, 30, 30, 180})
 			case rt.Quad:
 				q := o
 				col: rl.Color
-				if selected { col = rl.YELLOW }
-				else {
+				if selected { col = rl.YELLOW } else {
 					dc := rt.material_display_color(q.material)
 					col = rl.Color{
 						u8(clamp(dc[0], 0.0, 1.0) * 255),

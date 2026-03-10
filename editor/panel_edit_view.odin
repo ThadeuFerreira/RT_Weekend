@@ -46,6 +46,48 @@ EditViewSelectionKind :: enum {
 	Camera,
 }
 
+// flip_image_vertical_rgba flips pixel rows in place. buf is width*height*4 bytes (RGBA).
+flip_image_vertical_rgba :: proc(buf: []u8, width, height: int) {
+	if width <= 0 || height <= 1 do return
+	row_bytes := width * 4
+	for y in 0 ..< height / 2 {
+		other := height - 1 - y
+		for x in 0 ..< row_bytes {
+			buf[y * row_bytes + x], buf[other * row_bytes + x] = buf[other * row_bytes + x], buf[y * row_bytes + x]
+		}
+	}
+}
+
+// free_viewport_sphere_cache_entry unloads model and texture for one cache slot; call before overwriting or clearing.
+free_viewport_sphere_cache_entry :: proc(entry: ^ViewportSphereCacheEntry) {
+	if entry.tex.id != 0 {
+		rl.UnloadModel(entry.model)
+		rl.UnloadTexture(entry.tex)
+		delete(entry.tex_sig)
+		entry.tex = {}
+	}
+}
+
+// viewport_texture_from_albedo builds a Raylib texture from core.Texture for use in the 3D viewport.
+// Caller must call rl.UnloadTexture on the returned texture when done.
+// For ImageTexture we flip the image vertically in our buffer (no raylib call) so sphere UV matches
+// the path tracer; rl.ImageFlipVertical must not be used because img.data points to our buffer.
+viewport_texture_from_albedo :: proc(app: ^App, albedo: core.Texture) -> (tex: rl.Texture2D, ok: bool) {
+	img, buf_to_free, ok_build := texture_view_build_image(app, albedo)
+	if !ok_build do return {}, false
+	if _, is_image := albedo.(core.ImageTexture); is_image && len(buf_to_free) > 0 {
+		flip_image_vertical_rgba(buf_to_free, int(img.width), int(img.height))
+	}
+	tex = rl.LoadTextureFromImage(img)
+	#partial switch _ in albedo {
+	case core.ConstantTexture, core.CheckerTexture:
+		rl.UnloadImage(img)
+	case core.ImageTexture:
+		delete(buf_to_free)
+	}
+	return tex, true
+}
+
 EditViewState :: struct {
 	// Off-screen 3D viewport
 	viewport_tex: rl.RenderTexture2D,
@@ -130,7 +172,19 @@ EditViewState :: struct {
 
 	add_dropdown_open: bool, // "Add Object" dropdown expanded
 
+	// Per-sphere model+texture cache for ImageTexture display in the 3D viewport.
+	// Indexed by sm.objects index; only sphere slots are populated.
+	viewport_sphere_cache:       [dynamic]ViewportSphereCacheEntry,
+	viewport_sphere_cache_dirty: bool,
+
 	initialized: bool,
+}
+
+ViewportSphereCacheEntry :: struct {
+	model:   rl.Model,
+	tex:     rl.Texture2D,
+	radius:  f32,
+	tex_sig: string,
 }
 
 init_edit_view :: proc(ev: ^EditViewState) {
@@ -149,12 +203,14 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.aabb_selected_only  = false
 	ev.show_bvh_hierarchy  = false
 	ev.aabb_max_depth     = -1
-	ev.viz_bvh_root       = nil
-	ev.viz_bvh_dirty      = true
+	ev.viz_bvh_root             = nil
+	ev.viz_bvh_dirty             = true
+	ev.viewport_sphere_cache_dirty = true
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
 	ev.export_scratch = make([dynamic]core.SceneSphere)
+	ev.viewport_sphere_cache = make([dynamic]ViewportSphereCacheEntry)
 	initial := make([dynamic]core.SceneSphere)
 	append(&initial, core.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.8, 0.2, 0.2}}})
 	append(&initial, core.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = core.ConstantTexture{color={0.2, 0.2, 0.8}}, fuzz = 0.1})
@@ -284,33 +340,93 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 
 	if ev.tex_w <= 0 || ev.tex_h <= 0 { return }
 
+	// Invalidate viewport sphere cache when scene changed (load, add/remove sphere, etc.)
+	if ev.viewport_sphere_cache_dirty {
+		for i in 0..<len(ev.viewport_sphere_cache) {
+			free_viewport_sphere_cache_entry(&ev.viewport_sphere_cache[i])
+		}
+		clear(&ev.viewport_sphere_cache)
+		ev.viewport_sphere_cache_dirty = false
+	}
+
+	// Ensure cache has one slot per object in sm; shrink and free evicted entries if count dropped.
+	n_objects := len(sm.objects)
+	for len(ev.viewport_sphere_cache) > n_objects {
+		free_viewport_sphere_cache_entry(&ev.viewport_sphere_cache[len(ev.viewport_sphere_cache) - 1])
+		pop(&ev.viewport_sphere_cache)
+	}
+	for len(ev.viewport_sphere_cache) < n_objects {
+		append(&ev.viewport_sphere_cache, ViewportSphereCacheEntry{})
+	}
+
+	// Pre-pass: build mesh+model+texture for any cache miss *before* we enter render target / 3D mode.
+	// Creating and uploading mesh/model inside BeginTextureMode/BeginMode3D can prevent the texture from showing.
+	N_RINGS  :: 64
+	N_SLICES :: 64
+	for i in 0..<n_objects {
+		s, ok := sm.objects[i].(core.SceneSphere)
+		if !ok { continue }
+		entry   := &ev.viewport_sphere_cache[i]
+		tex_sig := texture_view_sig(app, s.albedo)
+		cache_hit := entry.tex.id != 0 && entry.radius == s.radius && entry.tex_sig == tex_sig
+		if cache_hit { continue }
+		if tex, tex_ok := viewport_texture_from_albedo(app, s.albedo); tex_ok {
+			free_viewport_sphere_cache_entry(entry)
+			sphere_mesh := rl.GenMeshSphere(s.radius, N_RINGS, N_SLICES)
+			uvs := transmute([]rl.Vector2)(sphere_mesh.texcoords[:sphere_mesh.vertexCount])
+			for &uv in uvs {
+				uv.x, uv.y = uv.y, uv.x
+				uv.y = 1.0 - uv.y
+			}
+			rl.UpdateMeshBuffer(sphere_mesh, 1, raw_data(uvs), i32(len(uvs) * size_of(rl.Vector2)), 0)
+			model := rl.LoadModelFromMesh(sphere_mesh)
+			rl.SetMaterialTexture(&model.materials[0], rl.MaterialMapIndex.ALBEDO, tex)
+			entry.model   = model
+			entry.tex     = tex
+			entry.radius  = s.radius
+			entry.tex_sig = strings.clone(tex_sig)
+		}
+	}
+
 	rl.BeginTextureMode(ev.viewport_tex)
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})
 	rl.BeginMode3D(ev.cam3d)
 	rl.DrawGrid(20, 1.0)
 
-	for i in 0..<len(sm.objects) {
+	for i in 0..<n_objects {
 		selected := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i
 		#partial switch o in sm.objects[i] {
 		case core.SceneSphere:
 			s := o
-			col: rl.Color
-			if selected { col = rl.YELLOW }
-			else {
+			center := s.center
+			wire_col := rl.Color{30, 30, 30, 180}
+			if selected { wire_col = rl.Color{255, 220, 0, 200} }
+
+			entry := &ev.viewport_sphere_cache[i]
+			if entry.tex.id != 0 {
+				// Cached model (any texture type that produced a valid GPU tex)
+				tint := rl.WHITE
+				if selected { tint = rl.YELLOW }
+				rl.DrawModelEx(entry.model, center, {0, 1, 0}, -90.0, {1, 1, 1}, tint)
+				rl.DrawSphereWires(center, s.radius + 0.01, 8, 8, wire_col)
+			} else {
+				// Fallback: solid colour
 				disp_col := [3]f32{0.5, 0.5, 0.5}
 				#partial switch tex in s.albedo {
 				case core.ConstantTexture: disp_col = tex.color
-				case core.CheckerTexture: disp_col = tex.even
+				case core.CheckerTexture:  disp_col = tex.even
 				}
-				col = rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
+				col: rl.Color
+				if selected { col = rl.YELLOW } else {
+					col = rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
+				}
+				rl.DrawSphere(center, s.radius, col)
+				rl.DrawSphereWires(center, s.radius + 0.01, 8, 8, wire_col)
 			}
-			rl.DrawSphere(s.center, s.radius, col)
-			rl.DrawSphereWires(s.center, s.radius + 0.01, 4, 4, rl.BLACK)
 		case rt.Quad:
 			q := o
 			col: rl.Color
-			if selected { col = rl.YELLOW }
-			else {
+			if selected { col = rl.YELLOW } else {
 				dc := rt.material_display_color(q.material)
 				col = rl.Color{
 					u8(clamp(dc[0], 0.0, 1.0) * 255),

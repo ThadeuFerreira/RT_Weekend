@@ -314,7 +314,8 @@ mark_scene_dirty :: proc(app: ^App) {
     if app != nil {
         app.e_scene_dirty = true
         if app.e_edit_view.initialized {
-            app.e_edit_view.viz_bvh_dirty = true
+            app.e_edit_view.viz_bvh_dirty             = true
+            app.e_edit_view.viewport_sphere_cache_dirty = true
         }
     }
 }
@@ -522,6 +523,12 @@ run_app :: proc(
         delete(app.e_texture_view.last_sig)
     }
     defer delete(app.e_edit_view.export_scratch)
+    defer {
+        for i in 0..<len(app.e_edit_view.viewport_sphere_cache) {
+            free_viewport_sphere_cache_entry(&app.e_edit_view.viewport_sphere_cache[i])
+        }
+        delete(app.e_edit_view.viewport_sphere_cache)
+    }
     defer free_scene_manager(app.e_edit_view.scene_mgr)
     defer {
         if app.e_edit_view.viz_bvh_root != nil {
