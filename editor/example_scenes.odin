@@ -26,7 +26,7 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Next Week: Checkers Texture", build = build_next_week_texture_checker_scene},
     {label = "Next Week: Quads",            build = build_next_week_quads_scene},
     {label = "Next Week: Turbulence",       build = build_next_week_turbulence_scene},
-    {label = "Cornell Box",        build = build_cornell_box_scene},
+    {label = "Cornell Box",                 build = build_cornell_box_scene},
 }
 
 // WEEKEND_CAMERA is the default for in-memory example scenes. Scene files loaded from disk with no "background" field get the same default (sky) in persistence.load_scene for backward compat.
@@ -298,45 +298,44 @@ build_cornell_box_scene :: proc() -> (
     })
     light_mat := raytrace.material(raytrace.diffuse_light{emit = {15, 15, 15}})
 
-    // Room shell.
-    append(&result_quads, raytrace.make_quad(
-        [3]f32{0, 0, 0},
-        [3]f32{1, 0, 0},
-        [3]f32{0, 0, 1},
-        white,
-    ))
-    append(&result_quads, raytrace.make_quad(
-        [3]f32{0, 1, 0},
-        [3]f32{1, 0, 0},
-        [3]f32{0, 0, 1},
-        white,
-    ))
-    append(&result_quads, raytrace.make_quad(
-        [3]f32{0, 0, 1},
-        [3]f32{1, 0, 0},
-        [3]f32{0, 1, 0},
-        white,
-    ))
     // Left wall (green), right wall (red) per benchmark convention.
     append(&result_quads, raytrace.make_quad(
-        [3]f32{0, 0, 0},
-        [3]f32{0, 1, 0},
-        [3]f32{0, 0, 1},
+        [3]f32{555, 0, 0},
+        [3]f32{0, 555, 0},
+        [3]f32{0, 0, 555},
         green,
     ))
     append(&result_quads, raytrace.make_quad(
-        [3]f32{1, 0, 0},
-        [3]f32{0, 1, 0},
-        [3]f32{0, 0, 1},
+        [3]f32{0, 0, 0},
+        [3]f32{0, 555, 0},
+        [3]f32{0, 0, 555},
         red,
     ))
-
     // Ceiling area light.
     append(&result_quads, raytrace.make_quad(
-        [3]f32{0.343, 0.999, 0.32},
-        [3]f32{0.314, 0, 0},
-        [3]f32{0, 0, 0.31},
+        [3]f32{343, 554, 332},
+        [3]f32{-130, 0, 0},
+        [3]f32{0, 0, -105},
         light_mat,
+    ))
+    // Room shell.
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 0, 0},
+        [3]f32{555, 0, 0},
+        [3]f32{0, 0, 555},
+        white,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{555, 555, 555},
+        [3]f32{-555, 0, 0},
+        [3]f32{0, 0, -555},
+        white,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 0, 555},
+        [3]f32{555, 0, 0},
+        [3]f32{0, 555, 0},
+        white,
     ))
 
     // Tall box: 0.2 x 0.65 x 0.2 at (0.3, 0.0, 0.2), rotated Y by +15 deg.
@@ -345,15 +344,15 @@ build_cornell_box_scene :: proc() -> (
         raytrace.transform_stack_init(&ts)
         defer raytrace.transform_stack_destroy(&ts)
 
-        center := [3]f32{0.3 + 0.1, 0.65 * 0.5, 0.2 + 0.1}
+        center := [3]f32{265,0,295}
         raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(center))
         raytrace.transform_stack_push_mul(&ts, raytrace.mat4_rotate_y(15.0 * math.PI / 180.0))
         raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(-center))
 
         raytrace.append_box_transformed(
             &result_quads,
-            [3]f32{0.3, 0.0, 0.2},
-            [3]f32{0.5, 0.65, 0.4},
+            [3]f32{265, 0.0, 295},
+            [3]f32{430, 330, 460},
             white,
             raytrace.transform_stack_current(&ts),
         )
@@ -365,25 +364,25 @@ build_cornell_box_scene :: proc() -> (
         raytrace.transform_stack_init(&ts)
         defer raytrace.transform_stack_destroy(&ts)
 
-        center := [3]f32{0.78 + 0.08, 0.3 * 0.5, 0.3 + 0.08}
+        center := [3]f32{130,0,65}
         raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(center))
         raytrace.transform_stack_push_mul(&ts, raytrace.mat4_rotate_y(-18.0 * math.PI / 180.0))
         raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(-center))
 
         raytrace.append_box_transformed(
             &result_quads,
-            [3]f32{0.78, 0.0, 0.3},
-            [3]f32{0.94, 0.3, 0.46},
+            [3]f32{130, 0.0, 65},
+            [3]f32{295, 165, 230},
             white,
             raytrace.transform_stack_current(&ts),
         )
     }
 
     cornell_camera := core.CameraParams{
-        lookfrom      = {0.5, 0.5, -1.35},
-        lookat        = {0.5, 0.5, 0.5},
+        lookfrom      = {278, 278, -800},
+        lookat        = {278, 278, 0},
         vup           = {0, 1, 0},
-        vfov          = 37,
+        vfov          = 40,
         defocus_angle = 0,
         focus_dist    = 1.85,
         max_depth     = 50,

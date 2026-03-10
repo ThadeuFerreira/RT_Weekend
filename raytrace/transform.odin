@@ -51,8 +51,8 @@ mat4_scale :: proc(s: [3]f32) -> Mat4 {
 }
 
 mat4_rotate_x :: proc(angle_rad: f32) -> Mat4 {
-	c := math.cos(angle_rad)
 	s := math.sin(angle_rad)
+	c := math.cos(angle_rad)
 	return Mat4{m = [16]f32{
 		1, 0, 0, 0,
 		0, c, -s, 0,
@@ -62,8 +62,8 @@ mat4_rotate_x :: proc(angle_rad: f32) -> Mat4 {
 }
 
 mat4_rotate_y :: proc(angle_rad: f32) -> Mat4 {
-	c := math.cos(angle_rad)
 	s := math.sin(angle_rad)
+	c := math.cos(angle_rad)
 	return Mat4{m = [16]f32{
 		c, 0, s, 0,
 		0, 1, 0, 0,
@@ -73,8 +73,8 @@ mat4_rotate_y :: proc(angle_rad: f32) -> Mat4 {
 }
 
 mat4_rotate_z :: proc(angle_rad: f32) -> Mat4 {
-	c := math.cos(angle_rad)
 	s := math.sin(angle_rad)
+	c := math.cos(angle_rad)
 	return Mat4{m = [16]f32{
 		c, -s, 0, 0,
 		s, c, 0, 0,
