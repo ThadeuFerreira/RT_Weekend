@@ -30,6 +30,7 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Cornell Box (empty)",        build = build_cornell_box_scene},
 }
 
+// WEEKEND_CAMERA is the default for in-memory example scenes. Scene files loaded from disk with no "background" field get the same default (sky) in persistence.load_scene for backward compat.
 WEEKEND_CAMERA :: core.CameraParams{
     lookfrom      = {13, 2, 3},
     lookat        = {0, 0, 0},

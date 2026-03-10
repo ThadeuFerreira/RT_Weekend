@@ -151,11 +151,12 @@ load_scene :: proc(
 		cam.shutter_open = scene.camera.shutter_open
 		cam.shutter_close = scene.camera.shutter_close
 	}
-	// background: use from file or default black for older scenes (no background field)
+	// background: use from file; absent or zero → sky so weekend-style scenes loaded from disk match WEEKEND_CAMERA (editor/example_scenes.odin).
+	// Old serialized scenes had no field and would otherwise get black; this backward-compat gives them the same default as in-memory example scenes.
 	cam.background = scene.camera.background
 	zero_bg: [3]f32 = {0, 0, 0}
 	if cam.background == zero_bg {
-		cam.background = core.CAMERA_BACKGROUND_DEFAULT
+		cam.background = core.CAMERA_BACKGROUND_SKY
 	}
 	rt.init_camera(cam)
 

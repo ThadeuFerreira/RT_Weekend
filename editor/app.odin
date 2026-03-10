@@ -312,12 +312,14 @@ App :: struct {
 g_app: ^App = nil
 
 // mark_scene_dirty sets the scene as having unsaved changes. Call after any edit (add/delete/modify sphere or camera).
-// Also invalidates the Edit View cached BVH (viz_bvh_dirty) so hierarchy viz rebuilds on next draw.
+// Also invalidates the Edit View cached BVH (viz_bvh_dirty) and viewport sphere cache so the 3D viewport
+// shows up-to-date geometry and material/color after any change.
 mark_scene_dirty :: proc(app: ^App) {
     if app != nil {
         app.e_scene_dirty = true
         if app.e_edit_view.initialized {
             app.e_edit_view.viz_bvh_dirty             = true
+            app.e_edit_view.viewport_sphere_cache_dirty = true
         }
     }
 }

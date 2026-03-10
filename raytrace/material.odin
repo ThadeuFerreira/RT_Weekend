@@ -92,6 +92,7 @@ reflectance :: proc (cosine : f32, ref_idx : f32) -> f32 {
 }
 
 // material_display_color returns a [3]f32 color for editor/preview visualization (no sampling context).
+// For diffuse_light, emit is normalized by max component so HDR values (e.g. {15,15,15}) don't blow out the swatch.
 material_display_color :: proc(mat: material) -> [3]f32 {
 	switch m in mat {
 	case lambertian:
@@ -101,7 +102,9 @@ material_display_color :: proc(mat: material) -> [3]f32 {
 	case dielectric:
 		return [3]f32{0.92, 0.92, 0.95}
 	case diffuse_light:
-		return m.emit
+		intensity := max(m.emit[0], max(m.emit[1], m.emit[2]))
+		if intensity <= 0 do return [3]f32{0, 0, 0}
+		return [3]f32{m.emit[0] / intensity, m.emit[1] / intensity, m.emit[2] / intensity}
 	}
 	return [3]f32{0.5, 0.5, 0.5}
 }

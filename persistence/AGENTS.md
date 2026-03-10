@@ -23,3 +23,7 @@ This package does not introduce its own scope prefix. It uses idiomatic core/ray
 ## Allocation preference
 
 Prefer stack allocation; avoid passing pointers unless strictly necessary. Scene objects and materials (including Texture) are serialized from value types.
+
+## Notes
+
+- **TRS inverse (rotation order):** If a closed-form inverse for a TRS matrix (e.g. T×Rz×Ry×Rx×S) is added elsewhere, document that the inverse is rotation-order dependent: (A×B×C)⁻¹ = C⁻¹×B⁻¹×A⁻¹, so the inverse should be S⁻¹×Rx⁻¹×Ry⁻¹×Rz⁻¹×T⁻¹.
