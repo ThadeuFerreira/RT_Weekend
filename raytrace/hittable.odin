@@ -20,65 +20,9 @@ hit_record :: struct {
     v: f32,
 }
 
-Sphere :: struct {
-    center:    [3]f32,
-    center1:   [3]f32, // end position (t=1); only used when is_moving
-    radius:    f32,
-    material:  material,
-    is_moving: bool,
-}
-
-sphere_center_at :: proc(s: Sphere, time: f32) -> [3]f32 {
-    if !s.is_moving { return s.center }
-    return s.center + time * (s.center1 - s.center)
-}
-
-// sphere_get_uv returns (u, v) texture coordinates for a unit-sphere surface point p.
-// p is the normalized hit point relative to sphere center (outward_normal for a sphere).
-// Follows Ray Tracing: The Next Week Ch.4: theta = acos(-p.y), phi = atan2(-p.z, p.x) + π.
-sphere_get_uv :: proc(p: [3]f32) -> (u, v: f32) {
-    theta := math.acos(-p.y)
-    phi   := math.atan2(-p.z, p.x) + math.PI
-    u = phi / (2.0 * math.PI)
-    v = theta / math.PI
-    return
-}
-
-Cube :: struct {
-    center : [3]f32,
-    radius : f32,
-    material : material,
-}
-
-// cube_get_uv returns (u, v) in [0,1] using face-projected UV: dominant axis of the
-// outward normal, then the two remaining axes normalized to the cube face extent.
-// No per-face unwrap; suitable as a simple fallback for image textures.
-cube_get_uv :: proc(p: [3]f32, outward_normal: [3]f32, center: [3]f32, radius: f32) -> (u, v: f32) {
-    // Dominant axis of the outward normal (which face was hit).
-    ax := 0
-    if math.abs(outward_normal[1]) > math.abs(outward_normal[ax]) { ax = 1 }
-    if math.abs(outward_normal[2]) > math.abs(outward_normal[ax]) { ax = 2 }
-    // The two other axes for (u, v).
-    axis_u: int = 1 if ax == 0 else 0
-    axis_v: int = 2
-    if ax == 1 {
-        axis_u = 0
-        axis_v = 2
-    } else if ax == 2 {
-        axis_u = 0
-        axis_v = 1
-    }
-    half := 2.0 * radius
-    u = (p[axis_u] - center[axis_u] + radius) / half
-    v = (p[axis_v] - center[axis_v] + radius) / half
-    u = math.clamp(u, 0.0, 1.0)
-    v = math.clamp(v, 0.0, 1.0)
-    return
-}
-
 Object :: union {
     Sphere,
-    Cube,
+    Quad,
 }
 
 AABB :: struct {
@@ -87,28 +31,28 @@ AABB :: struct {
     z: Interval,
 }
 
-sphere_bounding_box :: proc(s: Sphere) -> AABB {
-    r := s.radius
-    box0 := AABB{
-        x = Interval{s.center[0] - r, s.center[0] + r},
-        y = Interval{s.center[1] - r, s.center[1] + r},
-        z = Interval{s.center[2] - r, s.center[2] + r},
+// AABB padding delta so flat quads have non-zero volume (avoids numerical issues in BVH).
+AABB_PAD_DELTA :: 0.0001
+
+// aabb_pad_to_minimums ensures no side is narrower than AABB_PAD_DELTA.
+aabb_pad_to_minimums :: proc(box: ^AABB) {
+    if interval_size(box.x) < AABB_PAD_DELTA {
+        box.x = interval_expand(box.x, AABB_PAD_DELTA)
     }
-    if !s.is_moving { return box0 }
-    box1 := AABB{
-        x = Interval{s.center1[0] - r, s.center1[0] + r},
-        y = Interval{s.center1[1] - r, s.center1[1] + r},
-        z = Interval{s.center1[2] - r, s.center1[2] + r},
+    if interval_size(box.y) < AABB_PAD_DELTA {
+        box.y = interval_expand(box.y, AABB_PAD_DELTA)
     }
-    return aabb_union(box0, box1)
+    if interval_size(box.z) < AABB_PAD_DELTA {
+        box.z = interval_expand(box.z, AABB_PAD_DELTA)
+    }
 }
 
 object_bounding_box :: proc(obj: Object) -> AABB {
     switch o in obj {
     case Sphere:
         return sphere_bounding_box(o)
-    case Cube:
-        return sphere_bounding_box(Sphere{center = o.center, radius = o.radius})
+    case Quad:
+        return quad_bounding_box(o)
     }
     return AABB{
         x = Interval{0, 0},
@@ -201,15 +145,20 @@ BVHNode :: struct {
     is_leaf:   bool,
 }
 
-// aabb_hit_fast is like aabb_hit but uses a precomputed inverse direction,
-// eliminating 3 divisions per AABB test.  Call once per ray before the BVH loop.
-// Uses the ±Inf slab method — works correctly with IEEE 754 for non-degenerate rays.
-aabb_hit_fast :: proc(box: AABB, inv_dir: [3]f32, origin: [3]f32, ray_t: Interval) -> bool {
+// aabb_hit_fast is like aabb_hit but uses precomputed inverse direction.
+// It keeps a robust zero-direction slab check so thin AABBs (e.g. quads) are reliable.
+aabb_hit_fast :: proc(box: AABB, dir: [3]f32, inv_dir: [3]f32, origin: [3]f32, ray_t: Interval) -> bool {
     tmin := ray_t.min
     tmax := ray_t.max
 
     axes := [3]Interval{box.x, box.y, box.z}
     for axis in 0..<3 {
+        if math.abs(dir[axis]) < 1e-8 {
+            if origin[axis] < axes[axis].min || origin[axis] > axes[axis].max {
+                return false
+            }
+            continue
+        }
         invD := inv_dir[axis]
         o    := origin[axis]
         t0   := (axes[axis].min - o) * invD
@@ -227,18 +176,20 @@ object_center :: proc(obj: Object, axis: int) -> f32 {
     case Sphere:
         if o.is_moving { return (o.center[axis] + o.center1[axis]) * 0.5 }
         return o.center[axis]
-    case Cube:
-        return o.center[axis]
+    case Quad:
+        // Centroid: Q + (u + v) / 2
+        return o.Q[axis] + (o.u[axis] + o.v[axis]) * 0.5
     }
     return 0.0
 }
 
-build_bvh :: proc(objects: []Object, allocator := context.allocator) -> ^BVHNode {
-    if len(objects) == 0 {
-        return nil
-    }
+@(private)
+_build_bvh_median :: proc(objects: []Object, indices: []int, allocator := context.allocator) -> ^BVHNode {
+    n := len(objects)
+    if n == 0 { return nil }
+    if n != len(indices) { return nil }
 
-    if len(objects) == 1 {
+    if n == 1 {
         bbox := object_bounding_box(objects[0])
         node := new(BVHNode, allocator)
         node^ = BVHNode{
@@ -246,14 +197,14 @@ build_bvh :: proc(objects: []Object, allocator := context.allocator) -> ^BVHNode
             left      = nil,
             right     = nil,
             object    = objects[0],
-            obj_index = -1,   // unknown: _flatten_bvh_recurse falls back to O(n) search
+            obj_index = indices[0],
             is_leaf   = true,
         }
         return node
     }
 
     bbox_all := object_bounding_box(objects[0])
-    for i in 1..<len(objects) {
+    for i in 1..<n {
         bbox_all = aabb_union(bbox_all, object_bounding_box(objects[i]))
     }
 
@@ -268,25 +219,27 @@ build_bvh :: proc(objects: []Object, allocator := context.allocator) -> ^BVHNode
         axis = 2
     }
 
-    objects_sorted := make([]Object, len(objects), allocator)
+    objects_sorted := make([]Object, n, allocator)
+    indices_sorted := make([]int, n, allocator)
     copy(objects_sorted, objects)
+    copy(indices_sorted, indices)
 
-    for i in 1..<len(objects_sorted) {
-        key := objects_sorted[i]
+    for i in 1..<n {
+        key_obj := objects_sorted[i]
+        key_idx := indices_sorted[i]
         j := i - 1
-        for j >= 0 && object_center(objects_sorted[j], axis) > object_center(key, axis) {
+        for j >= 0 && object_center(objects_sorted[j], axis) > object_center(key_obj, axis) {
             objects_sorted[j + 1] = objects_sorted[j]
+            indices_sorted[j + 1] = indices_sorted[j]
             j -= 1
         }
-        objects_sorted[j + 1] = key
+        objects_sorted[j + 1] = key_obj
+        indices_sorted[j + 1] = key_idx
     }
 
-    mid := len(objects_sorted) / 2
-    left_objects := objects_sorted[:mid]
-    right_objects := objects_sorted[mid:]
-
-    left_node := build_bvh(left_objects, allocator)
-    right_node := build_bvh(right_objects, allocator)
+    mid := n / 2
+    left_node  := _build_bvh_median(objects_sorted[:mid], indices_sorted[:mid], allocator)
+    right_node := _build_bvh_median(objects_sorted[mid:], indices_sorted[mid:], allocator)
 
     bbox := left_node.bbox
     if right_node != nil {
@@ -302,7 +255,20 @@ build_bvh :: proc(objects: []Object, allocator := context.allocator) -> ^BVHNode
     }
 
     delete(objects_sorted)
+    delete(indices_sorted)
     return node
+}
+
+build_bvh :: proc(objects: []Object, allocator := context.allocator) -> ^BVHNode {
+    if len(objects) == 0 {
+        return nil
+    }
+    indices := make([]int, len(objects), allocator)
+    for i in 0..<len(indices) {
+        indices[i] = i
+    }
+    defer delete(indices)
+    return _build_bvh_median(objects, indices, allocator)
 }
 
 // ============================================================
@@ -569,10 +535,11 @@ _flatten_bvh_recurse :: proc(
     my_index := len(nodes)
     append(nodes, LinearBVHNode{})   // placeholder; filled in below
 
-    if node.is_leaf {
+        if node.is_leaf {
         // Find which index in objects matches this leaf's object.
         // Fast path (SAH builder): obj_index is stored in the node — O(1).
-        // Slow path (median builder): fall back to O(n) value search.
+        // Slow path (median builder): fall back to O(n) search; for Quad use geometry-only match
+        // so we get the correct index even when material union equality fails.
         obj_idx := i32(-1)
         if node.obj_index >= 0 {
             obj_idx = i32(node.obj_index)
@@ -581,8 +548,11 @@ _flatten_bvh_recurse :: proc(
                 switch a in node.object {
                 case Sphere:
                     if b, ok := objects[i].(Sphere); ok && a == b { obj_idx = i32(i) }
-                case Cube:
-                    if b, ok := objects[i].(Cube); ok && a == b { obj_idx = i32(i) }
+                case Quad:
+                    if b, ok := objects[i].(Quad); ok {
+                        if a == b { obj_idx = i32(i) }
+                        else if quad_geometry_equal(a, b) { obj_idx = i32(i) }
+                    }
                 }
             }
         }
@@ -614,6 +584,72 @@ flatten_bvh :: proc(root: ^BVHNode, objects: []Object) -> []LinearBVHNode {
     if root == nil { return nil }
     nodes := make([dynamic]LinearBVHNode, 0, 2 * len(objects))
     _flatten_bvh_recurse(root, &nodes, objects)
+    return nodes[:]
+}
+
+// flatten_bvh_for_gpu produces a LinearBVHNode array for the GPU: leaves use
+// LEAF_SPHERE/LEAF_QUAD and right_or_obj_idx = -(gpu_array_index + 1).
+// world_to_sphere_gpu[i] = GPU sphere index for objects[i] or -1; world_to_quad_gpu likewise.
+// Caller must delete(result).
+_flatten_bvh_for_gpu_recurse :: proc(
+    node: ^BVHNode,
+    nodes: ^[dynamic]LinearBVHNode,
+    objects: []Object,
+    world_to_sphere_gpu: []int,
+    world_to_quad_gpu: []int,
+) -> int {
+    if node == nil { return -1 }
+    my_index := len(nodes)
+    append(nodes, LinearBVHNode{})
+    if node.is_leaf {
+        obj_idx := node.obj_index
+        if obj_idx < 0 {
+            for i in 0..<len(objects) {
+                switch a in node.object {
+                case Sphere:
+                    if b, ok := objects[i].(Sphere); ok && a == b { obj_idx = i; break }
+                case Quad:
+                    if b, ok := objects[i].(Quad); ok && (a == b || quad_geometry_equal(a, b)) { obj_idx = i; break }
+                }
+            }
+        }
+        left_val := LEAF_SPHERE
+        right_val: i32 = -1
+        if obj_idx >= 0 && obj_idx < len(objects) {
+            if sg := world_to_sphere_gpu[obj_idx]; sg >= 0 {
+                left_val  = LEAF_SPHERE
+                right_val = -i32(sg + 1)
+            } else if qg := world_to_quad_gpu[obj_idx]; qg >= 0 {
+                left_val  = LEAF_QUAD
+                right_val = -i32(qg + 1)
+            }
+        }
+        nodes[my_index] = LinearBVHNode{
+            aabb_min        = [3]f32{node.bbox.x.min, node.bbox.y.min, node.bbox.z.min},
+            aabb_max        = [3]f32{node.bbox.x.max, node.bbox.y.max, node.bbox.z.max},
+            left_idx        = left_val,
+            right_or_obj_idx = right_val,
+        }
+        return my_index
+    }
+    left_idx  := _flatten_bvh_for_gpu_recurse(node.left,  nodes, objects, world_to_sphere_gpu, world_to_quad_gpu)
+    right_idx := _flatten_bvh_for_gpu_recurse(node.right, nodes, objects, world_to_sphere_gpu, world_to_quad_gpu)
+    nodes[my_index] = LinearBVHNode{
+        aabb_min        = [3]f32{node.bbox.x.min, node.bbox.y.min, node.bbox.z.min},
+        aabb_max        = [3]f32{node.bbox.x.max, node.bbox.y.max, node.bbox.z.max},
+        left_idx        = i32(left_idx),
+        right_or_obj_idx = i32(right_idx),
+    }
+    return my_index
+}
+
+flatten_bvh_for_gpu :: proc(root: ^BVHNode, objects: []Object, world_to_sphere_gpu: []int, world_to_quad_gpu: []int) -> []LinearBVHNode {
+    if root == nil { return nil }
+    if len(world_to_sphere_gpu) != len(objects) || len(world_to_quad_gpu) != len(objects) {
+        return nil
+    }
+    nodes := make([dynamic]LinearBVHNode, 0, 2 * len(objects))
+    _flatten_bvh_for_gpu_recurse(root, &nodes, objects, world_to_sphere_gpu, world_to_quad_gpu)
     return nodes[:]
 }
 
@@ -663,7 +699,7 @@ bvh_hit_linear :: proc(
             y = Interval{node.aabb_min[1], node.aabb_max[1]},
             z = Interval{node.aabb_min[2], node.aabb_max[2]},
         }
-        if !aabb_hit_fast(bbox, inv_dir, r.origin, Interval{ray_t.min, closest}) { continue }
+        if !aabb_hit_fast(bbox, r.dir, inv_dir, r.origin, Interval{ray_t.min, closest}) { continue }
 
         if node.left_idx == -1 {
             // Leaf node: test the actual object.
@@ -725,8 +761,8 @@ hit :: proc(r : ray, ray_t : Interval, rec : ^hit_record, object : Object, close
             closest_so_far^ = temp_rec.t
             return true
         }
-    case Cube:
-        if hit_cube(s, r, Interval{ray_t.min, closest_so_far^}, &temp_rec) {
+    case Quad:
+        if hit_quad(s, r, Interval{ray_t.min, closest_so_far^}, &temp_rec) {
             rec^ = temp_rec
             closest_so_far^ = temp_rec.t
             return true

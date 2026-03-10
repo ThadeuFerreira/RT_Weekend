@@ -3,10 +3,11 @@ package editor
 import "core:math"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
+import rt "RT_Weekend:raytrace"
 
 // EditorObject is a discriminated union; add variants here for new object types.
 // Enables switch obj in SceneManager with exhaustiveness checking.
-EditorObject :: union { core.SceneSphere }
+EditorObject :: union { core.SceneSphere, rt.Quad }
 
 // compute_viewport_ray casts a perspective ray through the given mouse position.
 // Operates on explicit camera/texture params to avoid circular imports with ui package.

@@ -112,14 +112,13 @@ file_import_from_path :: proc(app: ^App, path: string) {
         return
     }
     rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
-    converted := rt.convert_world_to_edit_spheres(world)
-    LoadFromSceneSpheres(ev.scene_mgr, converted[:])
-    delete(converted)
+    LoadFromWorld(ev.scene_mgr, world[:])
     ev.selection_kind = .None
     ev.selected_idx   = -1
 
     edit_history_free(&app.edit_history)
     app.edit_history = EditHistory{}
+    app.include_ground_plane = true
     app_set_ground_texture(app, nil)
 
     delete(app.current_scene_path)
@@ -135,6 +134,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
+    AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
     app.finished     = false
     app.elapsed_secs = 0
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
@@ -160,6 +160,7 @@ file_save_as_path :: proc(app: ^App, path: string) -> bool {
     ev := &app.e_edit_view
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := app_build_world_from_scene(app, ev.export_scratch[:])
+    AppendQuadsToWorld(ev.scene_mgr, &world)
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(path, app.r_camera, world) {

@@ -69,3 +69,16 @@ reflectance :: proc (cosine : f32, ref_idx : f32) -> f32 {
     r0 = r0*r0
     return r0 + (1-r0)*math.pow((1 - cosine), 5)
 }
+
+// material_display_color returns a [3]f32 color for editor/preview visualization (no sampling context).
+material_display_color :: proc(mat: material) -> [3]f32 {
+	switch m in mat {
+	case lambertian:
+		return texture_value_runtime(m.albedo, 0.5, 0.5, [3]f32{0, 0, 0})
+	case metallic:
+		return m.albedo
+	case dielectric:
+		return [3]f32{0.92, 0.92, 0.95}
+	}
+	return [3]f32{0.5, 0.5, 0.5}
+}

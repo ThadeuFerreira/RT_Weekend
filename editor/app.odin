@@ -115,7 +115,12 @@ app_set_ground_texture :: proc(app: ^App, ground_texture: rt.Texture) {
 // app_build_world_from_scene rebuilds render objects from shared scene spheres, preserving
 // any runtime image textures through app.image_texture_cache when available.
 app_build_world_from_scene :: proc(app: ^App, scene_objects: []core.SceneSphere) -> [dynamic]rt.Object {
-    return rt.build_world_from_scene(scene_objects, app_active_ground_texture(app), app.image_texture_cache)
+    return rt.build_world_from_scene(
+        scene_objects,
+        app_active_ground_texture(app),
+        app.image_texture_cache,
+        app.include_ground_plane,
+    )
 }
 
 // app_set_image_texture_cache_from_world refreshes the editor's runtime image cache from a world.
@@ -160,9 +165,13 @@ app_ensure_image_cached :: proc(app: ^App, path: string) -> bool {
 }
 
 // app_restart_render replaces the current world with new_world and starts a fresh render.
-// No-op if the current render has not yet finished (finish_render must have been called).
+// If a render is in progress, the restart is dropped so the main thread is not blocked
+// (finish_render would join workers and freeze the UI). Request restart again after the
+// current render completes, or close the window to stop the render.
 app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
-    if !app.finished { return }
+    if !app.finished && app.r_session != nil {
+        return
+    }
 
     rt.free_session(app.r_session)
     app.r_session = nil
@@ -182,8 +191,11 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
 // When ground_texture is nil, the ground plane uses default grey; otherwise the given texture (e.g. from an example scene).
+// If a render is in progress, the restart is dropped (same as app_restart_render) to keep the UI responsive.
 app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere, ground_texture: rt.Texture = nil) {
-    if !app.finished { return }
+    if !app.finished && app.r_session != nil {
+        return
+    }
     if ground_texture != nil {
         app_set_ground_texture(app, ground_texture)
     }
@@ -219,6 +231,7 @@ App :: struct {
     r_world:       [dynamic]rt.Object,
     custom_ground_texture: rt.Texture,
     has_custom_ground_texture: bool,
+    include_ground_plane: bool,
     image_texture_cache: map[string]^rt.Texture_Image,
     c_camera_params: core.CameraParams, // shared camera definition; applied to r_camera before each render
 
@@ -453,6 +466,7 @@ run_app :: proc(
         use_sdf_font        = sdf_ok,
         ui_font             = ui_font,
         ui_font_shader      = ui_shader,
+        include_ground_plane = true,
         r_height_input      = fmt.aprintf("%d", r_camera.image_height),
         r_samples_input     = fmt.aprintf("%d", r_camera.samples_per_pixel),
         r_aspect_ratio      = 1, // default to 16:9
@@ -492,14 +506,13 @@ run_app :: proc(
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
     if len(r_world) > 0 {
-        converted := rt.convert_world_to_edit_spheres(r_world)
-        LoadFromSceneSpheres(app.e_edit_view.scene_mgr, converted[:])
-        delete(converted)
+        LoadFromWorld(app.e_edit_view.scene_mgr, r_world[:])
     }
     delete(r_world) // edit view is now the source of truth; free the raw rt.Object array
-    // Build the startup world from the edit view (always).
+    // Build the startup world from the edit view (always): spheres + quads.
     ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
     app.r_world = app_build_world_from_scene(&app, app.e_edit_view.export_scratch[:])
+    AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
     app.e_object_props  = ObjectPropsPanelState{prop_drag_idx = -1}
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)

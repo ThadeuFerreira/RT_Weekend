@@ -11,7 +11,7 @@
 //     built by flatten_bvh in hittable.odin)
 //
 // Texture mapping: HitRecord stores (u,v) in [0,1]. Spheres use sphere_get_uv
-// (theta/phi, RTNW Ch.4). Cubes are CPU-only; GPU path has spheres only.
+// (theta/phi, RTNW Ch.4). Quads are CPU-only; GPU path has spheres only.
 //
 // Workgroup: 8×8 threads — 64 threads per tile, matching typical
 // GPU warp/wavefront sizes for good occupancy.
@@ -25,6 +25,7 @@
 //   binding=1  SpheresBlock  (SSBO, std430) — sphere array
 //   binding=2  BVHBlock      (SSBO, std430) — LinearBVHNode array
 //   binding=3  OutputBlock   (SSBO, std430) — vec4 accumulation buffer
+//   binding=4  QuadsBlock    (SSBO, std430) — quad array (Q, u, v, w, normal, D, material)
 // ─────────────────────────────────────────────────────────────
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -114,9 +115,11 @@ layout(std430, binding = 1) readonly buffer SpheresBlock {
 // Binding 2 — Linear BVH nodes (SSBO, std430)
 // Matches LinearBVHNode in raytrace/gpu_types.odin.
 // 32 bytes per node.
-// Leaf:     left_idx = -1,  right_or_obj_idx = -(obj_index + 1)
+// Leaf:     left_idx = -1 (sphere) or -2 (quad),  right_or_obj_idx = -(gpu_array_index + 1)
 // Internal: left_idx = left child, right_or_obj_idx = right child
 // =============================================================
+const int LEAF_SPHERE = -1;
+const int LEAF_QUAD   = -2;
 struct BVHNode {
     vec3 aabb_min;
     int  right_or_obj_idx;
@@ -138,6 +141,44 @@ layout(std430, binding = 2) readonly buffer BVHBlock {
 // =============================================================
 layout(std430, binding = 3) buffer OutputBlock {
     vec4 pixels[];
+};
+
+// =============================================================
+// Binding 4 — Quad array (SSBO, std430)
+// Matches GPUQuad in raytrace/gpu_types.odin. 176 bytes per quad.
+// std430: vec3 has alignment 16; explicit _pad_align_tex[3] so tex_even starts at offset 144.
+// =============================================================
+struct Quad {
+    vec3  Q;
+    float _pad0;
+    vec3  u;
+    float _pad1;
+    vec3  v;
+    float _pad2;
+    vec3  w;
+    float _pad3;
+    vec3  normal;
+    float _pad4;
+    float D;
+    int   mat_type;
+    float _pad5[2];
+    vec3  albedo;
+    float _pad6;
+    float fuzz_or_ior;
+    int   tex_type;
+    float tex_scale;
+    float _pad7[2];
+    float _pad_align_tex[3];  // 12 bytes: tex_even at offset 144 (16-byte aligned)
+    vec3  tex_even;
+    float _pad8;
+    vec3  tex_odd;
+    float _pad9;
+};
+
+layout(std430, binding = 4) readonly buffer QuadsBlock {
+    int   quad_count;
+    int   _quad_pad[3];
+    Quad  quads[];
 };
 
 // =============================================================
@@ -214,7 +255,7 @@ struct HitRecord {
     vec3  normal;     // outward normal at hit point
     float t;          // ray parameter at hit
     bool  front_face; // true if ray hit the outside of the surface
-    float u, v;       // texture coordinates [0,1] (sphere: theta/phi; cube: CPU-only)
+    float u, v;       // texture coordinates [0,1] (sphere: theta/phi; quad: CPU-only)
     int   mat_type;
     vec3  albedo;
     float fuzz_or_ior;
@@ -240,6 +281,50 @@ vec2 sphere_get_uv(vec3 p) {
     float u     = phi / (2.0 * 3.14159265359);
     float v     = theta / 3.14159265359;
     return vec2(u, v);
+}
+// =============================================================
+// Interval utilities (RTNW-style)
+// =============================================================
+// Intervals represent ranges on a 1D axis; used by AABB for slab tests.
+// The expand() method pads by delta/2 on each side to ensure non-zero
+// thickness for numerical stability (critical for quad AABBs).
+
+struct Interval {
+    float min;
+    float max;
+};
+
+const Interval INTERVAL_EMPTY    = Interval( 1e30, -1e30);
+const Interval INTERVAL_UNIVERSE = Interval(-1e30,  1e30);
+
+float interval_size(Interval i) {
+    return i.max - i.min;
+}
+
+Interval interval_expand(Interval i, float delta) {
+    float padding = delta * 0.5;
+    return Interval(i.min - padding, i.max + padding);
+}
+
+float interval_clamp(Interval i, float x) {
+    if (x < i.min) return i.min;
+    if (x > i.max) return i.max;
+    return x;
+}
+
+// overlaps returns true if two intervals share any point.
+// NaN-safe: any NaN in the comparison returns false, so invalid
+// intervals never report an overlap.
+bool interval_overlaps(Interval a, Interval b) {
+    float t_min = max(a.min, b.min);
+    float t_max = min(a.max, b.max);
+    return t_min < t_max;
+}
+
+// contains returns true if x lies within [min, max] (inclusive).
+// NaN-safe: any NaN comparison returns false.
+bool interval_contains(Interval i, float x) {
+    return i.min <= x && x <= i.max;
 }
 
 // hit_sphere tests a ray against a sphere using the quadratic formula.
@@ -281,21 +366,90 @@ bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
     return true;
 }
 
+// is_interior_quad returns false if (alpha, beta) is outside the unit square,
+// otherwise sets rec.u/rec.v and returns true. Matches RTNW quad::is_interior.
+bool is_interior_quad(float alpha, float beta, out HitRecord rec) {
+    Interval unit_interval = Interval(0.0, 1.0);
+    // Given the hit point in plane coordinates, return false if it is outside the
+    // primitive, otherwise set the hit record UV coordinates and return true.
+    if (!interval_contains(unit_interval, alpha) || !interval_contains(unit_interval, beta))
+        return false;
+    rec.u = alpha;
+    rec.v = beta;
+    return true;
+}
+
+// hit_quad tests a ray against a planar quad (RTNW: Q + alpha*u + beta*v, alpha/beta in [0,1]).
+// Uses plane intersection then interior test with cached w.
+bool hit_quad(Quad q, Ray r, float t_min, float t_max, out HitRecord rec) {
+    float denom = dot(q.normal, r.dir);
+    // No hit if the ray is parallel to the plane.
+    if (abs(denom) < 1e-8)
+        return false;
+
+    // Return false if the hit point parameter t is outside the ray interval.
+    float t = (q.D - dot(q.normal, r.origin)) / denom;
+    if (t < t_min || t > t_max)
+        return false;
+
+    // Determine if the hit point lies within the planar shape using its plane coordinates.
+    vec3 intersection = ray_at(r, t);
+    vec3 planar_hitpt_vector = intersection - q.Q;
+    float alpha = dot(q.w, cross(planar_hitpt_vector, q.v));
+    float beta  = dot(q.w, cross(q.u, planar_hitpt_vector));
+
+    if (!is_interior_quad(alpha, beta, rec))
+        return false;
+
+    // Ray hits the 2D shape; set the rest of the hit record and return true.
+    rec.t = t;
+    rec.p = intersection;
+    set_face_normal(rec, r, q.normal);
+    rec.mat_type    = q.mat_type;
+    rec.albedo      = q.albedo;
+    rec.fuzz_or_ior = q.fuzz_or_ior;
+    rec.ray_time    = r.time;
+    rec.tex_type    = q.tex_type;
+    rec.tex_scale   = q.tex_scale;
+    rec.tex_even    = q.tex_even;
+    rec.tex_odd     = q.tex_odd;
+    rec.tex_index   = 0;
+    return true;
+}
+
+
 // =============================================================
-// AABB overlap test
+// AABB overlap test (robust variant)
 // =============================================================
 // aabb_hit_fast uses a precomputed inverse direction — one vec3 div
-// per ray instead of one per AABB.  Modern GPUs handle 1/0 = ±Inf
+// per ray instead of one per AABB. Modern GPUs handle 1/0 = ±Inf
 // correctly with IEEE 754, so no special-case for parallel rays.
+//
+// CRITICAL FIX: Zero-thickness AABBs (from axis-aligned quads) are padded
+// with a small epsilon to prevent slab test rejection due to floating-point
+// precision. Without this, XZ quads (floor/ceiling) frequently disappear.
 
-bool aabb_hit_fast(vec3 aabb_min, vec3 aabb_max, vec3 inv_dir, vec3 origin, float t_min, float t_max) {
-    vec3 t0 = (aabb_min - origin) * inv_dir;
-    vec3 t1 = (aabb_max - origin) * inv_dir;
-    vec3 tlo = min(t0, t1);
-    vec3 thi = max(t0, t1);
-    t_min = max(t_min, max(tlo.x, max(tlo.y, tlo.z)));
-    t_max = min(t_max, min(thi.x, min(thi.y, thi.z)));
-    return t_max > t_min;
+const float AABB_EPS = 1e-4;
+
+bool aabb_hit_fast(vec3 aabb_min, vec3 aabb_max, vec3 dir, vec3 inv_dir, vec3 origin, float t_min, float t_max) {
+    // Pad zero-thickness axes to ensure the slab test doesn't reject
+    // flat AABBs due to floating-point precision issues.
+    vec3 bmin = aabb_min;
+    vec3 bmax = aabb_max;
+    vec3 size = bmax - bmin;
+    if (size.x < AABB_EPS) { bmin.x -= AABB_EPS; bmax.x += AABB_EPS; }
+    if (size.y < AABB_EPS) { bmin.y -= AABB_EPS; bmax.y += AABB_EPS; }
+    if (size.z < AABB_EPS) { bmin.z -= AABB_EPS; bmax.z += AABB_EPS; }
+
+    // Vectorized slab test (GPU-friendly: min/max on vec3).
+    vec3 t0 = (bmin - origin) * inv_dir;
+    vec3 t1 = (bmax - origin) * inv_dir;
+    vec3 t_lo = min(t0, t1);
+    vec3 t_hi = max(t0, t1);
+    float t_enter = max(max(t_lo.x, t_lo.y), t_lo.z);
+    float t_exit  = min(min(t_hi.x, t_hi.y), t_hi.z);
+    if (t_exit < t_min || t_enter > t_max) return false;
+    return true;
 }
 
 // =============================================================
@@ -332,15 +486,25 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
         BVHNode node = bvh_nodes[idx];
 
         // AABB test: skip this subtree if the ray misses the bounding box.
-        if (!aabb_hit_fast(node.aabb_min, node.aabb_max, inv_dir, r.origin, t_min, closest)) continue;
+        if (!aabb_hit_fast(node.aabb_min, node.aabb_max, r.dir, inv_dir, r.origin, t_min, closest)) continue;
 
-        if (node.left_idx == -1) {
-            // ── Leaf node ──
-            // Decode sphere index: stored as -(obj_index + 1).
+        if (node.left_idx == LEAF_SPHERE) {
+            // ── Sphere leaf ── right_or_obj_idx = -(sphere_index + 1)
             int obj_idx = -(node.right_or_obj_idx + 1);
             if (obj_idx >= 0 && obj_idx < sphere_count) {
                 HitRecord rec;
                 if (hit_sphere(spheres[obj_idx], r, t_min, closest, rec)) {
+                    closest     = rec.t;
+                    closest_rec = rec;
+                    hit_anything = true;
+                }
+            }
+        } else if (node.left_idx == LEAF_QUAD) {
+            // ── Quad leaf ── right_or_obj_idx = -(quad_index + 1)
+            int obj_idx = -(node.right_or_obj_idx + 1);
+            if (obj_idx >= 0 && obj_idx < quad_count) {
+                HitRecord rec;
+                if (hit_quad(quads[obj_idx], r, t_min, closest, rec)) {
                     closest     = rec.t;
                     closest_rec = rec;
                     hit_anything = true;

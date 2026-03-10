@@ -6,6 +6,7 @@ import "core:strings"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
 import "RT_Weekend:util"
+import rt "RT_Weekend:raytrace"
 
 // Layout constants for the Object Properties panel.
 // Separate from PROP_* in edit_view_panel.odin to fit a narrower panel.
@@ -252,6 +253,66 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 		return
 	}
 
+	// Quad selected — material only (Q, u, v not editable here)
+	if ev.selection_kind == .Quad && ev.selected_idx >= 0 {
+		quad, ok := GetSceneQuad(ev.scene_mgr, ev.selected_idx)
+		if !ok { return }
+		lx := content.x + 8
+		cy := content.y + 6
+		op_section_label(app, "QUAD — MATERIAL", lx, cy)
+		cy += 20
+		bw := (content.width - 16) / 3.0 - 2
+		mat_rects := [3]rl.Rectangle{
+			{lx, cy, bw, 22},
+			{lx + bw + 2, cy, bw, 22},
+			{lx + 2*(bw+2), cy, bw, 22},
+		}
+		is_lambertian := false
+		is_metallic := false
+		is_dielectric := false
+		#partial switch _ in quad.material {
+		case rt.lambertian:  is_lambertian = true
+		case rt.metallic:    is_metallic = true
+		case rt.dielectric:  is_dielectric = true
+		}
+		op_mat_button(app, "Lambertian", mat_rects[0], is_lambertian, mouse)
+		op_mat_button(app, "Metallic",   mat_rects[1], is_metallic,   mouse)
+		op_mat_button(app, "Diel.",      mat_rects[2], is_dielectric, mouse)
+		cy += 28
+		x0 := lx + OP_LW + OP_GAP
+		box_rgb := [3]rl.Rectangle{
+			{x0, cy, OP_FW, OP_FH},
+			{x0 + OP_COL, cy, OP_FW, OP_FH},
+			{x0 + 2*OP_COL, cy, OP_FW, OP_FH},
+		}
+		box_param := rl.Rectangle{x0, cy + OP_FH + 6, OP_FW, OP_FH}
+		op_section_label(app, "COLOR", lx, cy - 2)
+		col := [3]f32{0.5, 0.5, 0.5}
+		#partial switch m in quad.material {
+		case rt.lambertian:
+			if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
+			else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
+		case rt.metallic:
+			col = m.albedo
+		}
+		op_drag_field(app, "R", col[0], box_rgb[0], st.prop_drag_idx == 20, mouse)
+		op_drag_field(app, "G", col[1], box_rgb[1], st.prop_drag_idx == 21, mouse)
+		op_drag_field(app, "B", col[2], box_rgb[2], st.prop_drag_idx == 22, mouse)
+		cy += OP_FH + 8
+		if is_metallic {
+			fz: f32 = 0.1
+			if m, ok2 := quad.material.(rt.metallic); ok2 { fz = m.fuzz }
+			op_section_label(app, "Fuzz", lx, cy - 2)
+			op_drag_field(app, "Fz", fz, box_param, st.prop_drag_idx == 23, mouse)
+		} else if is_dielectric {
+			ir: f32 = 1.5
+			if d, ok2 := quad.material.(rt.dielectric); ok2 { ir = d.ref_idx }
+			op_section_label(app, "IOR", lx, cy - 2)
+			op_drag_field(app, "Ir", ir, box_param, st.prop_drag_idx == 23, mouse)
+		}
+		return
+	}
+
 	// Sphere selected
 	if ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) { return }
 	sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
@@ -420,6 +481,128 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			}
 		}
 		if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else if rl.CheckCollisionPointRec(mouse, rect) { rl.SetMouseCursor(.DEFAULT) }
+		return
+	}
+
+	// ── Quad selected: material editing only
+	if ev.selection_kind == .Quad && ev.selected_idx >= 0 {
+		quad, ok := GetSceneQuad(ev.scene_mgr, ev.selected_idx)
+		if !ok { return }
+		lx := rect.x + 8
+		cy := rect.y + 6 + 20
+		bw := (rect.width - 16) / 3.0 - 2
+		mat_rects := [3]rl.Rectangle{
+			{lx, cy, bw, 22},
+			{lx + bw + 2, cy, bw, 22},
+			{lx + 2*(bw+2), cy, bw, 22},
+		}
+		cy += 28
+		x0 := lx + OP_LW + OP_GAP
+		box_rgb := [3]rl.Rectangle{
+			{x0, cy, OP_FW, OP_FH},
+			{x0 + OP_COL, cy, OP_FW, OP_FH},
+			{x0 + 2*OP_COL, cy, OP_FW, OP_FH},
+		}
+		box_param := rl.Rectangle{x0, cy + OP_FH + 6, OP_FW, OP_FH}
+
+		if st.prop_drag_idx >= 0 && st.prop_drag_idx >= 20 && st.prop_drag_idx <= 23 {
+			if !lmb {
+				st.prop_drag_idx = -1
+				rl.SetMouseCursor(.DEFAULT)
+			} else {
+				delta := mouse.x - st.prop_drag_start_x
+				col := [3]f32{0.5, 0.5, 0.5}
+				#partial switch m in quad.material {
+				case rt.lambertian:
+					if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
+					else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
+				case rt.metallic: col = m.albedo
+				}
+				switch st.prop_drag_idx {
+				case 20:
+					col[0] = st.prop_drag_start_val + delta * 0.005
+					col[0] = clamp(col[0], 0.0, 1.0)
+				case 21:
+					col[1] = st.prop_drag_start_val + delta * 0.005
+					col[1] = clamp(col[1], 0.0, 1.0)
+				case 22:
+					col[2] = st.prop_drag_start_val + delta * 0.005
+					col[2] = clamp(col[2], 0.0, 1.0)
+				case 23:
+					if m, is_metal := quad.material.(rt.metallic); is_metal {
+						fz := st.prop_drag_start_val + delta * 0.002
+						fz = clamp(fz, 0.0, 1.0)
+						quad.material = rt.metallic{albedo = m.albedo, fuzz = fz}
+					} else if _, is_diel := quad.material.(rt.dielectric); is_diel {
+						ir := st.prop_drag_start_val + delta * 0.01
+						if ir < 1.0 { ir = 1.0 }
+						if ir > 3.0 { ir = 3.0 }
+						quad.material = rt.dielectric{ref_idx = ir}
+					}
+					SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
+					mark_scene_dirty(app)
+					return
+				}
+				#partial switch _ in quad.material {
+				case rt.lambertian:
+					quad.material = rt.lambertian{albedo = rt.ConstantTexture{color = col}}
+				case rt.metallic:
+					fz: f32 = 0.1
+					if m, ok2 := quad.material.(rt.metallic); ok2 { fz = m.fuzz }
+					quad.material = rt.metallic{albedo = col, fuzz = fz}
+				}
+				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
+				mark_scene_dirty(app)
+			}
+			return
+		}
+		if lmb_pressed {
+			if rl.CheckCollisionPointRec(mouse, mat_rects[0]) {
+				col := [3]f32{0.5, 0.5, 0.5}
+				#partial switch m in quad.material {
+				case rt.lambertian:
+					if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
+				case rt.metallic: col = m.albedo
+				}
+				quad.material = rt.lambertian{albedo = rt.ConstantTexture{color = col}}
+				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
+				mark_scene_dirty(app)
+				app_push_log(app, strings.clone("Quad: Lambertian"))
+				return
+			}
+			if rl.CheckCollisionPointRec(mouse, mat_rects[1]) {
+				col := [3]f32{0.5, 0.5, 0.5}
+				if m, ok2 := quad.material.(rt.metallic); ok2 { col = m.albedo }
+				quad.material = rt.metallic{albedo = col, fuzz = 0.1}
+				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
+				mark_scene_dirty(app)
+				app_push_log(app, strings.clone("Quad: Metallic"))
+				return
+			}
+			if rl.CheckCollisionPointRec(mouse, mat_rects[2]) {
+				quad.material = rt.dielectric{ref_idx = 1.5}
+				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
+				mark_scene_dirty(app)
+				app_push_log(app, strings.clone("Quad: Dielectric"))
+				return
+			}
+		}
+		col := [3]f32{0.5, 0.5, 0.5}
+		#partial switch m in quad.material {
+		case rt.lambertian:
+			if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
+			else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
+		case rt.metallic: col = m.albedo
+		}
+		param_val: f32 = 0.1
+		if m, ok2 := quad.material.(rt.metallic); ok2 { param_val = m.fuzz }
+		else if d, ok2 := quad.material.(rt.dielectric); ok2 { param_val = d.ref_idx }
+		any_hov := false
+		if op_try_start_drag(box_rgb[0], 20, col[0], st, mouse, lmb_pressed) { any_hov = true }
+		if op_try_start_drag(box_rgb[1], 21, col[1], st, mouse, lmb_pressed) { any_hov = true }
+		if op_try_start_drag(box_rgb[2], 22, col[2], st, mouse, lmb_pressed) { any_hov = true }
+		if op_try_start_drag(box_param, 23, param_val, st, mouse, lmb_pressed) { any_hov = true }
+		if any_hov { rl.SetMouseCursor(.RESIZE_EW) } else if rl.CheckCollisionPointRec(mouse, rect) { rl.SetMouseCursor(.DEFAULT) }
 		return
 	}
 

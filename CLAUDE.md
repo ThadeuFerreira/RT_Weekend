@@ -145,7 +145,7 @@ Union-based dispatch over `Lambertian`, `Metallic`, and `Dielectric`. Each imple
 - **raytrace/gpu_types.odin** — GPU path uses `TEX_CONSTANT` / `TEX_CHECKER` and `tex_scale`, `tex_even`, `tex_odd` in `GPUSphere`; `scene_to_gpu_spheres` converts core Texture to GPU fields.
 
 ### Geometry (`raytrace/hittable.odin`)
-`Sphere` and `Cube` primitives. BVH nodes are also `Hittable` variants (recursive union tree). Spheres support **motion blur** via `center` → `center1` over the shutter interval when `is_moving` is true.
+`Sphere` and `Quad` primitives (quad = planar rectangle via Q + αu + βv; helpers `xy_rect`, `xz_rect`, `yz_rect` for walls/floors/ceilings). BVH nodes are also `Hittable` variants (recursive union tree). Spheres support **motion blur** via `center` → `center1` over the shutter interval when `is_moving` is true.
 
 ### Motion blur (editor + core + persistence)
 - **Camera shutter** — `core.CameraParams` and `rt.Camera` have `shutter_open` and `shutter_close` (normalized 0..1). The Camera panel and Object Properties (camera selected) expose drag fields; values are copied via `apply_scene_camera` / `copy_camera_to_scene_params`. `get_ray` samples ray time with `util.random_float_range(rng, shutter_open, shutter_close)` so the shutter window affects motion blur.

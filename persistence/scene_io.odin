@@ -31,11 +31,15 @@ SceneMaterial :: struct {
 
 SceneObject :: struct {
 	object_type: string        `json:"type"`,
-	center:      [3]f32        `json:"center"`,
+	center:      [3]f32        `json:"center,omitempty"`,
 	center1:     [3]f32        `json:"center1,omitempty"`, // end position for motion blur (t=1)
-	radius:      f32           `json:"radius"`,
+	radius:      f32           `json:"radius,omitempty"`,
 	material:    SceneMaterial `json:"material"`,
 	is_moving:   bool          `json:"is_moving,omitempty"`,
+	// Quad: corner Q and edge vectors u, v.
+	q:           [3]f32        `json:"q,omitempty"`,
+	u:           [3]f32        `json:"u,omitempty"`,
+	v:           [3]f32        `json:"v,omitempty"`,
 }
 
 SceneFile :: struct {
@@ -163,8 +167,8 @@ load_scene :: proc(
 					material  = mat,
 					is_moving = obj.is_moving,
 				})
-			case "cube":
-				append(&world, rt.Cube{center = obj.center, radius = obj.radius, material = mat})
+			case "quad":
+				append(&world, rt.Object(rt.make_quad(obj.q, obj.u, obj.v, mat)))
 			case:
 				fmt.fprintf(os.stderr, "Unknown object type: %s\n", obj.object_type)
 			}
@@ -229,11 +233,12 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 				material    = material_to_scene_material(o.material),
 				is_moving   = o.is_moving,
 			})
-		case rt.Cube:
+		case rt.Quad:
 			append(&scene.objects, SceneObject{
-				object_type = "cube",
-				center      = o.center,
-				radius      = o.radius,
+				object_type = "quad",
+				q           = o.Q,
+				u           = o.u,
+				v           = o.v,
 				material    = material_to_scene_material(o.material),
 			})
 		}

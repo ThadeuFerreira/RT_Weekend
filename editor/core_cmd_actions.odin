@@ -13,6 +13,7 @@ import "RT_Weekend:util"
 
 cmd_action_file_new :: proc(app: ^App) {
     if !app.finished { return }
+    app.include_ground_plane = true
     app_set_ground_texture(app, nil)
     app_clear_image_texture_cache(app)
 
@@ -35,6 +36,7 @@ LoadFromSceneSpheres(ev.scene_mgr, initial[:])
 ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
+    AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -72,6 +74,7 @@ cmd_action_file_save :: proc(app: ^App) -> bool {
     ev := &app.e_edit_view
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := app_build_world_from_scene(app, ev.export_scratch[:])
+    AppendQuadsToWorld(ev.scene_mgr, &world)
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(app.current_scene_path, app.r_camera, world) {
@@ -170,12 +173,14 @@ cmd_action_save_preset :: proc(app: ^App) {
 
 cmd_action_render_restart :: proc(app: ^App) {
     ev := &app.e_edit_view
-ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    app_restart_render_with_scene(app, ev.export_scratch[:])
+    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    world := app_build_world_from_scene(app, ev.export_scratch[:])
+    AppendQuadsToWorld(ev.scene_mgr, &world)
+    app_restart_render(app, world)
 }
 
 cmd_enabled_render_restart :: proc(app: ^App) -> bool {
-    return app.finished
+    return true
 }
 
 trace_output_path :: proc() -> string {
@@ -283,6 +288,38 @@ apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
             ev.selection_kind = .None
             ev.selected_idx   = -1
             app_push_log(app, strings.clone("Redo: delete sphere"))
+        }
+    case AddQuadAction:
+        if is_undo {
+            OrderedRemove(ev.scene_mgr, a.idx)
+            ev.selection_kind = .None
+            ev.selected_idx   = -1
+            app_push_log(app, strings.clone("Undo: add quad"))
+        } else {
+            InsertQuadAt(ev.scene_mgr, a.idx, a.quad)
+            ev.selection_kind = .Quad
+            ev.selected_idx   = a.idx
+            app_push_log(app, strings.clone("Redo: add quad"))
+        }
+    case DeleteQuadAction:
+        if is_undo {
+            InsertQuadAt(ev.scene_mgr, a.idx, a.quad)
+            ev.selection_kind = .Quad
+            ev.selected_idx   = a.idx
+            app_push_log(app, strings.clone("Undo: delete quad"))
+        } else {
+            OrderedRemove(ev.scene_mgr, a.idx)
+            ev.selection_kind = .None
+            ev.selected_idx   = -1
+            app_push_log(app, strings.clone("Redo: delete quad"))
+        }
+    case ModifyQuadAction:
+        if is_undo {
+            SetSceneQuad(ev.scene_mgr, a.idx, a.before)
+            app_push_log(app, strings.clone("Undo: move quad"))
+        } else {
+            SetSceneQuad(ev.scene_mgr, a.idx, a.after)
+            app_push_log(app, strings.clone("Redo: move quad"))
         }
     case ModifyCameraAction:
         if is_undo {

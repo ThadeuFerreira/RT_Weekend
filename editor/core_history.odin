@@ -1,6 +1,7 @@
 package editor
 
 import "RT_Weekend:core"
+import rt "RT_Weekend:raytrace"
 
 EDIT_HISTORY_MAX :: 128
 
@@ -20,12 +21,28 @@ DeleteSphereAction :: struct {
     sphere: core.SceneSphere,
 }
 
+AddQuadAction :: struct {
+    idx:  int,
+    quad: rt.Quad,
+}
+
+DeleteQuadAction :: struct {
+    idx:  int,
+    quad: rt.Quad,
+}
+
+ModifyQuadAction :: struct {
+    idx:    int,
+    before: rt.Quad,
+    after:  rt.Quad,
+}
+
 ModifyCameraAction :: struct {
     before: core.CameraParams,
     after:  core.CameraParams,
 }
 
-EditAction :: union { ModifySphereAction, AddSphereAction, DeleteSphereAction, ModifyCameraAction }
+EditAction :: union { ModifySphereAction, AddSphereAction, DeleteSphereAction, AddQuadAction, DeleteQuadAction, ModifyQuadAction, ModifyCameraAction }
 
 EditHistory :: struct {
     actions: [dynamic]EditAction,
