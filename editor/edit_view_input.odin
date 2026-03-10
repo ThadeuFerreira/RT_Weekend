@@ -19,6 +19,7 @@ EditViewRects :: struct {
 	btn_add, btn_del, btn_frustum, btn_focal: rl.Rectangle,
 	btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus: rl.Rectangle,
 	btn_bg, swatch_bg, popover_bg: rl.Rectangle,
+	btn_bg, swatch_bg, popover_bg: rl.Rectangle,
 	btn_fromview, btn_render: rl.Rectangle,
 }
 
@@ -29,6 +30,7 @@ edit_view_rects_from_content :: proc(content: rl.Rectangle) -> EditViewRects {
 	r.btn_frustum  = rl.Rectangle{content.x + 174, content.y + 5, 56, 22}
 	r.btn_focal    = rl.Rectangle{content.x + 234, content.y + 5, 40, 22}
 	r.btn_aabb, r.btn_sel, r.btn_bvh, r.btn_d_plus, r.btn_d_minus = edit_view_aabb_toolbar_rects(content)
+	r.btn_bg, r.swatch_bg, r.popover_bg = edit_view_background_rects(content)
 	r.btn_bg, r.swatch_bg, r.popover_bg = edit_view_background_rects(content)
 	r.btn_fromview = rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
 	r.btn_render   = rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
@@ -68,7 +70,10 @@ get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 	if ev.prop_drag_idx >= 0 { return .SpherePropDrag }
 	if ev.drag_obj_active { return .ViewportObjectDrag }
 	if ev.bg_drag_idx >= 0 { return .Toolbar }
+	if ev.bg_drag_idx >= 0 { return .Toolbar }
 	if lmb_pressed {
+		if rl.CheckCollisionPointRec(mouse, rects.btn_bg) { return .Toolbar }
+		if ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg) { return .Toolbar }
 		if rl.CheckCollisionPointRec(mouse, rects.btn_bg) { return .Toolbar }
 		if ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg) { return .Toolbar }
 		if rl.CheckCollisionPointRec(mouse, rects.btn_frustum) { return .Toolbar }
