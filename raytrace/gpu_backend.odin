@@ -126,6 +126,7 @@ _camera_to_gpu_uniforms :: proc(cam: ^Camera, total_samples, current_sample: int
         max_depth      = i32(cam.max_depth),
         total_samples  = i32(total_samples),
         current_sample = i32(current_sample),
+        background     = cam.background,
     }
 }
 
@@ -266,7 +267,7 @@ gpu_backend_init :: proc(
 
     // ── UBO: camera parameters ────────────────────────────────────────────
     // Uploaded once here; only current_sample changes per dispatch, so
-    // dispatch re-uploads the full 128-byte struct (cheap).
+    // dispatch re-uploads the full camera uniform struct (cheap).
     b.cached_uniforms = _camera_to_gpu_uniforms(cam, samples, 0)
     gl.BindBuffer(gl.UNIFORM_BUFFER, b.ubo_camera)
     gl.BufferData(gl.UNIFORM_BUFFER, size_of(GPUCameraUniforms), &b.cached_uniforms, gl.DYNAMIC_DRAW)

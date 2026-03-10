@@ -26,6 +26,7 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Next Week: Checkers Texture", build = build_next_week_texture_checker_scene},
     {label = "Next Week: Quads",            build = build_next_week_quads_scene},
     {label = "Next Week: Turbulence",       build = build_next_week_turbulence_scene},
+    {label = "Cornell Box (empty)",        build = build_cornell_box_scene},
 }
 
 WEEKEND_CAMERA :: core.CameraParams{
@@ -38,6 +39,7 @@ WEEKEND_CAMERA :: core.CameraParams{
     max_depth     = 50,
     shutter_open  = 0,
     shutter_close = 1,
+    background    = core.CAMERA_BACKGROUND_SKY,
 }
 
 // WeekendGridParams configures the shared "One Weekend" grid of small spheres + three large spheres.
@@ -235,6 +237,7 @@ build_next_week_quads_scene :: proc() -> (
         max_depth     = 50,
         shutter_open  = 0,
         shutter_close = 1,
+        background    = core.CAMERA_BACKGROUND_SKY,
     }
 
     return nil, result_quads[:], quad_camera, nil, false
@@ -250,6 +253,7 @@ TURBULENCE_CAMERA :: core.CameraParams{
     max_depth     = 50,
     shutter_open  = 0,
     shutter_close = 1,
+    background    = core.CAMERA_BACKGROUND_SKY,
 }
 
 // build_next_week_turbulence_scene returns the "perlin spheres" scene from "Ray Tracing: The Next Week".
@@ -269,5 +273,87 @@ build_next_week_turbulence_scene :: proc() -> (
         albedo        = core.NoiseTexture{scale = 4},
     })
     return result[:], nil, TURBULENCE_CAMERA, core.NoiseTexture{scale = 4}, true
+}
+
+// Cornell Box (1984): five diffuse walls and a rectangular ceiling light. No ground plane.
+// Box from (0,0,0) to (1,1,1); camera looks in through the open front (z=0). Left=red, right=green, rest white.
+build_cornell_box_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+) {
+    result_quads := make([dynamic]raytrace.Quad)
+
+    white := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.73, 0.73, 0.73}},
+    })
+    red := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.65, 0.05, 0.05}},
+    })
+    green := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.12, 0.45, 0.15}},
+    })
+    light_mat := raytrace.material(raytrace.diffuse_light{emit = {15, 15, 15}})
+
+    // Floor: y=0, x in [0,1], z in [0,1]
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 0, 0},
+        [3]f32{1, 0, 0},
+        [3]f32{0, 0, 1},
+        white,
+    ))
+    // Ceiling: y=1
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 1, 0},
+        [3]f32{1, 0, 0},
+        [3]f32{0, 0, 1},
+        white,
+    ))
+    // Back wall: z=1
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 0, 1},
+        [3]f32{1, 0, 0},
+        [3]f32{0, 1, 0},
+        white,
+    ))
+    // Left wall: x=0 (red)
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 0, 0},
+        [3]f32{0, 1, 0},
+        [3]f32{0, 0, 1},
+        red,
+    ))
+    // Right wall: x=1 (green)
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{1, 0, 0},
+        [3]f32{0, 1, 0},
+        [3]f32{0, 0, 1},
+        green,
+    ))
+    // Ceiling light: small rectangle on ceiling (y=1), centered
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0.2, 0.99, 0.2},
+        [3]f32{0.6, 0, 0},
+        [3]f32{0, 0, 0.6},
+        light_mat,
+    ))
+
+    // Black background: no ambient/sky; only light comes from the ceiling emitter.
+    cornell_camera := core.CameraParams{
+        lookfrom      = {0.5, 0.5, -0.5},
+        lookat        = {0.5, 0.5, 0.5},
+        vup           = {0, 1, 0},
+        vfov          = 40,
+        defocus_angle = 0,
+        focus_dist    = 1.0,
+        max_depth     = 50,
+        shutter_open  = 0,
+        shutter_close = 1,
+        background    = {0, 0, 0},
+    }
+
+    return nil, result_quads[:], cornell_camera, nil, false
 }
 

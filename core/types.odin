@@ -50,6 +50,7 @@ MaterialKind :: enum {
 	Lambertian,
 	Metallic,
 	Dielectric,
+	DiffuseLight,
 }
 
 // SceneSphere is the canonical in-memory representation of a sphere for the editor and the renderer.
@@ -71,6 +72,11 @@ SceneSphere :: struct {
 	is_moving:         bool,
 }
 
+// Default sky color when a ray misses the scene. Black so the only light comes from emitters.
+CAMERA_BACKGROUND_DEFAULT :: [3]f32{0, 0, 0}
+// Sky color for example scenes and backward compatibility (bluish gradient feel).
+CAMERA_BACKGROUND_SKY :: [3]f32{0.70, 0.80, 1.00}
+
 // CameraParams is the shared camera definition used by the edit view (and camera panel) and the path tracer.
 // Includes focus distance and defocus angle for depth-of-field. Raytrace applies this to rt.Camera before rendering.
 // Shutter open/close are normalized [0..1]; ray time is sampled in this interval (scaffolding; get_ray may use later).
@@ -84,4 +90,5 @@ CameraParams :: struct {
 	max_depth:     int,    // max ray bounces
 	shutter_open:  f32,    // motion-blur shutter open time (normalized 0..1, default 0)
 	shutter_close: f32,   // motion-blur shutter close time (normalized 0..1, default 1)
+	background:    [3]f32, // sky color when ray misses (default CAMERA_BACKGROUND_DEFAULT)
 }

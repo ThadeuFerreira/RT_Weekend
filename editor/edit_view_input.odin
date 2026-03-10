@@ -18,6 +18,7 @@ EditViewRects :: struct {
 	vp_rect, props_rect: rl.Rectangle,
 	btn_add, btn_del, btn_frustum, btn_focal: rl.Rectangle,
 	btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus: rl.Rectangle,
+	btn_bg, swatch_bg, popover_bg: rl.Rectangle,
 	btn_fromview, btn_render: rl.Rectangle,
 }
 
@@ -28,6 +29,7 @@ edit_view_rects_from_content :: proc(content: rl.Rectangle) -> EditViewRects {
 	r.btn_frustum  = rl.Rectangle{content.x + 174, content.y + 5, 56, 22}
 	r.btn_focal    = rl.Rectangle{content.x + 234, content.y + 5, 40, 22}
 	r.btn_aabb, r.btn_sel, r.btn_bvh, r.btn_d_plus, r.btn_d_minus = edit_view_aabb_toolbar_rects(content)
+	r.btn_bg, r.swatch_bg, r.popover_bg = edit_view_background_rects(content)
 	r.btn_fromview = rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
 	r.btn_render   = rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
 	r.vp_rect = rl.Rectangle{
@@ -65,7 +67,10 @@ get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 	if ev.cam_prop_drag_idx >= 0 { return .CamPropDrag }
 	if ev.prop_drag_idx >= 0 { return .SpherePropDrag }
 	if ev.drag_obj_active { return .ViewportObjectDrag }
+	if ev.bg_drag_idx >= 0 { return .Toolbar }
 	if lmb_pressed {
+		if rl.CheckCollisionPointRec(mouse, rects.btn_bg) { return .Toolbar }
+		if ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg) { return .Toolbar }
 		if rl.CheckCollisionPointRec(mouse, rects.btn_frustum) { return .Toolbar }
 		if rl.CheckCollisionPointRec(mouse, rects.btn_focal) { return .Toolbar }
 		if rl.CheckCollisionPointRec(mouse, rects.btn_aabb) { return .Toolbar }
@@ -334,6 +339,57 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 }
 
 handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, rects: ^EditViewRects) {
+	lmb := rl.IsMouseButtonDown(.LEFT)
+	lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
+
+	// Background color picker: ongoing drag or click to open/close/drag
+	if ev.bg_drag_idx >= 0 {
+		if !lmb {
+			ev.bg_drag_idx = -1
+			rl.SetMouseCursor(.DEFAULT)
+		} else {
+			delta := mouse.x - ev.bg_drag_start_x
+			val := clamp(ev.bg_drag_start_val + delta * 0.002, 0, 1)
+			app.c_camera_params.background[ev.bg_drag_idx] = val
+			mark_scene_dirty(app)
+			app.r_render_pending = true
+			rl.SetMouseCursor(.RESIZE_EW)
+		}
+		return
+	}
+	if ev.bg_picker_open {
+		x0 := rects.popover_bg.x + 8 + OP_LW + OP_GAP
+		cy := rects.popover_bg.y + 6 + 18
+		box_rgb := [3]rl.Rectangle{
+			{x0,             cy, OP_FW, OP_FH},
+			{x0 + OP_COL,   cy, OP_FW, OP_FH},
+			{x0 + 2*OP_COL, cy, OP_FW, OP_FH},
+		}
+		if lmb_pressed {
+			in_popover := rl.CheckCollisionPointRec(mouse, rects.popover_bg)
+			in_btn_bg  := rl.CheckCollisionPointRec(mouse, rects.btn_bg)
+			if in_btn_bg {
+				ev.bg_picker_open = false
+			} else if !in_popover {
+				ev.bg_picker_open = false
+			} else {
+				for i in 0..<3 {
+					if rl.CheckCollisionPointRec(mouse, box_rgb[i]) {
+						ev.bg_drag_idx       = i
+						ev.bg_drag_start_x   = mouse.x
+						ev.bg_drag_start_val = app.c_camera_params.background[i]
+						return
+					}
+				}
+			}
+		}
+		return
+	}
+	if lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_bg) {
+		ev.bg_picker_open = true
+		return
+	}
+
 	// Dispatch by which button was hit (switch on first match)
 	switch {
 	case rl.CheckCollisionPointRec(mouse, rects.btn_frustum):

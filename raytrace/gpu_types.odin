@@ -87,7 +87,8 @@ LinearBVHNode :: struct #packed {
 MAT_LAMBERTIAN :: i32(0)   // Diffuse: scatter in cosine-weighted hemisphere
 MAT_METALLIC   :: i32(1)   // Specular: reflect + fuzz perturbation
 MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
-// Future: MAT_EMISSIVE :: i32(3), MAT_PBR_GLOSSY :: i32(4), …
+MAT_DIFFUSE_LIGHT :: i32(3) // Emissive: returns emit color, does not scatter
+// Future: MAT_PBR_GLOSSY :: i32(4), …
 
 // Texture type for Lambertian (GPU only; must match raytrace.comp).
 TEX_CONSTANT :: i32(0)  // use albedo as-is
@@ -208,6 +209,7 @@ GPUCameraUniforms :: struct #packed {
     total_samples:  i32,
     current_sample: i32,
     _pad:           [3]i32,             // align to 16 bytes
+    background:     [3]f32, _p5: f32,   // miss color (flat background)
 }
 
 // collect_image_textures_ordered walks the world and returns (1) a list of unique
@@ -323,6 +325,12 @@ scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = 
             gpu.fuzz_or_ior = m.ref_idx
             gpu.tex_type    = TEX_CONSTANT
             gpu.tex_index   = 0
+        case diffuse_light:
+            gpu.mat_type    = MAT_DIFFUSE_LIGHT
+            gpu.albedo      = m.emit
+            gpu.fuzz_or_ior = 0.0
+            gpu.tex_type    = TEX_CONSTANT
+            gpu.tex_index   = 0
         case:
             // Unknown material: default to white Lambertian (constant)
             gpu.mat_type  = MAT_LAMBERTIAN
@@ -401,6 +409,11 @@ scene_to_gpu_quads :: proc(objects: []Object, world_to_quad_gpu: []int = nil) ->
             gpu.mat_type    = MAT_DIELECTRIC
             gpu.albedo      = [3]f32{1, 1, 1}
             gpu.fuzz_or_ior = m.ref_idx
+            gpu.tex_type    = TEX_CONSTANT
+        case diffuse_light:
+            gpu.mat_type    = MAT_DIFFUSE_LIGHT
+            gpu.albedo      = m.emit
+            gpu.fuzz_or_ior = 0.0
             gpu.tex_type    = TEX_CONSTANT
         case:
             gpu.mat_type  = MAT_LAMBERTIAN
