@@ -28,6 +28,7 @@ update_sphere_nudge :: proc(app: ^App, ev: ^EditViewState) {
 		if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
 			ev.nudge_before = sphere
 		}
+		ui_log_drag_start(app, "SphereNudge")
 	}
 
 	if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
@@ -51,6 +52,7 @@ update_sphere_nudge :: proc(app: ^App, ev: ^EditViewState) {
 	if !kb.any_nudge && ev.nudge_active {
 		ev.nudge_active = false
 		if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
+			ui_log_drag_end(app, "SphereNudge")
 			edit_history_push(&app.edit_history, ModifySphereAction{
 				idx    = ev.selected_idx,
 				before = ev.nudge_before,

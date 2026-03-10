@@ -273,6 +273,12 @@ App :: struct {
     // Keyboard state: updated once per frame by keyboard_update; use instead of rl.IsKeyDown in features (nudge, etc.)
     keyboard: KeyboardState,
 
+    // UI event logging: when true (and UI_EVENT_LOG_ENABLED is set at build time), click/drag/hover
+    // events are written to the Log panel and stderr. Chrome trace output is controlled separately
+    // by TRACE_CAPTURE_ENABLED + the benchmark capture toggle in the Render menu.
+    // Default: false — enable via View menu or set directly in code for a debug session.
+    ui_event_log_enabled: bool,
+
     // Input consumption: reset each frame, set by menu bar/modal first, prevents click bleed
     input_consumed: bool,
 
