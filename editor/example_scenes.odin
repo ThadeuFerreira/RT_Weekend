@@ -26,8 +26,7 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Next Week: Checkers Texture", build = build_next_week_texture_checker_scene},
     {label = "Next Week: Quads",            build = build_next_week_quads_scene},
     {label = "Next Week: Turbulence",       build = build_next_week_turbulence_scene},
-    {label = "Cornell Box (empty)",        build = build_cornell_box_scene},
-    {label = "Cornell Box (empty)",        build = build_cornell_box_scene},
+    {label = "Cornell Box",        build = build_cornell_box_scene},
 }
 
 // WEEKEND_CAMERA is the default for in-memory example scenes. Scene files loaded from disk with no "background" field get the same default (sky) in persistence.load_scene for backward compat.
