@@ -92,6 +92,26 @@ append_box :: proc(quads: ^[dynamic]Quad, a, b: [3]f32, mat: material) {
 	append(quads, make_quad([3]f32{min_x, min_y, min_z}, dx, dz, mat))
 }
 
+// append_box_transformed appends an axis-aligned box then applies a transform matrix to each face.
+append_box_transformed :: proc(quads: ^[dynamic]Quad, a, b: [3]f32, mat: material, object_to_world: Mat4) {
+	local_quads := make([dynamic]Quad)
+	defer delete(local_quads)
+
+	append_box(&local_quads, a, b, mat)
+
+	for q in local_quads {
+		p0 := q.Q
+		p1 := q.Q + q.u
+		p2 := q.Q + q.v
+
+		w0 := mat4_transform_point(object_to_world, p0)
+		w1 := mat4_transform_point(object_to_world, p1)
+		w2 := mat4_transform_point(object_to_world, p2)
+
+		append(quads, make_quad(w0, w1-w0, w2-w0, q.material))
+	}
+}
+
 // Axis-aligned rectangle helpers: plane at constant k, extent [a0,a1] x [b0,b1] in the two varying axes.
 // xy_rect: z = k (floor/ceiling); xz_rect: y = k (wall); yz_rect: x = k (wall).
 xy_rect :: proc(x0, x1, y0, y1, k: f32, mat: material) -> Object {
