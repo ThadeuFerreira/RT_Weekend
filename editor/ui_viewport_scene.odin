@@ -71,23 +71,3 @@ draw_quad_with_material_color :: proc(q: rt.Quad, selected: bool) {
 	draw_quad_3d(q, col)
 }
 
-// draw_scene_objects_simple draws all scene objects as solid spheres or quads (no texture cache).
-// Used by the preview panel and as fallback in the edit view. Call inside BeginMode3D.
-draw_scene_objects_simple :: proc(
-	sm: ^SceneManager,
-	selection_kind: EditViewSelectionKind,
-	selected_idx: int,
-) {
-	if sm == nil { return }
-	for i in 0..<len(sm.objects) {
-		selected := (selection_kind == .Sphere || selection_kind == .Quad) && selected_idx == i
-		#partial switch o in sm.objects[i] {
-		case core.SceneSphere:
-			s := o
-			disp_col := sphere_solid_color_from_albedo(s.albedo)
-			draw_sphere_solid(s.center, s.radius, disp_col, selected)
-		case rt.Quad:
-			draw_quad_with_material_color(o, selected)
-		}
-	}
-}

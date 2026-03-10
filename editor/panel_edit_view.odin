@@ -78,25 +78,13 @@ viewport_texture_from_albedo :: proc(app: ^App, albedo: core.Texture) -> (tex: r
 // NOTE: viewport / picking helpers were moved into the editor package so they
 // can be shared by object implementations without creating package cycles.
 
-draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
-	ev := &app.e_edit_view
+// ensure_viewport_sphere_cache_filled invalidates cache if dirty, sizes it to match scene,
+// and fills any cache miss with mesh+texture. Call before BeginTextureMode (creating
+// mesh/model inside render target can prevent the texture from showing).
+// Shared by Edit View and Preview Port so both display textured spheres the same way.
+ensure_viewport_sphere_cache_filled :: proc(app: ^App, ev: ^EditViewState) {
 	sm := ev.scene_mgr
 	if sm == nil { return }
-	new_w := i32(vp_rect.width)
-	new_h := i32(vp_rect.height)
-
-	if new_w != ev.tex_w || new_h != ev.tex_h {
-		if ev.tex_w > 0 { rl.UnloadRenderTexture(ev.viewport_tex) }
-		if new_w > 0 && new_h > 0 {
-			ev.viewport_tex = rl.LoadRenderTexture(new_w, new_h)
-		}
-		ev.tex_w = new_w
-		ev.tex_h = new_h
-	}
-
-	if ev.tex_w <= 0 || ev.tex_h <= 0 { return }
-
-	// Invalidate viewport sphere cache when scene changed (load, add/remove sphere, etc.)
 	if ev.viewport_sphere_cache_dirty {
 		for i in 0..<len(ev.viewport_sphere_cache) {
 			free_viewport_sphere_cache_entry(&ev.viewport_sphere_cache[i])
@@ -104,8 +92,6 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 		clear(&ev.viewport_sphere_cache)
 		ev.viewport_sphere_cache_dirty = false
 	}
-
-	// Ensure cache has one slot per object in sm; shrink and free evicted entries if count dropped.
 	n_objects := len(sm.objects)
 	for len(ev.viewport_sphere_cache) > n_objects {
 		free_viewport_sphere_cache_entry(&ev.viewport_sphere_cache[len(ev.viewport_sphere_cache) - 1])
@@ -114,9 +100,6 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	for len(ev.viewport_sphere_cache) < n_objects {
 		append(&ev.viewport_sphere_cache, ViewportSphereCacheEntry{})
 	}
-
-	// Pre-pass: build mesh+model+texture for any cache miss *before* we enter render target / 3D mode.
-	// Creating and uploading mesh/model inside BeginTextureMode/BeginMode3D can prevent the texture from showing.
 	N_RINGS  :: 64
 	N_SLICES :: 64
 	for i in 0..<n_objects {
@@ -143,36 +126,69 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 			entry.tex_sig = strings.clone(tex_sig)
 		}
 	}
+}
 
-	rl.BeginTextureMode(ev.viewport_tex)
-	rl.ClearBackground(rl.Color{20, 25, 35, 255})
-	rl.BeginMode3D(ev.cam3d)
-	rl.DrawGrid(20, 1.0)
-
+// draw_viewport_scene_objects draws all scene objects (spheres with cache or solid, quads).
+// Call inside BeginMode3D. Uses ev.viewport_sphere_cache; pass selection_kind/selected_idx
+// for Edit View (highlight), or .None/-1 for Preview (no highlight). Shared by both panels.
+draw_viewport_scene_objects :: proc(
+	app: ^App,
+	ev: ^EditViewState,
+	selection_kind: EditViewSelectionKind,
+	selected_idx: int,
+) {
+	sm := ev.scene_mgr
+	if sm == nil { return }
+	n_objects := len(sm.objects)
 	for i in 0..<n_objects {
-		selected := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx == i
+		selected := (selection_kind == .Sphere || selection_kind == .Quad) && selected_idx == i
 		#partial switch o in sm.objects[i] {
 		case core.SceneSphere:
 			s := o
 			center := s.center
 			wire_col := rl.Color{30, 30, 30, 180}
 			if selected { wire_col = rl.Color{255, 220, 0, 200} }
-
 			entry := &ev.viewport_sphere_cache[i]
 			if entry.tex.id != 0 {
-				// Cached model (any texture type that produced a valid GPU tex)
 				tint := rl.WHITE
 				if selected { tint = rl.YELLOW }
 				rl.DrawModelEx(entry.model, center, {0, 1, 0}, -90.0, {1, 1, 1}, tint)
 				rl.DrawSphereWires(center, s.radius + 0.01, 8, 8, wire_col)
 			} else {
-				// Fallback: solid colour (shared with preview panel)
 				draw_sphere_solid(s.center, s.radius, sphere_solid_color_from_albedo(s.albedo), selected)
 			}
 		case rt.Quad:
 			draw_quad_with_material_color(o, selected)
 		}
 	}
+}
+
+draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
+	ev := &app.e_edit_view
+	sm := ev.scene_mgr
+	if sm == nil { return }
+	new_w := i32(vp_rect.width)
+	new_h := i32(vp_rect.height)
+
+	if new_w != ev.tex_w || new_h != ev.tex_h {
+		if ev.tex_w > 0 { rl.UnloadRenderTexture(ev.viewport_tex) }
+		if new_w > 0 && new_h > 0 {
+			ev.viewport_tex = rl.LoadRenderTexture(new_w, new_h)
+		}
+		ev.tex_w = new_w
+		ev.tex_h = new_h
+	}
+
+	if ev.tex_w <= 0 || ev.tex_h <= 0 { return }
+
+	// Invalidate viewport sphere cache when scene changed (load, add/remove sphere, etc.)
+	ensure_viewport_sphere_cache_filled(app, ev)
+
+	rl.BeginTextureMode(ev.viewport_tex)
+	rl.ClearBackground(rl.Color{20, 25, 35, 255})
+	rl.BeginMode3D(ev.cam3d)
+	rl.DrawGrid(20, 1.0)
+	draw_viewport_scene_objects(app, ev, ev.selection_kind, ev.selected_idx)
 
 	// Render camera gizmo (body) and optional frustum / focal indicator
 	cp := &app.c_camera_params
