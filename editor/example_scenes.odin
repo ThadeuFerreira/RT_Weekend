@@ -26,8 +26,10 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Next Week: Checkers Texture", build = build_next_week_texture_checker_scene},
     {label = "Next Week: Quads",            build = build_next_week_quads_scene},
     {label = "Next Week: Turbulence",       build = build_next_week_turbulence_scene},
+    {label = "Cornell Box",        build = build_cornell_box_scene},
 }
 
+// WEEKEND_CAMERA is the default for in-memory example scenes. Scene files loaded from disk with no "background" field get the same default (sky) in persistence.load_scene for backward compat.
 WEEKEND_CAMERA :: core.CameraParams{
     lookfrom      = {13, 2, 3},
     lookat        = {0, 0, 0},
@@ -38,6 +40,7 @@ WEEKEND_CAMERA :: core.CameraParams{
     max_depth     = 50,
     shutter_open  = 0,
     shutter_close = 1,
+    background    = core.CAMERA_BACKGROUND_SKY,
 }
 
 // WeekendGridParams configures the shared "One Weekend" grid of small spheres + three large spheres.
@@ -235,6 +238,7 @@ build_next_week_quads_scene :: proc() -> (
         max_depth     = 50,
         shutter_open  = 0,
         shutter_close = 1,
+        background    = core.CAMERA_BACKGROUND_SKY,
     }
 
     return nil, result_quads[:], quad_camera, nil, false
@@ -250,6 +254,7 @@ TURBULENCE_CAMERA :: core.CameraParams{
     max_depth     = 50,
     shutter_open  = 0,
     shutter_close = 1,
+    background    = core.CAMERA_BACKGROUND_SKY,
 }
 
 // build_next_week_turbulence_scene returns the "perlin spheres" scene from "Ray Tracing: The Next Week".
@@ -269,5 +274,124 @@ build_next_week_turbulence_scene :: proc() -> (
         albedo        = core.NoiseTexture{scale = 4},
     })
     return result[:], nil, TURBULENCE_CAMERA, core.NoiseTexture{scale = 4}, true
+}
+
+// Cornell Box: unit room [0,1]^3, area light on ceiling, and two inner boxes.
+// No ground plane; only emitter contributes illumination.
+build_cornell_box_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+) {
+    result_quads := make([dynamic]raytrace.Quad)
+
+    white := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.73, 0.73, 0.73}},
+    })
+    green := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.12, 0.45, 0.15}},
+    })
+    red := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.65, 0.05, 0.05}},
+    })
+    light_mat := raytrace.material(raytrace.diffuse_light{emit = {15, 15, 15}})
+
+    // Room shell.
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 0, 0},
+        [3]f32{1, 0, 0},
+        [3]f32{0, 0, 1},
+        white,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 1, 0},
+        [3]f32{1, 0, 0},
+        [3]f32{0, 0, 1},
+        white,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 0, 1},
+        [3]f32{1, 0, 0},
+        [3]f32{0, 1, 0},
+        white,
+    ))
+    // Left wall (green), right wall (red) per benchmark convention.
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0, 0, 0},
+        [3]f32{0, 1, 0},
+        [3]f32{0, 0, 1},
+        green,
+    ))
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{1, 0, 0},
+        [3]f32{0, 1, 0},
+        [3]f32{0, 0, 1},
+        red,
+    ))
+
+    // Ceiling area light.
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{0.343, 0.999, 0.32},
+        [3]f32{0.314, 0, 0},
+        [3]f32{0, 0, 0.31},
+        light_mat,
+    ))
+
+    // Tall box: 0.2 x 0.65 x 0.2 at (0.3, 0.0, 0.2), rotated Y by +15 deg.
+    {
+        ts := raytrace.TransformStack{}
+        raytrace.transform_stack_init(&ts)
+        defer raytrace.transform_stack_destroy(&ts)
+
+        center := [3]f32{0.3 + 0.1, 0.65 * 0.5, 0.2 + 0.1}
+        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(center))
+        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_rotate_y(15.0 * math.PI / 180.0))
+        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(-center))
+
+        raytrace.append_box_transformed(
+            &result_quads,
+            [3]f32{0.3, 0.0, 0.2},
+            [3]f32{0.5, 0.65, 0.4},
+            white,
+            raytrace.transform_stack_current(&ts),
+        )
+    }
+
+    // Short box: 0.16 x 0.3 x 0.16 at (0.78, 0.0, 0.3), rotated Y by -18 deg.
+    {
+        ts := raytrace.TransformStack{}
+        raytrace.transform_stack_init(&ts)
+        defer raytrace.transform_stack_destroy(&ts)
+
+        center := [3]f32{0.78 + 0.08, 0.3 * 0.5, 0.3 + 0.08}
+        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(center))
+        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_rotate_y(-18.0 * math.PI / 180.0))
+        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(-center))
+
+        raytrace.append_box_transformed(
+            &result_quads,
+            [3]f32{0.78, 0.0, 0.3},
+            [3]f32{0.94, 0.3, 0.46},
+            white,
+            raytrace.transform_stack_current(&ts),
+        )
+    }
+
+    cornell_camera := core.CameraParams{
+        lookfrom      = {0.5, 0.5, -1.35},
+        lookat        = {0.5, 0.5, 0.5},
+        vup           = {0, 1, 0},
+        vfov          = 37,
+        defocus_angle = 0,
+        focus_dist    = 1.85,
+        max_depth     = 50,
+        shutter_open  = 0,
+        shutter_close = 1,
+        background    = {0, 0, 0},
+    }
+
+    return nil, result_quads[:], cornell_camera, nil, false
 }
 

@@ -144,7 +144,10 @@ ensure_viewport_sphere_cache_filled :: proc(app: ^App, ev: ^EditViewState) {
 		entry   := &ev.viewport_sphere_cache[i]
 		tex_sig := texture_view_sig(app, s.albedo)
 		cache_hit := entry.tex.id != 0 && entry.radius == s.radius && entry.tex_sig == tex_sig
-		if cache_hit { continue }
+		if cache_hit {
+			delete(tex_sig)
+			continue
+		}
 		if tex, tex_ok := viewport_texture_from_albedo(app, s.albedo); tex_ok {
 			free_viewport_sphere_cache_entry(entry)
 			sphere_mesh := rl.GenMeshSphere(s.radius, N_RINGS, N_SLICES)
@@ -161,6 +164,7 @@ ensure_viewport_sphere_cache_filled :: proc(app: ^App, ev: ^EditViewState) {
 			entry.radius  = s.radius
 			entry.tex_sig = strings.clone(tex_sig)
 		}
+		delete(tex_sig)
 	}
 }
 

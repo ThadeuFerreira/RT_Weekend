@@ -160,6 +160,33 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		draw_ui_text(app, depth_label, i32(btn_d_minus.x) + 22 + 4, i32(btn_d_minus.y) + 5, 11, rl.Color{180, 185, 200, 220})
 	}
 
+	// Background color (swatch opens R G B popover)
+	btn_bg, swatch_bg, popover_bg := edit_view_background_rects(content)
+	bg := app.c_camera_params.background
+	draw_ui_text(app, "Background", i32(btn_bg.x), i32(btn_bg.y) + 5, 10, CONTENT_TEXT_COLOR)
+	swatch_c := rl.Color{
+		u8(clamp(bg[0], 0, 1) * 255),
+		u8(clamp(bg[1], 0, 1) * 255),
+		u8(clamp(bg[2], 0, 1) * 255),
+		255,
+	}
+	rl.DrawRectangleRec(swatch_bg, swatch_c)
+	rl.DrawRectangleLinesEx(swatch_bg, 1, BORDER_COLOR)
+	if ev.bg_picker_open {
+		draw_dropdown_panel(popover_bg)
+		op_section_label(app, "Background", popover_bg.x + 8, popover_bg.y + 6)
+		x0 := popover_bg.x + 8 + OP_LW + OP_GAP
+		cy := popover_bg.y + 6 + 18
+		box_rgb := [3]rl.Rectangle{
+			{x0,             cy, OP_FW, OP_FH},
+			{x0 + OP_COL,   cy, OP_FW, OP_FH},
+			{x0 + 2*OP_COL, cy, OP_FW, OP_FH},
+		}
+		op_drag_field(app, "R", bg[0], box_rgb[0], ev.bg_drag_idx == 0, mouse)
+		op_drag_field(app, "G", bg[1], box_rgb[1], ev.bg_drag_idx == 1, mouse)
+		op_drag_field(app, "B", bg[2], box_rgb[2], ev.bg_drag_idx == 2, mouse)
+	}
+
 	// From View
 	btn_fromview := Button{
 		rect    = rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22},
@@ -254,12 +281,15 @@ pick_rotation_ring :: proc(mouse, vp_offset: rl.Vector2, cam_pos: rl.Vector3, ca
 // ── Panel update ───────────────────────────────────────────────────────────
 
 update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
-	ev    := &app.e_edit_view
+	ev     := &app.e_edit_view
 	content := rect
 
 	defer update_orbit_camera(ev)
 
 	rects := edit_view_rects_from_content(content)
+	if lmb_pressed && ev.bg_picker_open && !rl.CheckCollisionPointRec(mouse, rects.popover_bg) && !rl.CheckCollisionPointRec(mouse, rects.btn_bg) {
+		ev.bg_picker_open = false
+	}
 	phase := get_edit_view_input_phase(app, ev, mouse, lmb_pressed, &rects)
 
 	switch phase {

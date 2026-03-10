@@ -56,7 +56,8 @@ texture_view_sig :: proc(app: ^App, tex: core.Texture) -> string {
 	case core.MarbleTexture:
 		return fmt.aprintf("m %.3f", t.scale)
 	}
-	return "none"
+	// Always return heap-allocated signatures so callers can safely delete().
+	return fmt.aprintf("none")
 }
 
 // texture_view_current returns the texture to preview: selected sphere's albedo, or ground texture.
@@ -179,6 +180,7 @@ draw_texture_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	}
 
 	sig := texture_view_sig(app, tex)
+	defer delete(sig)
 	need_rebuild := !app.e_texture_view.valid || app.e_texture_view.last_sig != sig
 
 	if need_rebuild {
