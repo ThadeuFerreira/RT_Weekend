@@ -106,114 +106,88 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.DrawRectangleRec(toolbar_rect, rl.Color{40, 42, 58, 255})
 	rl.DrawRectangleLinesEx(toolbar_rect, 1, BORDER_COLOR)
 
-	btn_add   := rl.Rectangle{content.x + 8, content.y + 5, ADD_DROPDOWN_W, 22}
-	add_hover := rl.CheckCollisionPointRec(mouse, btn_add)
-	rl.DrawRectangleRec(btn_add, add_hover ? rl.Color{80, 130, 200, 255} : rl.Color{55, 85, 140, 255})
-	draw_ui_text(app, "Add Object", i32(btn_add.x) + 6, i32(btn_add.y) + 4, 12, rl.RAYWHITE)
-	draw_ui_text(app, "\u25BC", i32(btn_add.x) + 72, i32(btn_add.y) + 4, 10, rl.RAYWHITE) // dropdown arrow
+	// Add Object (trigger + dropdown)
+	btn_add := Button{
+		rect    = rl.Rectangle{content.x + 8, content.y + 5, ADD_DROPDOWN_W, 22},
+		label   = "Add Object",
+		style   = DEFAULT_BUTTON_STYLE,
+		enabled = true,
+	}
+	_ = draw_button(app, btn_add, mouse)
+	draw_ui_text(app, "\u25BC", i32(btn_add.rect.x) + 72, i32(btn_add.rect.y) + 4, 10, rl.RAYWHITE)
 
-	// Add Object dropdown (Sphere / Quad)
 	if ev.add_dropdown_open {
-		dd_rect, sphere_item, quad_item := edit_view_add_dropdown_rects(btn_add)
-		rl.DrawRectangleRec(dd_rect, rl.Color{50, 52, 70, 255})
-		rl.DrawRectangleLinesEx(dd_rect, 1, BORDER_COLOR)
-		sphere_hov  := rl.CheckCollisionPointRec(mouse, sphere_item)
-		quad_hov    := rl.CheckCollisionPointRec(mouse, quad_item)
-		if sphere_hov { rl.DrawRectangleRec(sphere_item, rl.Color{60, 65, 95, 255}) }
-		if quad_hov   { rl.DrawRectangleRec(quad_item,   rl.Color{60, 65, 95, 255}) }
-		draw_ui_text(app, "Sphere", i32(sphere_item.x) + 8, i32(sphere_item.y) + 4, 12, rl.RAYWHITE)
-		draw_ui_text(app, "Quad",   i32(quad_item.x) + 8,   i32(quad_item.y) + 4,   12, rl.RAYWHITE)
+		dd_rect, sphere_item, quad_item := edit_view_add_dropdown_rects(btn_add.rect)
+		draw_dropdown_panel(dd_rect)
+		_ = draw_dropdown_item(app, sphere_item, "Sphere", mouse)
+		_ = draw_dropdown_item(app, quad_item, "Quad", mouse)
 	}
 
-	// Delete for sphere or quad selection (camera is non-deletable)
+	// Delete (only when sphere or quad selected)
 	if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 {
-		btn_del   := rl.Rectangle{content.x + 106, content.y + 5, 60, 22}
-		del_hover := rl.CheckCollisionPointRec(mouse, btn_del)
-		rl.DrawRectangleRec(btn_del, del_hover ? rl.Color{200, 60, 60, 255} : rl.Color{140, 40, 40, 255})
-		draw_ui_text(app, "Delete", i32(btn_del.x) + 8, i32(btn_del.y) + 4, 12, rl.RAYWHITE)
+		btn_del := Button{
+			rect    = rl.Rectangle{content.x + 106, content.y + 5, 60, 22},
+			label   = "Delete",
+			style   = BUTTON_STYLE_DANGER,
+			enabled = true,
+		}
+		_ = draw_button(app, btn_del, mouse)
 	}
 
-	// Frustum / Focal toggles (camera gizmo visibility)
-	btn_frustum := rl.Rectangle{content.x + 174, content.y + 5, 56, 22}
-	btn_focal   := rl.Rectangle{content.x + 234, content.y + 5, 40, 22}
-	frustum_hover := rl.CheckCollisionPointRec(mouse, btn_frustum)
-	focal_hover   := rl.CheckCollisionPointRec(mouse, btn_focal)
-	frustum_bg := (ev.show_frustum_gizmo ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
-	if frustum_hover { frustum_bg = ev.show_frustum_gizmo ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
-	rl.DrawRectangleRec(btn_frustum, frustum_bg)
-	rl.DrawRectangleLinesEx(btn_frustum, 1, ev.show_frustum_gizmo ? ACCENT_COLOR : BORDER_COLOR)
-	draw_ui_text(app, "Frustum", i32(btn_frustum.x) + 4, i32(btn_frustum.y) + 4, 11, rl.RAYWHITE)
-	focal_bg := (ev.show_focal_indicator ? rl.Color{130, 70, 70, 255} : rl.Color{45, 55, 70, 255})
-	if focal_hover { focal_bg = ev.show_focal_indicator ? rl.Color{160, 90, 90, 255} : rl.Color{55, 68, 88, 255} }
-	rl.DrawRectangleRec(btn_focal, focal_bg)
-	rl.DrawRectangleLinesEx(btn_focal, 1, ev.show_focal_indicator ? ACCENT_COLOR : BORDER_COLOR)
-	draw_ui_text(app, "Focal", i32(btn_focal.x) + 6, i32(btn_focal.y) + 4, 11, rl.RAYWHITE)
+	// Frustum / Focal toggles
+	draw_toggle(app, Toggle{
+		rect  = rl.Rectangle{content.x + 174, content.y + 5, 56, 22},
+		label = "Frustum",
+		value = ev.show_frustum_gizmo,
+		style = DEFAULT_TOGGLE_STYLE,
+	}, mouse)
+	draw_toggle(app, Toggle{
+		rect  = rl.Rectangle{content.x + 234, content.y + 5, 40, 22},
+		label = "Focal",
+		value = ev.show_focal_indicator,
+		style = TOGGLE_STYLE_ON_RED,
+	}, mouse)
 
-	// AABB / BVH visualization toggles
+	// AABB / BVH toggles and depth D+ / D-
 	btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus := edit_view_aabb_toolbar_rects(content)
-	aabb_hover   := rl.CheckCollisionPointRec(mouse, btn_aabb)
-	sel_hover    := rl.CheckCollisionPointRec(mouse, btn_sel)
-	bvh_hover    := rl.CheckCollisionPointRec(mouse, btn_bvh)
-	dplus_hover  := rl.CheckCollisionPointRec(mouse, btn_d_plus)
-	dminus_hover := rl.CheckCollisionPointRec(mouse, btn_d_minus)
-	aabb_bg := (ev.show_aabbs ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
-	if aabb_hover { aabb_bg = ev.show_aabbs ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
-	rl.DrawRectangleRec(btn_aabb, aabb_bg)
-	rl.DrawRectangleLinesEx(btn_aabb, 1, ev.show_aabbs ? ACCENT_COLOR : BORDER_COLOR)
-	draw_ui_text(app, "AABB", i32(btn_aabb.x) + 4, i32(btn_aabb.y) + 4, 11, rl.RAYWHITE)
+	draw_toggle(app, Toggle{rect = btn_aabb, label = "AABB", value = ev.show_aabbs, style = DEFAULT_TOGGLE_STYLE}, mouse)
 	if ev.show_aabbs {
-		sel_bg := (ev.aabb_selected_only ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
-		if sel_hover { sel_bg = ev.aabb_selected_only ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
-		rl.DrawRectangleRec(btn_sel, sel_bg)
-		rl.DrawRectangleLinesEx(btn_sel, 1, ev.aabb_selected_only ? ACCENT_COLOR : BORDER_COLOR)
-		draw_ui_text(app, "Sel", i32(btn_sel.x) + 4, i32(btn_sel.y) + 4, 11, rl.RAYWHITE)
+		draw_toggle(app, Toggle{rect = btn_sel, label = "Sel", value = ev.aabb_selected_only, style = DEFAULT_TOGGLE_STYLE}, mouse)
 	}
-	bvh_bg := (ev.show_bvh_hierarchy ? rl.Color{70, 120, 130, 255} : rl.Color{45, 55, 70, 255})
-	if bvh_hover { bvh_bg = ev.show_bvh_hierarchy ? rl.Color{90, 150, 160, 255} : rl.Color{55, 68, 88, 255} }
-	rl.DrawRectangleRec(btn_bvh, bvh_bg)
-	rl.DrawRectangleLinesEx(btn_bvh, 1, ev.show_bvh_hierarchy ? ACCENT_COLOR : BORDER_COLOR)
-	draw_ui_text(app, "BVH", i32(btn_bvh.x) + 4, i32(btn_bvh.y) + 4, 11, rl.RAYWHITE)
+	draw_toggle(app, Toggle{rect = btn_bvh, label = "BVH", value = ev.show_bvh_hierarchy, style = DEFAULT_TOGGLE_STYLE}, mouse)
 	if ev.show_bvh_hierarchy {
-		dplus_hover  := rl.CheckCollisionPointRec(mouse, btn_d_plus)
-		dminus_hover := rl.CheckCollisionPointRec(mouse, btn_d_minus)
-		dplus_bg  := dplus_hover ? rl.Color{55, 68, 88, 255} : rl.Color{45, 55, 70, 255}
-		dminus_bg := dminus_hover ? rl.Color{55, 68, 88, 255} : rl.Color{45, 55, 70, 255}
-		rl.DrawRectangleRec(btn_d_plus, dplus_bg)
-		rl.DrawRectangleLinesEx(btn_d_plus, 1, BORDER_COLOR)
-		draw_ui_text(app, "D+", i32(btn_d_plus.x) + 4, i32(btn_d_plus.y) + 4, 11, rl.RAYWHITE)
-		rl.DrawRectangleRec(btn_d_minus, dminus_bg)
-		rl.DrawRectangleLinesEx(btn_d_minus, 1, BORDER_COLOR)
-		draw_ui_text(app, "D-", i32(btn_d_minus.x) + 4, i32(btn_d_minus.y) + 4, 11, rl.RAYWHITE)
+		_ = draw_button(app, Button{rect = btn_d_plus, label = "D+", style = BUTTON_STYLE_NEUTRAL, enabled = true}, mouse)
+		_ = draw_button(app, Button{rect = btn_d_minus, label = "D-", style = BUTTON_STYLE_NEUTRAL, enabled = true}, mouse)
 		depth_label := ev.aabb_max_depth < 0 ? "\u221E" : fmt.ctprintf("%d", ev.aabb_max_depth)
 		draw_ui_text(app, depth_label, i32(btn_d_minus.x) + 22 + 4, i32(btn_d_minus.y) + 5, 11, rl.Color{180, 185, 200, 220})
 	}
 
-	// "From View" — sync orbit (editor) camera → render camera
-	btn_fromview  := rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
-	fv_hover      := rl.CheckCollisionPointRec(mouse, btn_fromview)
-	rl.DrawRectangleRec(btn_fromview, fv_hover ? rl.Color{80, 110, 170, 255} : rl.Color{55, 75, 120, 255})
-	draw_ui_text(app, "From View", i32(btn_fromview.x) + 6, i32(btn_fromview.y) + 4, 12, rl.RAYWHITE)
+	// From View
+	btn_fromview := Button{
+		rect    = rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22},
+		label   = "From View",
+		style   = DEFAULT_BUTTON_STYLE,
+		enabled = true,
+	}
+	_ = draw_button(app, btn_fromview, mouse)
 
-	btn_render   := rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
+	// Render (state-dependent label and color)
+	btn_render_rect := rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
 	render_busy  := !app.finished
 	render_ready := app.finished && app.r_render_pending
-	render_hover := !render_busy && rl.CheckCollisionPointRec(mouse, btn_render)
-
-	// Button color: bright green when render is pending, normal when not, dim when busy
-	btn_color: rl.Color
+	render_style := BUTTON_STYLE_SUCCESS
 	if render_busy {
-		btn_color = rl.Color{45, 75, 45, 200}
+		render_style = ButtonStyle{bg = rl.Color{45, 75, 45, 200}, bg_hover = rl.Color{45, 75, 45, 200}, border = BORDER_COLOR, text = rl.RAYWHITE, font_size = 12}
 	} else if render_ready {
-		btn_color = rl.Color{80, 220, 80, 255} // bright green when pending
-	} else if render_hover {
-		btn_color = rl.Color{80, 190, 80, 255}
-	} else {
-		btn_color = rl.Color{50, 140, 50, 255}
+		render_style = ButtonStyle{bg = rl.Color{80, 220, 80, 255}, bg_hover = rl.Color{80, 220, 80, 255}, border = BORDER_COLOR, text = rl.RAYWHITE, font_size = 12}
 	}
-	rl.DrawRectangleRec(btn_render, btn_color)
-
-	btn_text := render_busy ? cstring("Rendering…") : (render_ready ? cstring("Render*") : cstring("Render"))
-	draw_ui_text(app, btn_text, i32(btn_render.x) + 6, i32(btn_render.y) + 4, 12, rl.RAYWHITE)
+	btn_render := Button{
+		rect    = btn_render_rect,
+		label   = render_busy ? "Rendering…" : (render_ready ? "Render*" : "Render"),
+		style   = render_style,
+		enabled = !render_busy,
+	}
+	_ = draw_button(app, btn_render, mouse)
 
 	// 3D viewport
 	vp_rect := rl.Rectangle{
