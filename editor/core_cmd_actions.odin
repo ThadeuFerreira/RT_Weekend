@@ -188,7 +188,9 @@ trace_output_path :: proc() -> string {
     trace_file := fmt.tprintf("trace_%d.json", unix_us)
     env_path, ok := os.lookup_env("TRACE_OUTPUT_FILE")
     if !ok || len(env_path) == 0 {
-        return fmt.aprintf("%s", trace_file)
+        // Default to logs/ (gitignored) to avoid polluting the repo root.
+        os.make_directory("logs")
+        return fmt.aprintf("logs/%s", trace_file)
     }
     // TRACE_OUTPUT_FILE can be a full file path or a directory.
     if strings.has_suffix(env_path, ".json") {
