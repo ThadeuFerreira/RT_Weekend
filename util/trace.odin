@@ -276,6 +276,7 @@ trace_stop_capture :: proc() -> ([]u8, bool) {
 		if err != nil {
 			return nil, false
 		}
+		clear_events()
 		return data, true
 	} else {
 		return nil, false
