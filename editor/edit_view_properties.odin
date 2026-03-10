@@ -88,8 +88,9 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 			dc := rt.material_display_color(quad.material)
 			mat_label := "Lambertian"
 			#partial switch _ in quad.material {
-			case rt.metallic:   mat_label = "Metallic"
-			case rt.dielectric: mat_label = "Dielectric"
+			case rt.metallic:     mat_label = "Metallic"
+			case rt.dielectric:   mat_label = "Dielectric"
+			case rt.diffuse_light: mat_label = "Emitter"
 			}
 			draw_ui_text(app, "Quad selected",
 				i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)

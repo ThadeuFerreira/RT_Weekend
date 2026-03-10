@@ -63,6 +63,55 @@ quad_bounding_box :: proc(q: Quad) -> AABB {
 	return box
 }
 
+// append_box appends the six faces of an axis-aligned 3D box to quads.
+// The box is defined by two opposite vertices a and b (min/max are computed component-wise).
+// Same convention as RTIW: front (z=max), right (x=max), back (z=min), left (x=min), top (y=max), bottom (y=min).
+append_box :: proc(quads: ^[dynamic]Quad, a, b: [3]f32, mat: material) {
+	min_x := math.min(a[0], b[0])
+	max_x := math.max(a[0], b[0])
+	min_y := math.min(a[1], b[1])
+	max_y := math.max(a[1], b[1])
+	min_z := math.min(a[2], b[2])
+	max_z := math.max(a[2], b[2])
+
+	dx := [3]f32{max_x - min_x, 0, 0}
+	dy := [3]f32{0, max_y - min_y, 0}
+	dz := [3]f32{0, 0, max_z - min_z}
+
+	// front (z = max)
+	append(quads, make_quad([3]f32{min_x, min_y, max_z}, dx, dy, mat))
+	// right (x = max)
+	append(quads, make_quad([3]f32{max_x, min_y, max_z}, [3]f32{-dz[0], -dz[1], -dz[2]}, dy, mat))
+	// back (z = min)
+	append(quads, make_quad([3]f32{max_x, min_y, min_z}, [3]f32{-dx[0], -dx[1], -dx[2]}, dy, mat))
+	// left (x = min)
+	append(quads, make_quad([3]f32{min_x, min_y, min_z}, dz, dy, mat))
+	// top (y = max)
+	append(quads, make_quad([3]f32{min_x, max_y, max_z}, dx, [3]f32{-dz[0], -dz[1], -dz[2]}, mat))
+	// bottom (y = min)
+	append(quads, make_quad([3]f32{min_x, min_y, min_z}, dx, dz, mat))
+}
+
+// append_box_transformed appends an axis-aligned box then applies a transform matrix to each face.
+append_box_transformed :: proc(quads: ^[dynamic]Quad, a, b: [3]f32, mat: material, object_to_world: Mat4) {
+	local_quads := make([dynamic]Quad)
+	defer delete(local_quads)
+
+	append_box(&local_quads, a, b, mat)
+
+	for q in local_quads {
+		p0 := q.Q
+		p1 := q.Q + q.u
+		p2 := q.Q + q.v
+
+		w0 := mat4_transform_point(object_to_world, p0)
+		w1 := mat4_transform_point(object_to_world, p1)
+		w2 := mat4_transform_point(object_to_world, p2)
+
+		append(quads, make_quad(w0, w1-w0, w2-w0, q.material))
+	}
+}
+
 // Axis-aligned rectangle helpers: plane at constant k, extent [a0,a1] x [b0,b1] in the two varying axes.
 // xy_rect: z = k (floor/ceiling); xz_rect: y = k (wall); yz_rect: x = k (wall).
 xy_rect :: proc(x0, x1, y0, y1, k: f32, mat: material) -> Object {

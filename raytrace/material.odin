@@ -3,10 +3,11 @@ package raytrace
 import "core:math"
 import "RT_Weekend:util"
 
-material :: union{
-    lambertian,
-    metallic,
-    dielectric,
+material :: union {
+	lambertian,
+	metallic,
+	dielectric,
+	diffuse_light,
 }
 
 lambertian :: struct {
@@ -18,8 +19,25 @@ metallic :: struct{
     fuzz : f32,
 }
 
-dielectric :: struct{
-    ref_idx : f32,
+dielectric :: struct {
+	ref_idx: f32,
+}
+
+// diffuse_light emits light and does not scatter (no reflection).
+diffuse_light :: struct {
+	emit: [3]f32,
+}
+
+// emitted returns the color emitted by the surface at (u, v, p).
+// Base default is black (all non-emitting materials); only diffuse_light returns a non-zero color.
+emitted :: proc(mat: material, u, v: f32, p: [3]f32) -> [3]f32 {
+	switch m in mat {
+	case diffuse_light:
+		return m.emit
+	case lambertian, metallic, dielectric:
+		return [3]f32{0, 0, 0}
+	}
+	return [3]f32{0, 0, 0}
 }
 
 scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3]f32, scattered : ^ray, rng: ^util.ThreadRNG) -> bool {
@@ -60,8 +78,11 @@ scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3
 
         scattered^ = ray{origin = rec.p, dir = direction, time = r_in.time}
         return true
-    }
-    return false
+	case diffuse_light:
+		// Lights do not scatter.
+		return false
+	}
+	return false
 }
 
 reflectance :: proc (cosine : f32, ref_idx : f32) -> f32 {
@@ -71,6 +92,7 @@ reflectance :: proc (cosine : f32, ref_idx : f32) -> f32 {
 }
 
 // material_display_color returns a [3]f32 color for editor/preview visualization (no sampling context).
+// For diffuse_light, emit is normalized by max component so HDR values (e.g. {15,15,15}) don't blow out the swatch.
 material_display_color :: proc(mat: material) -> [3]f32 {
 	switch m in mat {
 	case lambertian:
@@ -79,6 +101,10 @@ material_display_color :: proc(mat: material) -> [3]f32 {
 		return m.albedo
 	case dielectric:
 		return [3]f32{0.92, 0.92, 0.95}
+	case diffuse_light:
+		intensity := max(m.emit[0], max(m.emit[1], m.emit[2]))
+		if intensity <= 0 do return [3]f32{0, 0, 0}
+		return [3]f32{m.emit[0] / intensity, m.emit[1] / intensity, m.emit[2] / intensity}
 	}
 	return [3]f32{0.5, 0.5, 0.5}
 }

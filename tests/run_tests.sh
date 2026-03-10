@@ -11,7 +11,14 @@ MODE="${1:-debug}"
 TESTS=(
     "smoke|tests/scenes/smoke.json|200|113|5|4"
     "materials|tests/scenes/materials.json|200|113|10|4"
+    "cornell|tests/scenes/cornell_box.json|400|300|32|4"
 )
+
+run_odin_unit_tests() {
+    echo "=== Unit tests: AABB + transforms ==="
+    odin run tests/aabb_transform_tests.odin -file -collection:RT_Weekend=. > /dev/null
+    echo "  aabb_transform_tests ... PASS"
+}
 
 run_test_suite() {
     local mode="$1"
@@ -139,14 +146,17 @@ except Exception as e:
 exit_code=0
 case "$MODE" in
     debug)
+        run_odin_unit_tests
         echo "=== Test suite: debug ==="
         run_test_suite debug || exit_code=1
         ;;
     release)
+        run_odin_unit_tests
         echo "=== Test suite: release ==="
         run_test_suite release || exit_code=1
         ;;
     all)
+        run_odin_unit_tests
         echo "=== Test suite: debug ==="
         run_test_suite debug || exit_code=1
         echo ""

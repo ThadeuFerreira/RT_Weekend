@@ -52,6 +52,9 @@ Camera :: struct{
     // Motion blur shutter (normalized [0..1]). Scaffolding; get_ray does not use yet.
     shutter_open : f32,
     shutter_close : f32,
+
+    // Sky color when a ray misses the scene (flat color; no gradient).
+    background : [3]f32,
 }
 
 Tile :: struct {
@@ -126,6 +129,7 @@ make_camera :: proc(image_width : int, image_height : int, samples_per_pixel : i
 
     cam.shutter_open = 0.0
     cam.shutter_close = 1.0
+    cam.background = core.CAMERA_BACKGROUND_DEFAULT
 
     return cam
 }
@@ -141,6 +145,7 @@ apply_scene_camera :: proc(cam: ^Camera, params: ^core.CameraParams) {
     cam.max_depth     = params.max_depth
     cam.shutter_open   = params.shutter_open
     cam.shutter_close  = params.shutter_close
+    cam.background     = params.background
 }
 
 // copy_camera_to_scene_params fills shared camera params from a raytrace Camera (e.g. at startup).
@@ -154,6 +159,7 @@ copy_camera_to_scene_params :: proc(params: ^core.CameraParams, cam: ^Camera) {
     params.max_depth     = cam.max_depth
     params.shutter_open   = cam.shutter_open
     params.shutter_close  = cam.shutter_close
+    params.background     = cam.background
 }
 
 // TODO: Call from get_ray (or UI) to clamp open/close to [0,1] and ensure open <= close before sampling.
@@ -270,7 +276,7 @@ render_tile :: proc(ctx: ^ParallelRenderContext, tile: Tile) {
                         thread_breakdown.total_rays += 1
                     }
 
-                    color := ray_color_linear(r, camera.max_depth, world, rng, thread_breakdown, ctx.bvh_root, ctx.linear_bvh)
+                    color := ray_color_linear(r, camera.max_depth, world, rng, thread_breakdown, ctx.bvh_root, ctx.linear_bvh, camera.background)
 
                     pixel_color += color
                     thread_breakdown.total_samples += 1

@@ -156,3 +156,13 @@ and DirectX 12 / Vulkan (Windows) backends.
 | Lambertian | `lambertian` | Diffuse — cosine-weighted hemisphere scatter |
 | Metallic | `metallic` | Specular reflection + fuzz perturbation |
 | Dielectric | `dielectric` | Refraction / Fresnel reflection (glass, water) |
+
+## Cornell Box + Tests
+
+- Built-in example scene: `Examples -> Cornell Box (empty)` now includes the full Cornell setup (room shell, emissive ceiling light, short/tall inner boxes).
+- Scene-file version for regression tests: `tests/scenes/cornell_box.json`.
+- Transform support for scene construction lives in `raytrace/transform.odin` (`Mat4`, TRS helpers, and `TransformStack`).
+- Box geometry helper: `append_box` / `append_box_transformed` in `raytrace/quad.odin`.
+- Automated checks:
+  - `tests/aabb_transform_tests.odin` validates AABB edge cases and TRS round-trip math.
+  - `tests/run_tests.sh debug` renders `smoke`, `materials`, and `cornell` scenes in headless mode.

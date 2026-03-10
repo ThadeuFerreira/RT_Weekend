@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "RT_Weekend:core"
 import rt "RT_Weekend:raytrace"
 
 // Intermediate types for JSON (avoid union unmarshaling).
@@ -19,6 +20,7 @@ SceneCamera :: struct {
 	max_depth:     int   `json:"max_depth,omitempty"`,
 	shutter_open:  f32   `json:"shutter_open,omitempty"`,
 	shutter_close: f32   `json:"shutter_close,omitempty"`,
+	background:    [3]f32 `json:"background,omitempty"`,
 }
 
 SceneMaterial :: struct {
@@ -149,6 +151,13 @@ load_scene :: proc(
 		cam.shutter_open = scene.camera.shutter_open
 		cam.shutter_close = scene.camera.shutter_close
 	}
+	// background: use from file; absent or zero → sky so weekend-style scenes loaded from disk match WEEKEND_CAMERA (editor/example_scenes.odin).
+	// Old serialized scenes had no field and would otherwise get black; this backward-compat gives them the same default as in-memory example scenes.
+	cam.background = scene.camera.background
+	zero_bg: [3]f32 = {0, 0, 0}
+	if cam.background == zero_bg {
+		cam.background = core.CAMERA_BACKGROUND_SKY
+	}
 	rt.init_camera(cam)
 
 	cap_val := 0
@@ -214,6 +223,8 @@ scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_c
 		return rt.material(rt.metallic{albedo = s.albedo, fuzz = s.fuzz})
 	case "dielectric":
 		return rt.material(rt.dielectric{ref_idx = s.ref_idx})
+	case "diffuse_light":
+		return rt.material(rt.diffuse_light{emit = s.albedo})
 	case:
 		return rt.material(rt.lambertian{albedo = rt.ConstantTexture{color = {0.5, 0.5, 0.5}}})
 	}
@@ -236,6 +247,7 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 			max_depth     = r_camera.max_depth,
 			shutter_open  = r_camera.shutter_open,
 			shutter_close = r_camera.shutter_close,
+			background    = r_camera.background,
 		},
 		objects = make([dynamic]SceneObject),
 	}
@@ -334,6 +346,8 @@ material_to_scene_material :: proc(m: rt.material, scene_dir: string) -> SceneMa
 		return SceneMaterial{material_type = "metal", albedo = mat.albedo, fuzz = mat.fuzz}
 	case rt.dielectric:
 		return SceneMaterial{material_type = "dielectric", ref_idx = mat.ref_idx}
+	case rt.diffuse_light:
+		return SceneMaterial{material_type = "diffuse_light", albedo = mat.emit}
 	case:
 		return SceneMaterial{material_type = "lambertian", texture_kind = "constant", albedo = [3]f32{0.5, 0.5, 0.5}}
 	}

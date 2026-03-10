@@ -94,7 +94,7 @@ OpLayout :: struct {
 	boxes_xyz:     [3]rl.Rectangle,
 	box_radius:    rl.Rectangle,
 	boxes_motion:  [3]rl.Rectangle, // dX dY dZ (center1 - center)
-	mat_rects:     [3]rl.Rectangle,
+	mat_rects:     [4]rl.Rectangle,
 	has_mat_param: bool,
 	box_mat_param: rl.Rectangle,   // fuzz (metallic) or IOR (dielectric)
 	// COLOR section (constant texture):
@@ -152,20 +152,21 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind, al
 	lo.y_material = cy
 	cy += 18
 
-	bw := (content.width - 16) / 3.0 - 2
-	lo.mat_rects = [3]rl.Rectangle{
-		{lo.lx,             cy, bw, 22},
-		{lo.lx + bw + 2,   cy, bw, 22},
-		{lo.lx + 2*(bw+2), cy, bw, 22},
+	bw := (content.width - 16) / 4.0 - 2
+	lo.mat_rects = [4]rl.Rectangle{
+		{lo.lx,               cy, bw, 22},
+		{lo.lx + bw + 2,     cy, bw, 22},
+		{lo.lx + 2*(bw+2),   cy, bw, 22},
+		{lo.lx + 3*(bw+2),   cy, bw, 22},
 	}
 	cy += 28
 
-	lo.has_mat_param  = mat_kind != .Lambertian
+	lo.has_mat_param  = mat_kind == .Metallic || mat_kind == .Dielectric
 	lo.box_mat_param  = rl.Rectangle{lo.x0, cy, OP_FW, OP_FH}
 	if lo.has_mat_param { cy += OP_FH + 6 }
 	cy += 4
 
-	// COLOR / IMAGE TEXTURE
+	// COLOR / EMISSION (Lambertian: texture; DiffuseLight: emission; others: albedo swatch)
 	lo.y_color = cy
 	cy += 18
 
@@ -189,8 +190,8 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind, al
 		cy += OP_FH + 6
 		lo.noise_preview = rl.Rectangle{lo.lx, cy, 64, 64}
 		cy += 68
-	} else if !lo.has_image {
-		// Constant/Checker: show RGB drag fields + swatch
+	} else if !lo.has_image || mat_kind == .DiffuseLight {
+		// Constant/Checker or Light emission: show RGB drag fields + swatch
 		lo.boxes_rgb = [3]rl.Rectangle{
 			{lo.x0,             cy, OP_FW, OP_FH},
 			{lo.x0 + OP_COL,   cy, OP_FW, OP_FH},
@@ -342,24 +343,30 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 		cy := content.y + 6
 		op_section_label(app, "QUAD — MATERIAL", lx, cy)
 		cy += 20
-		bw := (content.width - 16) / 3.0 - 2
-		mat_rects := [3]rl.Rectangle{
+		bw := (content.width - 16 - 6) / 4.0  // 4 buttons, 3 gaps of 2
+		mat_rects := [4]rl.Rectangle{
 			{lx, cy, bw, 22},
-			{lx + bw + 2, cy, bw, 22},
+			{lx + (bw + 2), cy, bw, 22},
 			{lx + 2*(bw+2), cy, bw, 22},
+			{lx + 3*(bw+2), cy, bw, 22},
 		}
 		is_lambertian := false
 		is_metallic := false
 		is_dielectric := false
+		is_emitter := false
 		#partial switch _ in quad.material {
-		case rt.lambertian:  is_lambertian = true
-		case rt.metallic:    is_metallic = true
-		case rt.dielectric:  is_dielectric = true
+		case rt.lambertian:   is_lambertian = true
+		case rt.metallic:     is_metallic = true
+		case rt.dielectric:   is_dielectric = true
+		case rt.diffuse_light: is_emitter = true
 		}
-		op_mat_button(app, "Lambertian", mat_rects[0], is_lambertian, mouse)
-		op_mat_button(app, "Metallic",   mat_rects[1], is_metallic,   mouse)
-		op_mat_button(app, "Diel.",      mat_rects[2], is_dielectric, mouse)
+		op_mat_button(app, "Lambert", mat_rects[0], is_lambertian, mouse)
+		op_mat_button(app, "Metal",   mat_rects[1], is_metallic,   mouse)
+		op_mat_button(app, "Diel.",   mat_rects[2], is_dielectric, mouse)
+		op_mat_button(app, "Emitter", mat_rects[3], is_emitter,   mouse)
 		cy += 28
+		op_section_label(app, is_emitter ? "EMISSION" : "COLOR", lx, cy)
+		cy += 18
 		x0 := lx + OP_LW + OP_GAP
 		box_rgb := [3]rl.Rectangle{
 			{x0, cy, OP_FW, OP_FH},
@@ -367,20 +374,36 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 			{x0 + 2*OP_COL, cy, OP_FW, OP_FH},
 		}
 		box_param := rl.Rectangle{x0, cy + OP_FH + 6, OP_FW, OP_FH}
-		op_section_label(app, "COLOR", lx, cy - 2)
 		col := [3]f32{0.5, 0.5, 0.5}
-		#partial switch m in quad.material {
-		case rt.lambertian:
-			if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
-			else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
-		case rt.metallic:
-			col = m.albedo
+		emission_intensity: f32 = 1.0
+		if is_emitter {
+			if d, ok2 := quad.material.(rt.diffuse_light); ok2 {
+				emission_intensity = max(d.emit[0], max(d.emit[1], d.emit[2]))
+				if emission_intensity > 0 {
+					col[0] = d.emit[0] / emission_intensity
+					col[1] = d.emit[1] / emission_intensity
+					col[2] = d.emit[2] / emission_intensity
+				} else {
+					col = {1, 1, 1}
+				}
+			}
+		} else {
+			#partial switch m in quad.material {
+			case rt.lambertian:
+				if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
+				else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
+			case rt.metallic:
+				col = m.albedo
+			}
 		}
 		op_drag_field(app, "R", col[0], box_rgb[0], st.prop_drag_idx == 20, mouse)
 		op_drag_field(app, "G", col[1], box_rgb[1], st.prop_drag_idx == 21, mouse)
 		op_drag_field(app, "B", col[2], box_rgb[2], st.prop_drag_idx == 22, mouse)
 		cy += OP_FH + 8
-		if is_metallic {
+		if is_emitter {
+			op_section_label(app, "Intensity", lx, cy - 2)
+			op_drag_field(app, "I", emission_intensity, box_param, st.prop_drag_idx == 23, mouse)
+		} else if is_metallic {
 			fz: f32 = 0.1
 			if m, ok2 := quad.material.(rt.metallic); ok2 { fz = m.fuzz }
 			op_section_label(app, "Fuzz", lx, cy - 2)
@@ -424,16 +447,17 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	op_mat_button(app, "Lambertian", lo.mat_rects[0], sphere.material_kind == .Lambertian, mouse)
 	op_mat_button(app, "Metallic",   lo.mat_rects[1], sphere.material_kind == .Metallic,   mouse)
 	op_mat_button(app, "Diel.",      lo.mat_rects[2], sphere.material_kind == .Dielectric, mouse)
+	op_mat_button(app, "Light",      lo.mat_rects[3], sphere.material_kind == .DiffuseLight, mouse)
 	if sphere.material_kind == .Metallic {
 		op_drag_field(app, "Fz", sphere.fuzz,    lo.box_mat_param, st.prop_drag_idx == 7, mouse)
 	} else if sphere.material_kind == .Dielectric {
 		op_drag_field(app, "Ir", sphere.ref_idx, lo.box_mat_param, st.prop_drag_idx == 7, mouse)
 	}
 
-	// COLOR / IMAGE TEXTURE
-	op_section_label(app, "COLOR", lo.lx, lo.y_color)
+	// COLOR / EMISSION
+	op_section_label(app, sphere.material_kind == .DiffuseLight ? "EMISSION" : "COLOR", lo.lx, lo.y_color)
 
-	// Texture type mini-buttons (Lambertian)
+	// Texture type mini-buttons (Lambertian only)
 	if lo.has_tex_btns {
 		is_color  := !lo.has_noise && !lo.has_marble && !lo.has_image
 		op_mat_button(app, "Color",  lo.btn_tex_color,  is_color,       mouse)
@@ -590,13 +614,15 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		if !ok { return }
 		lx := rect.x + 8
 		cy := rect.y + 6 + 20
-		bw := (rect.width - 16) / 3.0 - 2
-		mat_rects := [3]rl.Rectangle{
+		bw := (rect.width - 16 - 6) / 4.0
+		mat_rects := [4]rl.Rectangle{
 			{lx, cy, bw, 22},
-			{lx + bw + 2, cy, bw, 22},
+			{lx + (bw + 2), cy, bw, 22},
 			{lx + 2*(bw+2), cy, bw, 22},
+			{lx + 3*(bw+2), cy, bw, 22},
 		}
 		cy += 28
+		cy += 18
 		x0 := lx + OP_LW + OP_GAP
 		box_rgb := [3]rl.Rectangle{
 			{x0, cy, OP_FW, OP_FH},
@@ -605,54 +631,73 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 		}
 		box_param := rl.Rectangle{x0, cy + OP_FH + 6, OP_FW, OP_FH}
 
+		is_emitter := false
+		if _, ok2 := quad.material.(rt.diffuse_light); ok2 { is_emitter = true }
+
 		if st.prop_drag_idx >= 0 && st.prop_drag_idx >= 20 && st.prop_drag_idx <= 23 {
 			if !lmb {
 				st.prop_drag_idx = -1
 				rl.SetMouseCursor(.DEFAULT)
 			} else {
 				delta := mouse.x - st.prop_drag_start_x
-				col := [3]f32{0.5, 0.5, 0.5}
-				#partial switch m in quad.material {
-				case rt.lambertian:
-					if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
-					else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
-				case rt.metallic: col = m.albedo
-				}
-				switch st.prop_drag_idx {
-				case 20:
-					col[0] = st.prop_drag_start_val + delta * 0.005
-					col[0] = clamp(col[0], 0.0, 1.0)
-				case 21:
-					col[1] = st.prop_drag_start_val + delta * 0.005
-					col[1] = clamp(col[1], 0.0, 1.0)
-				case 22:
-					col[2] = st.prop_drag_start_val + delta * 0.005
-					col[2] = clamp(col[2], 0.0, 1.0)
-				case 23:
-					if m, is_metal := quad.material.(rt.metallic); is_metal {
-						fz := st.prop_drag_start_val + delta * 0.002
-						fz = clamp(fz, 0.0, 1.0)
-						quad.material = rt.metallic{albedo = m.albedo, fuzz = fz}
-					} else if _, is_diel := quad.material.(rt.dielectric); is_diel {
-						ir := st.prop_drag_start_val + delta * 0.01
-						if ir < 1.0 { ir = 1.0 }
-						if ir > 3.0 { ir = 3.0 }
-						quad.material = rt.dielectric{ref_idx = ir}
+				if is_emitter {
+					d := quad.material.(rt.diffuse_light)
+					intensity := max(d.emit[0], max(d.emit[1], d.emit[2]))
+					if intensity <= 0 { intensity = 1.0 }
+					col := [3]f32{d.emit[0] / intensity, d.emit[1] / intensity, d.emit[2] / intensity}
+					switch st.prop_drag_idx {
+					case 20:
+						col[0] = clamp(st.prop_drag_start_val + delta * 0.005, 0.0, 1.0)
+					case 21:
+						col[1] = clamp(st.prop_drag_start_val + delta * 0.005, 0.0, 1.0)
+					case 22:
+						col[2] = clamp(st.prop_drag_start_val + delta * 0.005, 0.0, 1.0)
+					case 23:
+						intensity = clamp(st.prop_drag_start_val + delta * 0.02, 0.0, 50.0)
+					}
+					quad.material = rt.diffuse_light{emit = {col[0] * intensity, col[1] * intensity, col[2] * intensity}}
+					SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
+					mark_scene_dirty(app)
+				} else {
+					col := [3]f32{0.5, 0.5, 0.5}
+					#partial switch m in quad.material {
+					case rt.lambertian:
+						if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
+						else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
+					case rt.metallic: col = m.albedo
+					}
+					switch st.prop_drag_idx {
+					case 20:
+						col[0] = clamp(st.prop_drag_start_val + delta * 0.005, 0.0, 1.0)
+					case 21:
+						col[1] = clamp(st.prop_drag_start_val + delta * 0.005, 0.0, 1.0)
+					case 22:
+						col[2] = clamp(st.prop_drag_start_val + delta * 0.005, 0.0, 1.0)
+					case 23:
+						if m, is_metal := quad.material.(rt.metallic); is_metal {
+							fz := clamp(st.prop_drag_start_val + delta * 0.002, 0.0, 1.0)
+							quad.material = rt.metallic{albedo = m.albedo, fuzz = fz}
+						} else if _, is_diel := quad.material.(rt.dielectric); is_diel {
+							ir := st.prop_drag_start_val + delta * 0.01
+							if ir < 1.0 { ir = 1.0 }
+							if ir > 3.0 { ir = 3.0 }
+							quad.material = rt.dielectric{ref_idx = ir}
+						}
+						SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
+						mark_scene_dirty(app)
+						return
+					}
+					#partial switch _ in quad.material {
+					case rt.lambertian:
+						quad.material = rt.lambertian{albedo = rt.ConstantTexture{color = col}}
+					case rt.metallic:
+						fz: f32 = 0.1
+						if m, ok2 := quad.material.(rt.metallic); ok2 { fz = m.fuzz }
+						quad.material = rt.metallic{albedo = col, fuzz = fz}
 					}
 					SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
 					mark_scene_dirty(app)
-					return
 				}
-				#partial switch _ in quad.material {
-				case rt.lambertian:
-					quad.material = rt.lambertian{albedo = rt.ConstantTexture{color = col}}
-				case rt.metallic:
-					fz: f32 = 0.1
-					if m, ok2 := quad.material.(rt.metallic); ok2 { fz = m.fuzz }
-					quad.material = rt.metallic{albedo = col, fuzz = fz}
-				}
-				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
-				mark_scene_dirty(app)
 			}
 			return
 		}
@@ -686,17 +731,39 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				app_push_log(app, strings.clone("Quad: Dielectric"))
 				return
 			}
+			if rl.CheckCollisionPointRec(mouse, mat_rects[3]) {
+				quad.material = rt.diffuse_light{emit = {2, 2, 2}}
+				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
+				mark_scene_dirty(app)
+				app_push_log(app, strings.clone("Quad: Emitter"))
+				return
+			}
 		}
 		col := [3]f32{0.5, 0.5, 0.5}
-		#partial switch m in quad.material {
-		case rt.lambertian:
-			if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
-			else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
-		case rt.metallic: col = m.albedo
-		}
 		param_val: f32 = 0.1
-		if m, ok2 := quad.material.(rt.metallic); ok2 { param_val = m.fuzz }
-		else if d, ok2 := quad.material.(rt.dielectric); ok2 { param_val = d.ref_idx }
+		if is_emitter {
+			if d, ok2 := quad.material.(rt.diffuse_light); ok2 {
+				param_val = max(d.emit[0], max(d.emit[1], d.emit[2]))
+				if param_val > 0 {
+					col[0] = d.emit[0] / param_val
+					col[1] = d.emit[1] / param_val
+					col[2] = d.emit[2] / param_val
+				} else {
+					col = {1, 1, 1}
+				}
+			} else {
+				param_val = 2.0
+			}
+		} else {
+			#partial switch m in quad.material {
+			case rt.lambertian:
+				if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
+				else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
+			case rt.metallic: col = m.albedo
+			}
+			if m, ok2 := quad.material.(rt.metallic); ok2 { param_val = m.fuzz }
+			else if d, ok2 := quad.material.(rt.dielectric); ok2 { param_val = d.ref_idx }
+		}
 		any_hov := false
 		if op_try_start_drag(box_rgb[0], 20, col[0], st, mouse, lmb_pressed) { any_hov = true }
 		if op_try_start_drag(box_rgb[1], 21, col[1], st, mouse, lmb_pressed) { any_hov = true }
@@ -814,6 +881,20 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			mark_scene_dirty(app)
 			app_push_log(app, strings.clone("Material: Dielectric"))
+			if g_app != nil { g_app.input_consumed = true }
+			return
+		}
+		if rl.CheckCollisionPointRec(mouse, lo.mat_rects[3]) {
+			before := sphere
+			sphere.material_kind = .DiffuseLight
+			// Ensure albedo is set for emission (default white if not already constant)
+			if _, ok := sphere.albedo.(core.ConstantTexture); !ok {
+				sphere.albedo = core.ConstantTexture{color = {1, 1, 1}}
+			}
+			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+			mark_scene_dirty(app)
+			app_push_log(app, strings.clone("Material: Light"))
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}

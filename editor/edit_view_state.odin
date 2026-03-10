@@ -90,6 +90,12 @@ EditViewState :: struct {
 
 	add_dropdown_open: bool, // "Add Object" dropdown expanded
 
+	// Background color picker (toolbar above viewport)
+	bg_picker_open:     bool,
+	bg_drag_idx:        int,   // -1=none, 0=R, 1=G, 2=B
+	bg_drag_start_x:    f32,
+	bg_drag_start_val:  f32,
+
 	// Per-sphere model+texture cache for ImageTexture display in the 3D viewport.
 	// Indexed by sm.objects index; only sphere slots are populated.
 	viewport_sphere_cache:       [dynamic]ViewportSphereCacheEntry,
