@@ -459,7 +459,6 @@ run_app :: proc(
     defer rl.UnloadTexture(render_tex)
 
     pixel_staging := make([]rl.Color, r_camera.image_width * r_camera.image_height)
-    defer delete(pixel_staging)
 
     app := App{
         render_tex          = render_tex,
@@ -483,6 +482,7 @@ run_app :: proc(
     app.prefer_gpu  = use_gpu
     app.e_menu_bar  = MenuBarState{open_menu_index = -1}
     app.layout_presets = make([dynamic]persistence.LayoutPreset)
+    defer delete(app.pixel_staging)
     defer {
         for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
         delete(app.layout_presets)
