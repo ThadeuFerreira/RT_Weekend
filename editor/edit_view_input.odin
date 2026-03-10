@@ -19,7 +19,6 @@ EditViewRects :: struct {
 	btn_add, btn_del, btn_frustum, btn_focal: rl.Rectangle,
 	btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus: rl.Rectangle,
 	btn_bg, swatch_bg, popover_bg: rl.Rectangle,
-	btn_bg, swatch_bg, popover_bg: rl.Rectangle,
 	btn_fromview, btn_render: rl.Rectangle,
 }
 
@@ -63,32 +62,49 @@ EditViewInputPhase :: enum {
 }
 
 get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) -> EditViewInputPhase {
-	if ev.ctx_menu_open { return .ContextMenu }
-	if ev.cam_rot_drag_axis >= 0 { return .CamRotDrag }
-	if ev.cam_drag_active { return .CamBodyDrag }
-	if ev.cam_prop_drag_idx >= 0 { return .CamPropDrag }
-	if ev.prop_drag_idx >= 0 { return .SpherePropDrag }
-	if ev.drag_obj_active { return .ViewportObjectDrag }
-	if ev.bg_drag_idx >= 0 { return .Toolbar }
-	if ev.bg_drag_idx >= 0 { return .Toolbar }
-	if lmb_pressed {
-		if rl.CheckCollisionPointRec(mouse, rects.btn_bg) { return .Toolbar }
-		if ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_bg) { return .Toolbar }
-		if ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_frustum) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_focal) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_aabb) { return .Toolbar }
-		if ev.show_aabbs && rl.CheckCollisionPointRec(mouse, rects.btn_sel) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_bvh) { return .Toolbar }
-		if ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_plus) { return .Toolbar }
-		if ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_minus) { return .Toolbar }
+	switch true {
+	case ev.ctx_menu_open:
+		return .ContextMenu
+	case ev.cam_rot_drag_axis >= 0:
+		return .CamRotDrag
+	case ev.cam_drag_active:
+		return .CamBodyDrag
+	case ev.cam_prop_drag_idx >= 0:
+		return .CamPropDrag
+	case ev.prop_drag_idx >= 0:
+		return .SpherePropDrag
+	case ev.drag_obj_active:
+		return .ViewportObjectDrag
+	case ev.bg_drag_idx >= 0:
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_bg):
+		return .Toolbar
+	case lmb_pressed && ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg):
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_frustum):
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_focal):
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_aabb):
+		return .Toolbar
+	case lmb_pressed && ev.show_aabbs && rl.CheckCollisionPointRec(mouse, rects.btn_sel):
+		return .Toolbar
+	case lmb_pressed && rl.CheckCollisionPointRec(mouse, rects.btn_bvh):
+		return .Toolbar
+	case lmb_pressed && ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_plus):
+		return .Toolbar
+	case lmb_pressed && ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_minus):
+		return .Toolbar
+	case lmb_pressed:
 		dd_rect, _, _ := edit_view_add_dropdown_rects(rects.btn_add)
-		if ev.add_dropdown_open && rl.CheckCollisionPointRec(mouse, dd_rect) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_add) { return .Toolbar }
-		if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.btn_del) { return .Toolbar }
-		if rl.CheckCollisionPointRec(mouse, rects.btn_fromview) { return .Toolbar }
-		if app.finished && rl.CheckCollisionPointRec(mouse, rects.btn_render) { return .Toolbar }
+		switch true {
+		case ev.add_dropdown_open && rl.CheckCollisionPointRec(mouse, dd_rect),
+		     rl.CheckCollisionPointRec(mouse, rects.btn_add),
+		     (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.btn_del),
+		     rl.CheckCollisionPointRec(mouse, rects.btn_fromview),
+		     app.finished && rl.CheckCollisionPointRec(mouse, rects.btn_render):
+			return .Toolbar
+		}
 	}
 	if ev.selection_kind == .Camera && rl.CheckCollisionPointRec(mouse, rects.props_rect) && lmb_pressed {
 		fields := cam_orbit_prop_rects(rects.props_rect)
