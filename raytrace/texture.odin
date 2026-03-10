@@ -16,9 +16,11 @@ IMAGE_TEXTURE_DEBUG_SAMPLES :: 16
 ConstantTexture :: core.ConstantTexture
 CheckerTexture :: core.CheckerTexture
 ImageTexture :: core.ImageTexture
+NoiseTexture :: core.NoiseTexture
+MarbleTexture :: core.MarbleTexture
 Texture :: core.Texture
 
-// RTexture is the runtime texture used by Lambertian: constant, checker, or image.
+// RTexture is the runtime texture used by Lambertian: constant, checker, image, or procedural noise.
 // ImageTextureRuntime holds path (for round-trip with core) and loaded pixel data.
 ImageTextureRuntime :: struct {
 	path:  string,
@@ -29,6 +31,8 @@ RTexture :: union {
 	ConstantTexture,
 	CheckerTexture,
 	ImageTextureRuntime,
+	NoiseTexture,
+	MarbleTexture,
 }
 
 @(private)
@@ -57,6 +61,17 @@ texture_value :: proc(tex: Texture, u, v: f32, p: [3]f32) -> [3]f32 {
 	case ImageTexture:
 		// Core Texture has no pixel data; use texture_value_runtime with RTexture at render time.
 		return [3]f32{0.5, 0.5, 0.5}
+	case NoiseTexture:
+		safe_scale := math.abs(t.scale) > 1e-6 ? t.scale : 1.0
+		// fBm (6 octaves, lacunarity=2, gain=0.5) — matches GenImagePerlinNoise parameters.
+		n := perlin_fbm({safe_scale * p[0], safe_scale * p[1], safe_scale * p[2]})
+		val := math.clamp(0.5 * (1.0 + n), 0.0, 1.0)
+		return {val, val, val}
+	case MarbleTexture:
+		safe_scale := math.abs(t.scale) > 1e-6 ? t.scale : 1.0
+		turb := perlin_turbulence(p)
+		val := math.clamp(0.5 * (1.0 + math.sin(safe_scale * p[2] + 10.0 * turb)), 0.0, 1.0)
+		return {val, val, val}
 	}
 	return [3]f32{0, 0, 0}
 }
@@ -76,6 +91,16 @@ texture_value_runtime :: proc(tex: RTexture, u, v: f32, p: [3]f32) -> [3]f32 {
 		sum := xi + yi + zi
 		is_even := (sum % 2 + 2) % 2 == 0
 		return is_even ? t.even : t.odd
+	case NoiseTexture:
+		safe_scale := math.abs(t.scale) > 1e-6 ? t.scale : 1.0
+		n := perlin_fbm({safe_scale * p[0], safe_scale * p[1], safe_scale * p[2]})
+		val := math.clamp(0.5 * (1.0 + n), 0.0, 1.0)
+		return {val, val, val}
+	case MarbleTexture:
+		safe_scale := math.abs(t.scale) > 1e-6 ? t.scale : 1.0
+		turb := perlin_turbulence(p)
+		val := math.clamp(0.5 * (1.0 + math.sin(safe_scale * p[2] + 10.0 * turb)), 0.0, 1.0)
+		return {val, val, val}
 	case ImageTextureRuntime:
 		if t.image == nil {
 			when VERBOSE_OUTPUT {

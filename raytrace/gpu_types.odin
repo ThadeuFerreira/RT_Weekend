@@ -93,6 +93,8 @@ MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
 TEX_CONSTANT :: i32(0)  // use albedo as-is
 TEX_CHECKER  :: i32(1)  // 3D checker from tex_scale, tex_even, tex_odd
 TEX_IMAGE    :: i32(2)  // sample from bound 2D image texture using sphere UV
+TEX_NOISE    :: i32(3)  // fBm Perlin noise; tex_scale = spatial frequency
+TEX_MARBLE   :: i32(4)  // sin-modulated turbulence; tex_scale = stripe frequency
 
 // Maximum number of distinct image textures on GPU (each sphere can reference one via tex_index).
 MAX_GPU_IMAGE_TEXTURES :: 8
@@ -298,6 +300,16 @@ scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = 
                     gpu.albedo     = [3]f32{0.5, 0.5, 0.5}
                     gpu.tex_index  = 0
                 }
+            case NoiseTexture:
+                gpu.tex_type  = TEX_NOISE
+                gpu.tex_scale = tex.scale != 0 ? tex.scale : 4.0
+                gpu.albedo    = [3]f32{0, 0, 0}
+                gpu.tex_index = 0
+            case MarbleTexture:
+                gpu.tex_type  = TEX_MARBLE
+                gpu.tex_scale = tex.scale != 0 ? tex.scale : 4.0
+                gpu.albedo    = [3]f32{0, 0, 0}
+                gpu.tex_index = 0
             }
         case metallic:
             gpu.mat_type    = MAT_METALLIC
@@ -373,6 +385,12 @@ scene_to_gpu_quads :: proc(objects: []Object, world_to_quad_gpu: []int = nil) ->
                 gpu.tex_type  = TEX_CONSTANT
                 gpu.albedo    = [3]f32{0.5, 0.5, 0.5}
                 gpu.tex_scale = 1.0
+            case NoiseTexture:
+                gpu.tex_type  = TEX_NOISE
+                gpu.tex_scale = tex.scale != 0 ? tex.scale : 4.0
+            case MarbleTexture:
+                gpu.tex_type  = TEX_MARBLE
+                gpu.tex_scale = tex.scale != 0 ? tex.scale : 4.0
             }
         case metallic:
             gpu.mat_type    = MAT_METALLIC

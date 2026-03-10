@@ -17,10 +17,24 @@ ImageTexture :: struct {
 	path: string,
 }
 
+// NoiseTexture produces a smooth Perlin noise pattern scaled to a grey value in [0,1].
+// scale controls the spatial frequency: higher = finer detail.
+NoiseTexture :: struct {
+	scale: f32,
+}
+
+// MarbleTexture produces a marble-like pattern using Perlin turbulence modulated by a sine wave.
+// scale controls the stripe frequency (multiplied into p.z before sin).
+MarbleTexture :: struct {
+	scale: f32,
+}
+
 Texture :: union {
 	ConstantTexture,
 	CheckerTexture,
 	ImageTexture,
+	NoiseTexture,
+	MarbleTexture,
 }
 
 // MaterialKind is the shared material type used by the edit view (Raylib) and the path tracer.

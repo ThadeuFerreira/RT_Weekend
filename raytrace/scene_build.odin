@@ -23,6 +23,10 @@ sphere_to_scene_sphere :: proc(s: Sphere) -> core.SceneSphere {
 			ss.albedo = core.Texture(a)
 		case ImageTextureRuntime:
 			ss.albedo = core.ImageTexture{path = a.path}
+		case NoiseTexture:
+			ss.albedo = core.Texture(core.NoiseTexture(a))
+		case MarbleTexture:
+			ss.albedo = core.Texture(core.MarbleTexture(a))
 		}
 	case metallic:
 		ss.material_kind = .Metallic
@@ -73,6 +77,10 @@ build_world_from_scene :: proc(
 			ground_rtex = g
 		case CheckerTexture:
 			ground_rtex = g
+		case core.NoiseTexture:
+			ground_rtex = NoiseTexture(g)
+		case core.MarbleTexture:
+			ground_rtex = MarbleTexture(g)
 		case core.ImageTexture:
 			when VERBOSE_OUTPUT {
 				fmt.printf("[SceneBuild] Ground uses core.ImageTexture path=%q; runtime ground image unsupported here, using gray fallback\n", g.path)
@@ -96,6 +104,10 @@ build_world_from_scene :: proc(
 				albedo_rtex = a
 			case CheckerTexture:
 				albedo_rtex = a
+			case core.NoiseTexture:
+				albedo_rtex = NoiseTexture(a)
+			case core.MarbleTexture:
+				albedo_rtex = MarbleTexture(a)
 			case core.ImageTexture:
 				if image_cache != nil {
 					if img := image_cache[a.path]; img != nil {
@@ -139,9 +151,11 @@ build_world_from_scene :: proc(
 		case:
 			albedo_fallback: RTexture = ConstantTexture{color = {0.5, 0.5, 0.5}}
 			switch a in s.albedo {
-			case ConstantTexture: albedo_fallback = a
-			case CheckerTexture:  albedo_fallback = a
-			case core.ImageTexture: {}
+			case ConstantTexture:    albedo_fallback = a
+			case CheckerTexture:     albedo_fallback = a
+			case core.NoiseTexture:  albedo_fallback = NoiseTexture(a)
+			case core.MarbleTexture: albedo_fallback = MarbleTexture(a)
+			case core.ImageTexture:  {}
 			}
 			mat = material(lambertian{albedo = albedo_fallback})
 		}

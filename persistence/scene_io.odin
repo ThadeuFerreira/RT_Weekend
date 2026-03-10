@@ -25,6 +25,10 @@ SceneMaterial :: struct {
 	material_type: string  `json:"type"`,
 	albedo:        [3]f32  `json:"albedo,omitempty"`,
 	image_path:    string  `json:"image_path,omitempty"`,
+	// texture_kind selects the Lambertian procedural texture: "constant" (default), "noise", "marble".
+	// When empty, behaviour falls back: if image_path non-empty → image, else → constant colour.
+	texture_kind:  string  `json:"texture_kind,omitempty"`,
+	noise_scale:   f32    `json:"noise_scale,omitempty"`,
 	fuzz:          f32    `json:"fuzz,omitempty"`,
 	ref_idx:       f32    `json:"ref_idx,omitempty"`,
 }
@@ -182,6 +186,16 @@ load_scene :: proc(
 scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_cache: ^map[string]^rt.Texture_Image = nil) -> rt.material {
 	switch s.material_type {
 	case "lambertian":
+		// texture_kind overrides when present; otherwise fall back to legacy image_path logic.
+		switch s.texture_kind {
+		case "noise":
+			scale := s.noise_scale != 0 ? s.noise_scale : 4.0
+			return rt.material(rt.lambertian{albedo = rt.NoiseTexture{scale = scale}})
+		case "marble":
+			scale := s.noise_scale != 0 ? s.noise_scale : 4.0
+			return rt.material(rt.lambertian{albedo = rt.MarbleTexture{scale = scale}})
+		}
+		// Legacy / image path
 		if len(s.image_path) > 0 && image_cache != nil {
 			resolved := _scene_resolve_image_path(scene_dir, s.image_path)
 			defer delete(resolved)
@@ -264,15 +278,23 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 material_to_scene_material :: proc(m: rt.material) -> SceneMaterial {
 	switch mat in m {
 	case rt.lambertian:
-		// ImageTextureRuntime: persist path so load_scene can reload the image; albedo is fallback for non-image.
-		if img_tex, ok := mat.albedo.(rt.ImageTextureRuntime); ok && len(img_tex.path) > 0 {
-			return SceneMaterial{
-				material_type = "lambertian",
-				albedo        = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0}),
-				image_path    = img_tex.path,
+		switch tex in mat.albedo {
+		case rt.NoiseTexture:
+			return SceneMaterial{material_type = "lambertian", texture_kind = "noise", noise_scale = tex.scale}
+		case rt.MarbleTexture:
+			return SceneMaterial{material_type = "lambertian", texture_kind = "marble", noise_scale = tex.scale}
+		case rt.ImageTextureRuntime:
+			if len(tex.path) > 0 {
+				return SceneMaterial{
+					material_type = "lambertian",
+					albedo        = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0}),
+					image_path    = tex.path,
+				}
 			}
+		case rt.ConstantTexture: // handled by fallthrough below
+		case rt.CheckerTexture:  // handled by fallthrough below
 		}
-		// Non-constant textures (e.g. CheckerTexture) are sampled at origin and stored as a single [3]f32.
+		// ConstantTexture / CheckerTexture / fallback: sample at origin for a representative colour.
 		return SceneMaterial{material_type = "lambertian", albedo = rt.texture_value_runtime(mat.albedo, 0, 0, {0, 0, 0})}
 	case rt.metallic:
 		return SceneMaterial{material_type = "metal", albedo = mat.albedo, fuzz = mat.fuzz}
