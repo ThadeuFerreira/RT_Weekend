@@ -27,6 +27,7 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Next Week: Quads",            build = build_next_week_quads_scene},
     {label = "Next Week: Turbulence",       build = build_next_week_turbulence_scene},
     {label = "Cornell Box (empty)",        build = build_cornell_box_scene},
+    {label = "Cornell Box (empty)",        build = build_cornell_box_scene},
 }
 
 WEEKEND_CAMERA :: core.CameraParams{
@@ -39,6 +40,7 @@ WEEKEND_CAMERA :: core.CameraParams{
     max_depth     = 50,
     shutter_open  = 0,
     shutter_close = 1,
+    background    = core.CAMERA_BACKGROUND_SKY,
     background    = core.CAMERA_BACKGROUND_SKY,
 }
 
@@ -238,6 +240,7 @@ build_next_week_quads_scene :: proc() -> (
         shutter_open  = 0,
         shutter_close = 1,
         background    = core.CAMERA_BACKGROUND_SKY,
+        background    = core.CAMERA_BACKGROUND_SKY,
     }
 
     return nil, result_quads[:], quad_camera, nil, false
@@ -253,6 +256,7 @@ TURBULENCE_CAMERA :: core.CameraParams{
     max_depth     = 50,
     shutter_open  = 0,
     shutter_close = 1,
+    background    = core.CAMERA_BACKGROUND_SKY,
     background    = core.CAMERA_BACKGROUND_SKY,
 }
 
