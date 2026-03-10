@@ -577,14 +577,6 @@ finish_render :: proc(session: ^RenderSession) {
 //
 // CPU path (use_gpu=false or GPU init failure):
 //   Identical to calling start_render directly.
-// world_has_quads returns true if the world contains any Quad (GPU path does not support quads).
-world_has_quads :: proc(world: [dynamic]Object) -> bool {
-    for o in world {
-        if _, ok := o.(Quad); ok { return true }
-    }
-    return false
-}
-
 start_render_auto :: proc(
     r_camera:    ^Camera,
     world:       [dynamic]Object,
@@ -640,7 +632,7 @@ start_render_auto :: proc(
     session.thread_tile_counts          = make([dynamic]int, 0)
     session.thread_rendering_breakdowns = make([dynamic]ThreadRenderingBreakdown, 0)
 
-    renderer := create_gpu_renderer(r_camera, world_slice, gpu_spheres, gpu_quads, session.linear_bvh, r_camera.samples_per_pixel)
+    renderer := create_gpu_renderer(r_camera, world_slice, gpu_spheres, gpu_quads, session.linear_bvh, r_camera.samples_per_pixel, image_list[:])
     if renderer != nil {
         session.gpu_renderer = renderer
         session.use_gpu      = true

@@ -246,14 +246,20 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 // NOTE: viewport / picking helpers were moved into the editor package so they
 // can be shared by object implementations without creating package cycles.
 
-// draw_quad_3d draws a quad as two triangles. Call inside BeginMode3D.
+// draw_quad_3d draws a quad as two triangles, both front- and back-face, so it is
+// visible from either side (matches path tracer's set_face_normal double-sided behavior).
+// Call inside BeginMode3D.
 draw_quad_3d :: proc(q: rt.Quad, color: rl.Color) {
 	v0 := rl.Vector3{q.Q[0], q.Q[1], q.Q[2]}
 	v1 := rl.Vector3{q.Q[0] + q.u[0], q.Q[1] + q.u[1], q.Q[2] + q.u[2]}
 	v2 := rl.Vector3{q.Q[0] + q.u[0] + q.v[0], q.Q[1] + q.u[1] + q.v[1], q.Q[2] + q.u[2] + q.v[2]}
 	v3 := rl.Vector3{q.Q[0] + q.v[0], q.Q[1] + q.v[1], q.Q[2] + q.v[2]}
+	// Front face (one winding)
 	rl.DrawTriangle3D(v0, v1, v2, color)
 	rl.DrawTriangle3D(v0, v2, v3, color)
+	// Back face (reversed winding) so quad is visible from behind
+	rl.DrawTriangle3D(v0, v2, v1, color)
+	rl.DrawTriangle3D(v0, v3, v2, color)
 	rl.DrawLine3D(v0, v1, rl.BLACK)
 	rl.DrawLine3D(v1, v2, rl.BLACK)
 	rl.DrawLine3D(v2, v3, rl.BLACK)
@@ -409,6 +415,21 @@ edit_view_aabb_toolbar_rects :: proc(content: rl.Rectangle) -> (btn_aabb, btn_se
 	btn_bvh     = rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
 	btn_d_plus  = rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
 	btn_d_minus = rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
+	return
+}
+
+// Add Object dropdown layout (shared by draw and update).
+ADD_DROPDOWN_W    :: f32(92)
+ADD_DROPDOWN_H    :: f32(52)
+ADD_DROPDOWN_GAP  :: f32(2)
+ADD_ITEM_H        :: f32(24)
+ADD_ITEM_GAP      :: f32(2)
+
+// edit_view_add_dropdown_rects returns the dropdown panel and Sphere/Quad item rects given the Add button rect.
+edit_view_add_dropdown_rects :: proc(btn_add: rl.Rectangle) -> (dd_rect, sphere_item, quad_item: rl.Rectangle) {
+	dd_rect     = rl.Rectangle{btn_add.x, btn_add.y + btn_add.height + ADD_DROPDOWN_GAP, ADD_DROPDOWN_W, ADD_DROPDOWN_H}
+	sphere_item = rl.Rectangle{dd_rect.x, dd_rect.y, dd_rect.width, ADD_ITEM_H}
+	quad_item   = rl.Rectangle{dd_rect.x, dd_rect.y + ADD_ITEM_H + ADD_ITEM_GAP, dd_rect.width, ADD_ITEM_H}
 	return
 }
 
@@ -718,7 +739,7 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	rl.DrawRectangleRec(toolbar_rect, rl.Color{40, 42, 58, 255})
 	rl.DrawRectangleLinesEx(toolbar_rect, 1, BORDER_COLOR)
 
-	btn_add   := rl.Rectangle{content.x + 8, content.y + 5, 92, 22}
+	btn_add   := rl.Rectangle{content.x + 8, content.y + 5, ADD_DROPDOWN_W, 22}
 	add_hover := rl.CheckCollisionPointRec(mouse, btn_add)
 	rl.DrawRectangleRec(btn_add, add_hover ? rl.Color{80, 130, 200, 255} : rl.Color{55, 85, 140, 255})
 	draw_ui_text(app, "Add Object", i32(btn_add.x) + 6, i32(btn_add.y) + 4, 12, rl.RAYWHITE)
@@ -726,12 +747,9 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 
 	// Add Object dropdown (Sphere / Quad)
 	if ev.add_dropdown_open {
-		dd_h := f32(52)
-		dd_rect := rl.Rectangle{btn_add.x, btn_add.y + btn_add.height + 2, 92, dd_h}
+		dd_rect, sphere_item, quad_item := edit_view_add_dropdown_rects(btn_add)
 		rl.DrawRectangleRec(dd_rect, rl.Color{50, 52, 70, 255})
 		rl.DrawRectangleLinesEx(dd_rect, 1, BORDER_COLOR)
-		sphere_item := rl.Rectangle{dd_rect.x, dd_rect.y, dd_rect.width, 24}
-		quad_item   := rl.Rectangle{dd_rect.x, dd_rect.y + 26, dd_rect.width, 24}
 		sphere_hov  := rl.CheckCollisionPointRec(mouse, sphere_item)
 		quad_hov    := rl.CheckCollisionPointRec(mouse, quad_item)
 		if sphere_hov { rl.DrawRectangleRec(sphere_item, rl.Color{60, 65, 95, 255}) }
@@ -843,7 +861,6 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		content.width,
 		content.height - EDIT_TOOLBAR_H - EDIT_PROPS_H,
 	}
-ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 	draw_viewport_3d(app, vp_rect)
 
 	// Properties strip
@@ -911,7 +928,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	defer update_orbit_camera(ev)
 
 	// Shared rects (mirror draw proc)
-	btn_add      := rl.Rectangle{content.x + 8,                    content.y + 5, 90, 22}
+	btn_add      := rl.Rectangle{content.x + 8,                    content.y + 5, ADD_DROPDOWN_W, 22}
 	btn_del      := rl.Rectangle{content.x + 106,                  content.y + 5, 60, 22}
 	btn_frustum  := rl.Rectangle{content.x + 174,                  content.y + 5, 56, 22}
 	btn_focal    := rl.Rectangle{content.x + 234,                  content.y + 5, 40, 22}
@@ -1235,9 +1252,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 			return
 		}
 		// Add Object dropdown: if open, handle item clicks or close on outside click
-		dd_rect      := rl.Rectangle{btn_add.x, btn_add.y + btn_add.height + 2, 92, 52}
-		sphere_item  := rl.Rectangle{dd_rect.x, dd_rect.y, dd_rect.width, 24}
-		quad_item    := rl.Rectangle{dd_rect.x, dd_rect.y + 26, dd_rect.width, 24}
+		dd_rect, sphere_item, quad_item := edit_view_add_dropdown_rects(btn_add)
 		in_dropdown  := rl.CheckCollisionPointRec(mouse, dd_rect)
 		in_btn_add   := rl.CheckCollisionPointRec(mouse, btn_add)
 

@@ -9,6 +9,35 @@ when !VERBOSE_OUTPUT {
 	}
 }
 
+// sphere_to_scene_sphere converts a single Sphere to core.SceneSphere (material, albedo, etc.).
+// Used by LoadFromWorld to preserve world order when rebuilding the editor object list.
+sphere_to_scene_sphere :: proc(s: Sphere) -> core.SceneSphere {
+	ss := core.SceneSphere{center = s.center, center1 = s.center1, radius = s.radius, is_moving = s.is_moving}
+	switch m in s.material {
+	case lambertian:
+		ss.material_kind = .Lambertian
+		switch a in m.albedo {
+		case ConstantTexture:
+			ss.albedo = core.Texture(a)
+		case CheckerTexture:
+			ss.albedo = core.Texture(a)
+		case ImageTextureRuntime:
+			ss.albedo = core.ImageTexture{path = a.path}
+		}
+	case metallic:
+		ss.material_kind = .Metallic
+		ss.albedo = ConstantTexture{color = m.albedo}
+		ss.fuzz = m.fuzz
+	case dielectric:
+		ss.material_kind = .Dielectric
+		ss.ref_idx = m.ref_idx
+	case:
+		ss.material_kind = .Lambertian
+		ss.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
+	}
+	return ss
+}
+
 // convert_world_to_edit_spheres converts rt.Object spheres to core.SceneSphere for the edit view.
 // Skips the ground plane (center.y < -100) and Quad objects (quads are not editable as spheres).
 // Caller must delete the returned array.
@@ -18,26 +47,7 @@ convert_world_to_edit_spheres :: proc(world: []Object) -> [dynamic]core.SceneSph
 		s, ok := obj.(Sphere)
 		if !ok { continue }
 		if s.center[1] < -100 { continue } // skip ground plane
-		ss := core.SceneSphere{center = s.center, center1 = s.center1, radius = s.radius, is_moving = s.is_moving}
-		switch m in s.material {
-		case lambertian:
-			ss.material_kind = .Lambertian
-			switch a in m.albedo {
-			case ConstantTexture:
-				ss.albedo = core.Texture(a)
-			case CheckerTexture:
-				ss.albedo = core.Texture(a)
-			case ImageTextureRuntime:
-				ss.albedo = core.ImageTexture{path = a.path}
-			}
-		case metallic:
-			ss.material_kind = .Metallic
-			ss.albedo = ConstantTexture{color = m.albedo}
-			ss.fuzz = m.fuzz
-		case dielectric:
-			ss.material_kind = .Dielectric
-			ss.ref_idx = m.ref_idx
-		}
+		ss := sphere_to_scene_sphere(s)
 		append(&result, ss)
 	}
 	return result

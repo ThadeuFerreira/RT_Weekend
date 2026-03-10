@@ -167,18 +167,19 @@ _upload_image_texture_2d :: proc(img: ^Texture_Image) -> (tex_id: u32, ok: bool)
 // uploads all static scene data (camera, spheres, quads, BVH).  The output accumulation
 // SSBO is zeroed so the first dispatch produces a correct sample.
 //
-// objects is the full world (for collect_image_textures_ordered only).
+// image_list is the ordered list of unique image textures (from collect_image_textures_ordered);
+// caller collects once and passes in — used only for 2D texture upload.
 // spheres and quads are the GPU arrays from scene_to_gpu_spheres / scene_to_gpu_quads.
 // lin_bvh must be built with flatten_bvh_for_gpu so leaves use LEAF_SPHERE/LEAF_QUAD.
 // Must be called after rl.InitWindow() (a current GL context is required).
 // Returns (nil, false) on any failure — caller falls back to the CPU path.
 gpu_backend_init :: proc(
-    cam:     ^Camera,
-    objects: []Object,
-    spheres: []GPUSphere,
-    quads:   []GPUQuad,
-    lin_bvh: []LinearBVHNode,
-    samples: int,
+    cam:        ^Camera,
+    image_list: []^Texture_Image,
+    spheres:    []GPUSphere,
+    quads:      []GPUQuad,
+    lin_bvh:    []LinearBVHNode,
+    samples:    int,
 ) -> (^GPUBackend, bool) {
 
     // Load all OpenGL 4.6 function pointers.  Safe to call multiple times;
@@ -228,11 +229,7 @@ gpu_backend_init :: proc(
     b.height        = cam.image_height
     b.total_samples = samples
 
-    // Collect unique image textures in order (from spheres in the world).
-    image_list, path_to_index := collect_image_textures_ordered(objects)
-    defer delete(image_list)
-    defer delete(path_to_index)
-
+    // Upload 2D image textures (caller already collected image_list).
     n_tex := min(len(image_list), MAX_GPU_IMAGE_TEXTURES)
     for i in 0 ..< n_tex {
         tex_id, uploaded := _upload_image_texture_2d(image_list[i])
@@ -460,8 +457,8 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
 // ── OpenGL backend vtable registration ───────────────────────────────────────
 
 @(private)
-_ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, total: int) -> (rawptr, bool) {
-    b, ok := gpu_backend_init(cam, world, spheres, quads, bvh, total)
+_ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, total: int, image_list: []^Texture_Image) -> (rawptr, bool) {
+    b, ok := gpu_backend_init(cam, image_list, spheres, quads, bvh, total)
     return b, ok
 }
 @(private) _ogl_dispatch    :: proc(s: rawptr) { gpu_backend_dispatch((^GPUBackend)(s)) }

@@ -112,6 +112,38 @@ layout(std430, binding = 1) readonly buffer SpheresBlock {
 };
 
 // =============================================================
+// Binding 2 — Linear BVH nodes (SSBO, std430)
+// Matches LinearBVHNode in raytrace/gpu_types.odin.
+// 32 bytes per node.
+// Leaf:     left_idx = -1 (sphere) or -2 (quad),  right_or_obj_idx = -(gpu_array_index + 1)
+// Internal: left_idx = left child, right_or_obj_idx = right child
+// =============================================================
+const int LEAF_SPHERE = -1;
+const int LEAF_QUAD   = -2;
+struct BVHNode {
+    vec3 aabb_min;
+    int  right_or_obj_idx;
+    vec3 aabb_max;
+    int  left_idx;
+};
+
+layout(std430, binding = 2) readonly buffer BVHBlock {
+    int     bvh_count;
+    int     _bvh_pad[3];
+    BVHNode bvh_nodes[];
+};
+
+// =============================================================
+// Binding 3 — Output accumulation buffer (SSBO, std430)
+// vec4 per pixel (intentional: std430 vec3 would need careful padding;
+// .rgb = accumulated linear colour, .a unused). After N samples:
+// colour = buffer[idx].rgb / N, then gamma-correct.
+// =============================================================
+layout(std430, binding = 3) buffer OutputBlock {
+    vec4 pixels[];
+};
+
+// =============================================================
 // Binding 4 — Quad array (SSBO, std430)
 // Matches GPUQuad in raytrace/gpu_types.odin. 176 bytes per quad.
 // std430: vec3 has alignment 16; explicit _pad_align_tex[3] so tex_even starts at offset 144.
@@ -147,38 +179,6 @@ layout(std430, binding = 4) readonly buffer QuadsBlock {
     int   quad_count;
     int   _quad_pad[3];
     Quad  quads[];
-};
-
-// =============================================================
-// Binding 2 — Linear BVH nodes (SSBO, std430)
-// Matches LinearBVHNode in raytrace/gpu_types.odin.
-// 32 bytes per node.
-// Leaf:     left_idx = -1 (sphere) or -2 (quad),  right_or_obj_idx = -(gpu_array_index + 1)
-// Internal: left_idx = left child, right_or_obj_idx = right child
-// =============================================================
-const int LEAF_SPHERE = -1;
-const int LEAF_QUAD   = -2;
-struct BVHNode {
-    vec3 aabb_min;
-    int  right_or_obj_idx;
-    vec3 aabb_max;
-    int  left_idx;
-};
-
-layout(std430, binding = 2) readonly buffer BVHBlock {
-    int     bvh_count;
-    int     _bvh_pad[3];
-    BVHNode bvh_nodes[];
-};
-
-// =============================================================
-// Binding 3 — Output accumulation buffer (SSBO, std430)
-// vec4 per pixel (intentional: std430 vec3 would need careful padding;
-// .rgb = accumulated linear colour, .a unused). After N samples:
-// colour = buffer[idx].rgb / N, then gamma-correct.
-// =============================================================
-layout(std430, binding = 3) buffer OutputBlock {
-    vec4 pixels[];
 };
 
 // =============================================================
@@ -441,23 +441,14 @@ bool aabb_hit_fast(vec3 aabb_min, vec3 aabb_max, vec3 dir, vec3 inv_dir, vec3 or
     if (size.y < AABB_EPS) { bmin.y -= AABB_EPS; bmax.y += AABB_EPS; }
     if (size.z < AABB_EPS) { bmin.z -= AABB_EPS; bmax.z += AABB_EPS; }
 
-    for (int axis = 0; axis < 3; axis++) {
-        float d  = dir[axis];
-        float mn = bmin[axis];
-        float mx = bmax[axis];
-        float o  = origin[axis];
-        if (abs(d) < 1e-8) {
-            if (o < mn || o > mx) return false;
-            continue;
-        }
-        float invD = inv_dir[axis];
-        float t0 = (mn - o) * invD;
-        float t1 = (mx - o) * invD;
-        if (t0 > t1) { float tmp = t0; t0 = t1; t1 = tmp; }
-        t_min = max(t_min, t0);
-        t_max = min(t_max, t1);
-        if (t_max <= t_min) return false;
-    }
+    // Vectorized slab test (GPU-friendly: min/max on vec3).
+    vec3 t0 = (bmin - origin) * inv_dir;
+    vec3 t1 = (bmax - origin) * inv_dir;
+    vec3 t_lo = min(t0, t1);
+    vec3 t_hi = max(t0, t1);
+    float t_enter = max(max(t_lo.x, t_lo.y), t_lo.z);
+    float t_exit  = min(min(t_hi.x, t_hi.y), t_hi.z);
+    if (t_exit < t_min || t_enter > t_max) return false;
     return true;
 }
 

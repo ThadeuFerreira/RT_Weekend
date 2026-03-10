@@ -8,7 +8,7 @@ package raytrace
 //   3. Declare a package-level constant MY_RENDERER_API :: GpuRendererApi{...}.
 //   4. Add a `when ODIN_OS == .Whatever` branch in create_gpu_renderer() to try it.
 GpuRendererApi :: struct {
-    init:        proc "odin" (cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, total: int) -> (rawptr, bool),
+    init:        proc "odin" (cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, total: int, image_list: []^Texture_Image) -> (rawptr, bool),
     dispatch:    proc "odin" (state: rawptr),
     readback:    proc "odin" (state: rawptr, out: [][4]u8),
     destroy:     proc "odin" (state: rawptr),
@@ -38,15 +38,17 @@ gpu_renderer_done :: proc(r: ^GpuRenderer) -> bool {
 }
 
 // create_gpu_renderer is the platform-aware factory.
-// world is the full scene (for texture collection); spheres and quads are GPU arrays;
-// bvh must be from flatten_bvh_for_gpu. Returns nil if no GPU backend is available.
+// world is the full scene (reserved for backends that need it); spheres and quads are GPU arrays;
+// bvh must be from flatten_bvh_for_gpu. image_list is the ordered image textures from
+// collect_image_textures_ordered (caller collects once). Returns nil if no GPU backend is available.
 create_gpu_renderer :: proc(
-    cam:     ^Camera,
-    world:   []Object,
-    spheres: []GPUSphere,
-    quads:   []GPUQuad,
-    bvh:     []LinearBVHNode,
-    total:   int,
+    cam:         ^Camera,
+    world:       []Object,
+    spheres:     []GPUSphere,
+    quads:       []GPUQuad,
+    bvh:         []LinearBVHNode,
+    total:       int,
+    image_list:  []^Texture_Image,
 ) -> ^GpuRenderer {
     // ── macOS: future Metal backend goes here ─────────────────────────────────
     // when ODIN_OS == .Darwin {
@@ -66,7 +68,7 @@ create_gpu_renderer :: proc(
     // OpenGL backend — works on Linux (GLX), Windows (WGL), and macOS
     // (fails gracefully at 4.1 cap with a printed message).
     when ODIN_OS == .Linux || ODIN_OS == .Windows || ODIN_OS == .Darwin {
-        if state, ok := OPENGL_RENDERER_API.init(cam, world, spheres, quads, bvh, total); ok {
+        if state, ok := OPENGL_RENDERER_API.init(cam, world, spheres, quads, bvh, total, image_list); ok {
             r := new(GpuRenderer)
             r.api   = OPENGL_RENDERER_API
             r.state = state

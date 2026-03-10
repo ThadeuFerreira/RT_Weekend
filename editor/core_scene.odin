@@ -206,18 +206,18 @@ InsertQuadAt :: proc(sm: ^SceneManager, idx: int, q: rt.Quad) {
 }
 
 // LoadFromWorld clears the scene manager and fills it from a raytrace world (spheres + quads).
-// Used when loading a scene file. world is a slice (e.g. r_world[:] or world[:]).
+// Preserves object order so selected_idx and saved selections remain correct for mixed scenes.
+// world is a slice (e.g. r_world[:] or world[:]). Skips the ground plane (sphere with center.y < -100).
 LoadFromWorld :: proc(sm: ^SceneManager, world: []rt.Object) {
 	if sm == nil { return }
 	clear(&sm.objects)
-	spheres := rt.convert_world_to_edit_spheres(world)
-	defer delete(spheres)
-	for s in spheres {
-		append(&sm.objects, s)
-	}
 	for obj in world {
-		if q, ok := obj.(rt.Quad); ok {
-			append(&sm.objects, q)
+		switch o in obj {
+		case rt.Sphere:
+			if o.center[1] < -100 { continue } // skip ground plane
+			append(&sm.objects, rt.sphere_to_scene_sphere(o))
+		case rt.Quad:
+			append(&sm.objects, o)
 		}
 	}
 }

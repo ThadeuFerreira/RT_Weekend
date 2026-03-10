@@ -165,11 +165,12 @@ app_ensure_image_cached :: proc(app: ^App, path: string) -> bool {
 }
 
 // app_restart_render replaces the current world with new_world and starts a fresh render.
-// If a render is in progress, blocks until it finishes (finish_render) then restarts.
+// If a render is in progress, the restart is dropped so the main thread is not blocked
+// (finish_render would join workers and freeze the UI). Request restart again after the
+// current render completes, or close the window to stop the render.
 app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     if !app.finished && app.r_session != nil {
-        rt.finish_render(app.r_session)
-        app.finished = true
+        return
     }
 
     rt.free_session(app.r_session)
@@ -190,10 +191,10 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
 // When ground_texture is nil, the ground plane uses default grey; otherwise the given texture (e.g. from an example scene).
+// If a render is in progress, the restart is dropped (same as app_restart_render) to keep the UI responsive.
 app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere, ground_texture: rt.Texture = nil) {
     if !app.finished && app.r_session != nil {
-        rt.finish_render(app.r_session)
-        app.finished = true
+        return
     }
     if ground_texture != nil {
         app_set_ground_texture(app, ground_texture)
