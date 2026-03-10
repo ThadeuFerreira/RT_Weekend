@@ -54,6 +54,7 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 | `edit_view_context_menu.odin` | Context menu: `ctx_menu_build_items`, `ctx_menu_screen_rect`, `draw_edit_view_context_menu`. |
 | `edit_view_toolbar.odin` | Toolbar layout: `EDIT_TOOLBAR_H`, `edit_view_aabb_toolbar_rects`, `edit_view_add_dropdown_rects`, `ADD_DROPDOWN_*`. |
 | `edit_view_nudge.odin` | Keyboard nudge for selected sphere: `update_sphere_nudge(app, ev)`; uses `app.keyboard` (move/radius, undo on release). Reusable from any code with App + EditViewState. |
+| `edit_view_input.odin` | Edit View input phase enum (`EditViewInputPhase`), `EditViewRects`, `get_edit_view_input_phase`, and handlers: context menu, cam rot/body/prop drag, sphere prop drag, viewport object drag, toolbar, prop-field start, viewport orbit/pick. `update_edit_view_content` switches on phase and calls the appropriate handler. |
 | `ui_viewport_scene.odin` | Shared 3D scene drawing and viewport cache: `draw_quad_3d`, `sphere_solid_color_from_albedo`, `draw_sphere_solid`, `draw_quad_with_material_color`, `flip_image_vertical_rgba`, `free_viewport_sphere_cache_entry`, `viewport_texture_from_albedo`, `ensure_viewport_sphere_cache_filled`, `draw_viewport_scene_objects`, `draw_viewport_camera_gizmos` (used by Edit View and Preview). |
 
 **Selection kind:** `EditViewSelectionKind` lives in **core_scene.odin** (used by picking and panels).
