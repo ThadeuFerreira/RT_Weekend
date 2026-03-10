@@ -15,13 +15,7 @@ calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool)
     if !h_ok || h <= 0 {
         return 0, 0, false
     }
-
-    aspect: f32
-    if app.r_aspect_ratio == 0 {
-        aspect = 4.0 / 3.0
-    } else {
-        aspect = 16.0 / 9.0
-    }
+    aspect := get_render_aspect(app)
     w := int(f32(h) * aspect)
 
     // Check bounds (16k max, 720p min)
@@ -33,17 +27,6 @@ calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool)
     }
 
     return w, h, true
-}
-
-EDIT_TOOLBAR_H :: f32(32)
-EDIT_PROPS_H   :: f32(120)
-
-// Selection kind: none, a sphere, a quad (index in objects), or the render camera (non-deletable).
-EditViewSelectionKind :: enum {
-	None,
-	Sphere,
-	Quad,
-	Camera,
 }
 
 // flip_image_vertical_rgba flips pixel rows in place. buf is width*height*4 bytes (RGBA).
@@ -88,239 +71,12 @@ viewport_texture_from_albedo :: proc(app: ^App, albedo: core.Texture) -> (tex: r
 	return tex, true
 }
 
-EditViewState :: struct {
-	// Off-screen 3D viewport
-	viewport_tex: rl.RenderTexture2D,
-	tex_w, tex_h: i32,
-
-	// Raylib 3D camera (recomputed every frame from orbit params)
-	cam3d: rl.Camera3D,
-
-	// Orbit camera parameters (spherical coords around target)
-	camera_yaw:      f32,
-	camera_pitch:    f32,
-	orbit_distance:  f32,
-	orbit_target:    rl.Vector3,
-
-	// Right-drag orbit state
-	rmb_held:     bool,
-	last_mouse:   rl.Vector2,
-	rmb_press_pos: rl.Vector2,
-	rmb_drag_dist: f32,
-
-	// Context menu state
-	ctx_menu_open:    bool,
-	ctx_menu_pos:     rl.Vector2,
-	ctx_menu_hit_idx: int,
-
-	// Scene manager (holds scene spheres for now; adapter for future polymorphism)
-	scene_mgr:      ^SceneManager,
-	export_scratch: [dynamic]core.SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
-	selection_kind: EditViewSelectionKind,      // what is selected
-	selected_idx:   int,                   // when Sphere/Quad: index into objects; else -1
-
-	// Drag-float property fields (sphere only)
-	// prop_drag_idx: -1=none  0=cx  1=cy  2=cz  3=radius
-	prop_drag_idx:       int,
-	prop_drag_start_x:   f32,
-	prop_drag_start_val: f32,
-
-	// Viewport left-drag to move selected object (sphere or quad)
-	drag_obj_active:   bool,
-	drag_plane_y:      f32,    // Y of the horizontal movement plane
-	drag_offset_xz:   [2]f32, // grab-point offset in world XZ so the object doesn't snap
-	drag_before:      core.SceneSphere, // sphere state captured at viewport-drag start
-	drag_before_quad: rt.Quad,          // quad state captured at viewport-drag start
-
-	// Keyboard nudge history tracking
-	nudge_active: bool,             // true while any nudge key is held
-	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
-
-	// Camera orbit property drag (properties strip when camera is selected)
-	// -1=none; 0,1,2=Pos X/Y/Z; 3,4,5=yaw°/pitch°/dist; 6=roll°
-	cam_prop_drag_idx:       int,
-	cam_prop_drag_start_x:   f32,
-	cam_prop_drag_start_val: f32,
-
-	// Camera body drag in viewport (translates render camera in XZ plane)
-	cam_drag_active:       bool,
-	cam_drag_plane_y:      f32,
-	cam_drag_start_hit_xz: [2]f32,   // world XZ under cursor at drag start
-	cam_drag_start_lookfrom: rl.Vector3, // render cam lookfrom captured at drag start
-	cam_drag_start_lookat:   rl.Vector3, // render cam lookat  captured at drag start
-	// Shared across all three mutually exclusive camera drag types (body, rot ring, prop strip):
-	// captures the full camera state at drag start so the undo action has a valid "before".
-	cam_drag_before_params: core.CameraParams,
-
-	// Camera rotation ring drag: 1=yaw ring, 0=pitch ring, -1=none
-	cam_rot_drag_axis:    int,
-	cam_rot_drag_start_x: f32,
-	cam_rot_drag_start_y: f32,
-
-	// Camera gizmo toggles (Edit View toolbar)
-	show_frustum_gizmo:  bool,
-	show_focal_indicator: bool,
-
-	// AABB Visualization
-	show_aabbs:         bool, // master toggle
-	aabb_selected_only: bool, // show only selected sphere AABB
-	show_bvh_hierarchy: bool, // show BVH internal nodes (depth-coded)
-	aabb_max_depth:    int,   // BVH depth limit; -1 = unlimited
-	// Cached BVH for hierarchy viz; rebuilt only when scene changes (viz_bvh_dirty).
-	viz_bvh_root:  ^rt.BVHNode,
-	viz_bvh_dirty: bool,
-
-	add_dropdown_open: bool, // "Add Object" dropdown expanded
-
-	// Per-sphere model+texture cache for ImageTexture display in the 3D viewport.
-	// Indexed by sm.objects index; only sphere slots are populated.
-	viewport_sphere_cache:       [dynamic]ViewportSphereCacheEntry,
-	viewport_sphere_cache_dirty: bool,
-
-	initialized: bool,
-}
-
-ViewportSphereCacheEntry :: struct {
-	model:   rl.Model,
-	tex:     rl.Texture2D,
-	radius:  f32,
-	tex_sig: string,
-}
-
-init_edit_view :: proc(ev: ^EditViewState) {
-	ev.camera_yaw      = 0.5
-	ev.camera_pitch    = 0.3
-	ev.orbit_distance = 15.0
-	ev.orbit_target   = rl.Vector3{0, 0, 0}
-	ev.selection_kind = .None
-	ev.selected_idx   = -1
-	ev.prop_drag_idx  = -1
-	ev.cam_prop_drag_idx = -1
-	ev.cam_rot_drag_axis = -1
-	ev.show_frustum_gizmo  = true
-	ev.show_focal_indicator = true
-	ev.show_aabbs          = false
-	ev.aabb_selected_only  = false
-	ev.show_bvh_hierarchy  = false
-	ev.aabb_max_depth     = -1
-	ev.viz_bvh_root             = nil
-	ev.viz_bvh_dirty             = true
-	ev.viewport_sphere_cache_dirty = true
-
-	// initialize scene manager and seed with a few spheres
-	ev.scene_mgr = new_scene_manager()
-	ev.export_scratch = make([dynamic]core.SceneSphere)
-	ev.viewport_sphere_cache = make([dynamic]ViewportSphereCacheEntry)
-	initial := make([dynamic]core.SceneSphere)
-	append(&initial, core.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.8, 0.2, 0.2}}})
-	append(&initial, core.SceneSphere{center = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic, albedo = core.ConstantTexture{color={0.2, 0.2, 0.8}}, fuzz = 0.1})
-	append(&initial, core.SceneSphere{center = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.2, 0.8, 0.2}}})
-LoadFromSceneSpheres(ev.scene_mgr, initial[:])
-	delete(initial)
-
-	update_orbit_camera(ev)
-	ev.initialized = true
-}
-
-update_orbit_camera :: proc(ev: ^EditViewState) {
-	pitch := ev.camera_pitch
-	if pitch >  math.PI * 0.45 { pitch =  math.PI * 0.45 }
-	if pitch < -math.PI * 0.45 { pitch = -math.PI * 0.45 }
-	ev.camera_pitch = pitch
-
-	dist := ev.orbit_distance
-	if dist < 1.0 { dist = 1.0 }
-	ev.orbit_distance = dist
-
-	t := ev.orbit_target
-	pos := rl.Vector3{
-		t.x + dist * math.cos(pitch) * math.sin(ev.camera_yaw),
-		t.y + dist * math.sin(pitch),
-		t.z + dist * math.cos(pitch) * math.cos(ev.camera_yaw),
-	}
-	ev.cam3d = rl.Camera3D{
-		position   = pos,
-		target     = t,
-		up         = rl.Vector3{0, 1, 0},
-		fovy       = 45.0,
-		projection = .PERSPECTIVE,
-	}
-}
-
-// _compute_camera_basis builds the orthonormal right/up0 basis from view direction (singularity handling in one place).
-// ok = false if lookfrom/lookat are degenerate (e.g. coincident or looking straight up/down with fallback also degenerate).
-_compute_camera_basis :: proc(lookfrom, lookat: [3]f32) -> (right, up0: [3]f32, ok: bool) {
-	fwd := [3]f32{lookat[0] - lookfrom[0], lookat[1] - lookfrom[1], lookat[2] - lookfrom[2]}
-	len_sq := fwd[0]*fwd[0] + fwd[1]*fwd[1] + fwd[2]*fwd[2]
-	if len_sq < 1e-10 { return {}, {}, false }
-	fwd = rt.unit_vector(fwd)
-	world_up := [3]f32{0, 1, 0}
-	right = rt.cross(fwd, world_up)
-	right_len_sq := right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
-	if right_len_sq < 1e-10 {
-		right = rt.cross(fwd, [3]f32{1, 0, 0})
-		right_len_sq = right[0]*right[0] + right[1]*right[1] + right[2]*right[2]
-		if right_len_sq < 1e-10 { return {}, {}, false }
-	}
-	right = rt.unit_vector(right)
-	up0 = rt.unit_vector(rt.cross(right, fwd))
-	return right, up0, true
-}
-
-// compute_vup_from_forward_and_roll returns a normalized up vector from view direction and roll (radians).
-// forward = lookat - lookfrom; roll rotates the up vector around the view axis (0 = world up).
-compute_vup_from_forward_and_roll :: proc(lookfrom, lookat: [3]f32, roll: f32) -> (vup: [3]f32) {
-	right, up0, ok := _compute_camera_basis(lookfrom, lookat)
-	if !ok { return {0, 1, 0} }
-	vup = {
-		math.cos(roll)*up0[0] + math.sin(roll)*right[0],
-		math.cos(roll)*up0[1] + math.sin(roll)*right[1],
-		math.cos(roll)*up0[2] + math.sin(roll)*right[2],
-	}
-	return rt.unit_vector(vup)
-}
-
-// get_orbit_camera_pose returns lookfrom and lookat for the current editor orbit camera.
-// Used by "From View"; vup is not returned so the handler can leave c_camera_params.vup unchanged and preserve roll.
-get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
-	pitch := ev.camera_pitch
-	dist  := ev.orbit_distance
-	t     := ev.orbit_target
-	lookat = {t.x, t.y, t.z}
-	lookfrom = {
-		t.x + dist * math.cos(pitch) * math.sin(ev.camera_yaw),
-		t.y + dist * math.sin(pitch),
-		t.z + dist * math.cos(pitch) * math.cos(ev.camera_yaw),
-	}
-	return
-}
-
 // compute_viewport_ray casts a perspective ray through the given mouse position.
 // When require_inside=true (default) returns false if mouse is outside vp_rect.
 // When require_inside=false the UV is clamped to viewport edges — useful during
 // active drags where the mouse may wander outside the panel.
 // NOTE: viewport / picking helpers were moved into the editor package so they
 // can be shared by object implementations without creating package cycles.
-
-// draw_quad_3d draws a quad as two triangles, both front- and back-face, so it is
-// visible from either side (matches path tracer's set_face_normal double-sided behavior).
-// Call inside BeginMode3D.
-draw_quad_3d :: proc(q: rt.Quad, color: rl.Color) {
-	v0 := rl.Vector3{q.Q[0], q.Q[1], q.Q[2]}
-	v1 := rl.Vector3{q.Q[0] + q.u[0], q.Q[1] + q.u[1], q.Q[2] + q.u[2]}
-	v2 := rl.Vector3{q.Q[0] + q.u[0] + q.v[0], q.Q[1] + q.u[1] + q.v[1], q.Q[2] + q.u[2] + q.v[2]}
-	v3 := rl.Vector3{q.Q[0] + q.v[0], q.Q[1] + q.v[1], q.Q[2] + q.v[2]}
-	// Front face (one winding)
-	rl.DrawTriangle3D(v0, v1, v2, color)
-	rl.DrawTriangle3D(v0, v2, v3, color)
-	// Back face (reversed winding) so quad is visible from behind
-	rl.DrawTriangle3D(v0, v2, v1, color)
-	rl.DrawTriangle3D(v0, v3, v2, color)
-	rl.DrawLine3D(v0, v1, rl.BLACK)
-	rl.DrawLine3D(v1, v2, rl.BLACK)
-	rl.DrawLine3D(v2, v3, rl.BLACK)
-	rl.DrawLine3D(v3, v0, rl.BLACK)
-}
 
 draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	ev := &app.e_edit_view
@@ -410,32 +166,11 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 				rl.DrawModelEx(entry.model, center, {0, 1, 0}, -90.0, {1, 1, 1}, tint)
 				rl.DrawSphereWires(center, s.radius + 0.01, 8, 8, wire_col)
 			} else {
-				// Fallback: solid colour
-				disp_col := [3]f32{0.5, 0.5, 0.5}
-				#partial switch tex in s.albedo {
-				case core.ConstantTexture: disp_col = tex.color
-				case core.CheckerTexture:  disp_col = tex.even
-				}
-				col: rl.Color
-				if selected { col = rl.YELLOW } else {
-					col = rl.Color{u8(disp_col[0]*255), u8(disp_col[1]*255), u8(disp_col[2]*255), 255}
-				}
-				rl.DrawSphere(center, s.radius, col)
-				rl.DrawSphereWires(center, s.radius + 0.01, 8, 8, wire_col)
+				// Fallback: solid colour (shared with preview panel)
+				draw_sphere_solid(s.center, s.radius, sphere_solid_color_from_albedo(s.albedo), selected)
 			}
 		case rt.Quad:
-			q := o
-			col: rl.Color
-			if selected { col = rl.YELLOW } else {
-				dc := rt.material_display_color(q.material)
-				col = rl.Color{
-					u8(clamp(dc[0], 0.0, 1.0) * 255),
-					u8(clamp(dc[1], 0.0, 1.0) * 255),
-					u8(clamp(dc[2], 0.0, 1.0) * 255),
-					255,
-				}
-			}
-			draw_quad_3d(q, col)
+			draw_quad_with_material_color(o, selected)
 		}
 	}
 
@@ -450,7 +185,7 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 		draw_camera_rotation_rings(cam_pos, ev.cam_rot_drag_axis)
 	}
 
-	aspect := (app.r_aspect_ratio == 0 ? (4.0 / 3.0) : (16.0 / 9.0))
+	aspect := get_render_aspect(app)
 	if ev.show_frustum_gizmo {
 		ul, ur, lr, ll := get_camera_viewport_corners(cp, f32(aspect))
 		draw_frustum_wireframe(
@@ -475,7 +210,7 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	// Draw a move indicator on the selected quad during drag
 	if ev.drag_obj_active && ev.selection_kind == .Quad && ev.selected_idx >= 0 {
 		if quad, ok := GetSceneQuad(sm, ev.selected_idx); ok {
-			draw_quad_3d(quad, rl.Color{255, 220, 0, 220})
+			draw_quad_3d(quad, rl.Color{255, 220, 0, 220}) // overlay tint
 		}
 	}
 
@@ -522,326 +257,6 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 
 	src := rl.Rectangle{0, 0, f32(ev.tex_w), -f32(ev.tex_h)}
 	rl.DrawTexturePro(ev.viewport_tex.texture, src, vp_rect, rl.Vector2{0, 0}, 0.0, rl.WHITE)
-}
-
-// edit_view_aabb_toolbar_rects returns the five AABB/BVH toolbar button rects so draw and update share one definition.
-edit_view_aabb_toolbar_rects :: proc(content: rl.Rectangle) -> (btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus: rl.Rectangle) {
-	btn_aabb    = rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
-	btn_sel     = rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
-	btn_bvh     = rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
-	btn_d_plus  = rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
-	btn_d_minus = rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
-	return
-}
-
-// Add Object dropdown layout (shared by draw and update).
-ADD_DROPDOWN_W    :: f32(92)
-ADD_DROPDOWN_H    :: f32(52)
-ADD_DROPDOWN_GAP  :: f32(2)
-ADD_ITEM_H        :: f32(24)
-ADD_ITEM_GAP      :: f32(2)
-
-// edit_view_add_dropdown_rects returns the dropdown panel and Sphere/Quad item rects given the Add button rect.
-edit_view_add_dropdown_rects :: proc(btn_add: rl.Rectangle) -> (dd_rect, sphere_item, quad_item: rl.Rectangle) {
-	dd_rect     = rl.Rectangle{btn_add.x, btn_add.y + btn_add.height + ADD_DROPDOWN_GAP, ADD_DROPDOWN_W, ADD_DROPDOWN_H}
-	sphere_item = rl.Rectangle{dd_rect.x, dd_rect.y, dd_rect.width, ADD_ITEM_H}
-	quad_item   = rl.Rectangle{dd_rect.x, dd_rect.y + ADD_ITEM_H + ADD_ITEM_GAP, dd_rect.width, ADD_ITEM_H}
-	return
-}
-
-// ── Property strip ─────────────────────────────────────────────────────────
-
-// PROP_LW  = label width  (single char "X"/"Y"/"Z"/"R" at fs=12)
-// PROP_GAP = gap between label and value box
-// PROP_FW  = value-box width
-// PROP_FH  = value-box height
-// PROP_SP  = spacing after each field group
-PROP_LW  :: f32(14)
-PROP_GAP :: f32(4)
-PROP_FW  :: f32(60)
-PROP_FH  :: f32(20)
-PROP_SP  :: f32(10)
-PROP_COL :: PROP_LW + PROP_GAP + PROP_FW + PROP_SP // 88 px per column
-
-// cam_forward_angles returns yaw, pitch, dist of the camera's forward direction
-// (lookat - lookfrom). Rotation is always relative to the camera's own center.
-cam_forward_angles :: proc(lookfrom, lookat: [3]f32) -> (yaw, pitch, dist: f32) {
-	d := [3]f32{lookat[0]-lookfrom[0], lookat[1]-lookfrom[1], lookat[2]-lookfrom[2]}
-	dist = math.sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2])
-	if dist < 0.001 { dist = 0.001 }
-	pitch = math.asin(clamp(d[1]/dist, f32(-1), f32(1)))
-	yaw   = math.atan2(d[0], d[2])
-	return
-}
-
-// roll_from_vup returns the roll angle (radians) that would produce the given vup from lookfrom/lookat.
-// vup = cos(roll)*up0 + sin(roll)*right => roll = atan2(dot(vup, right), dot(vup, up0)).
-roll_from_vup :: proc(lookfrom, lookat, vup: [3]f32) -> f32 {
-	right, up0, ok := _compute_camera_basis(lookfrom, lookat)
-	if !ok { return 0 }
-	return math.atan2(
-		right[0]*vup[0] + right[1]*vup[1] + right[2]*vup[2],
-		up0[0]*vup[0] + up0[1]*vup[1] + up0[2]*vup[2],
-	)
-}
-
-// lookat_from_angles computes only the lookat point from position and forward angles (yaw, pitch, dist).
-// Does not touch vup — use when changing yaw/pitch/distance so roll stays independent.
-lookat_from_angles :: proc(lookfrom: [3]f32, yaw, pitch, dist: f32) -> [3]f32 {
-	return [3]f32{
-		lookfrom[0] + dist * math.cos(pitch) * math.sin(yaw),
-		lookfrom[1] + dist * math.sin(pitch),
-		lookfrom[2] + dist * math.cos(pitch) * math.cos(yaw),
-	}
-}
-
-// lookat_from_forward computes lookat and vup from camera position, forward angles, distance, and roll.
-// Use only when roll is being applied; for yaw/pitch/dist changes use lookat_from_angles and leave vup unchanged.
-lookat_from_forward :: proc(lookfrom: [3]f32, yaw, pitch, dist, roll: f32) -> (lookat, vup: [3]f32) {
-	lookat = lookat_from_angles(lookfrom, yaw, pitch, dist)
-	vup = compute_vup_from_forward_and_roll(lookfrom, lookat, roll)
-	return
-}
-
-// cam_orbit_prop_rects returns 7 drag-float rects for the camera properties strip.
-// [0,1,2] = Pos X/Y/Z, [3,4,5] = yaw°/pitch°/dist, [6] = roll° on row 2.
-cam_orbit_prop_rects :: proc(r: rl.Rectangle) -> [7]rl.Rectangle {
-	x0  := r.x + 8
-	y0  := r.y + 8
-	off := PROP_LW + PROP_GAP
-	return [7]rl.Rectangle{
-		{x0 + 0*PROP_COL + off, y0,      PROP_FW, PROP_FH},
-		{x0 + 1*PROP_COL + off, y0,      PROP_FW, PROP_FH},
-		{x0 + 2*PROP_COL + off, y0,      PROP_FW, PROP_FH},
-		{x0 + 0*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
-		{x0 + 1*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
-		{x0 + 2*PROP_COL + off, y0 + 30, PROP_FW, PROP_FH},
-		{x0 + 0*PROP_COL + off, y0 + 60, PROP_FW, PROP_FH},
-	}
-}
-
-// prop_field_rects returns the four drag-float value boxes in screen space.
-// [0]=cx  [1]=cy  [2]=cz  [3]=radius. Rows: 0-2 on row0, 3 on row1.
-prop_field_rects :: proc(r: rl.Rectangle) -> [4]rl.Rectangle {
-	x0 := r.x + 8
-	y0 := r.y + 8
-	off := PROP_LW + PROP_GAP
-	return [4]rl.Rectangle{
-		{x0 + 0*PROP_COL + off, y0,      PROP_FW, PROP_FH},
-		{x0 + 1*PROP_COL + off, y0,      PROP_FW, PROP_FH},
-		{x0 + 2*PROP_COL + off, y0,      PROP_FW, PROP_FH},
-		{x0              + off, y0 + 30, PROP_FW, PROP_FH},
-	}
-}
-
-// draw_drag_field draws a single labeled drag-float widget.
-// The label is placed immediately to the left of the value box.
-draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: bool, mouse: rl.Vector2) {
-	hovered := rl.CheckCollisionPointRec(mouse, box)
-	bg: rl.Color
-	switch {
-	case active:  bg = rl.Color{50, 90, 165, 255}
-	case hovered: bg = rl.Color{55, 62, 88,  255}
-	case:         bg = rl.Color{32, 35, 52,  255}
-	}
-	border := (active || hovered) ? ACCENT_COLOR : BORDER_COLOR
-	rl.DrawRectangleRec(box, bg)
-	rl.DrawRectangleLinesEx(box, 1, border)
-	draw_ui_text(g_app, fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
-	// Label to the left
-	draw_ui_text(g_app, label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
-}
-
-draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []core.SceneSphere) {
-	ev := &app.e_edit_view
-	rl.DrawRectangleRec(rect, rl.Color{25, 28, 40, 240})
-	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
-
-	if ev.selection_kind == .None {
-		draw_ui_text(app, "No object selected",
-			i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Click a sphere or the camera in the viewport to select it",
-			i32(rect.x) + 8, i32(rect.y) + 30, 11, rl.Color{140, 150, 165, 200})
-		return
-	}
-
-	if ev.selection_kind == .Quad {
-		if quad, ok := GetSceneQuad(ev.scene_mgr, ev.selected_idx); ok {
-			dc := rt.material_display_color(quad.material)
-			mat_label := "Lambertian"
-			#partial switch _ in quad.material {
-			case rt.metallic:   mat_label = "Metallic"
-			case rt.dielectric: mat_label = "Dielectric"
-			}
-			draw_ui_text(app, "Quad selected",
-				i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
-			draw_ui_text(app, fmt.ctprintf("Material: %s", mat_label),
-				i32(rect.x) + 8, i32(rect.y) + 28, 11, rl.Color{160, 170, 190, 220})
-			swatch := rl.Rectangle{rect.x + 8, rect.y + 48, 24, 18}
-			swatch_col := rl.Color{
-				u8(clamp(dc[0], 0.0, 1.0) * 255),
-				u8(clamp(dc[1], 0.0, 1.0) * 255),
-				u8(clamp(dc[2], 0.0, 1.0) * 255),
-				255,
-			}
-			rl.DrawRectangleRec(swatch, swatch_col)
-			rl.DrawRectangleLinesEx(swatch, 1, BORDER_COLOR)
-			draw_ui_text(app, "Edit material in Object Properties panel",
-				i32(rect.x) + 8, i32(rect.y) + 72, 10, rl.Color{120, 130, 148, 180})
-		} else {
-			draw_ui_text(app, "Quad selected",
-				i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
-		}
-		return
-	}
-
-	if ev.selection_kind == .Camera {
-		RAD2DEG :: f32(180.0 / math.PI)
-		cp := &app.c_camera_params
-		yaw, pitch, dist := cam_forward_angles(cp.lookfrom, cp.lookat)
-		roll := roll_from_vup(cp.lookfrom, cp.lookat, cp.vup)
-		fields := cam_orbit_prop_rects(rect)
-		vals := [7]f32{
-			cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2],
-			yaw * RAD2DEG, pitch * RAD2DEG, dist,
-			roll * RAD2DEG,
-		}
-		labels := [7]cstring{"X", "Y", "Z", "Yaw", "Pit", "Dst", "Roll"}
-
-		// Row 0 label "Pos"
-		draw_ui_text(app, "Pos", i32(rect.x) + 8, i32(rect.y) + 8 + 4, 11, CONTENT_TEXT_COLOR)
-		draw_drag_field(labels[0], vals[0], fields[0], ev.cam_prop_drag_idx == 0, mouse)
-		draw_drag_field(labels[1], vals[1], fields[1], ev.cam_prop_drag_idx == 1, mouse)
-		draw_drag_field(labels[2], vals[2], fields[2], ev.cam_prop_drag_idx == 2, mouse)
-
-		// Row 1 — yaw / pitch / distance
-		draw_drag_field(labels[3], vals[3], fields[3], ev.cam_prop_drag_idx == 3, mouse)
-		draw_drag_field(labels[4], vals[4], fields[4], ev.cam_prop_drag_idx == 4, mouse)
-		draw_drag_field(labels[5], vals[5], fields[5], ev.cam_prop_drag_idx == 5, mouse)
-
-		// Row 2 — roll
-		draw_drag_field(labels[6], vals[6], fields[6], ev.cam_prop_drag_idx == 6, mouse)
-
-		// Hint
-		draw_ui_text(app,
-			"Drag field \u2022 Drag gizmo to move \u2022 Drag ring to rotate",
-			i32(rect.x) + 8, i32(rect.y) + i32(EDIT_PROPS_H) - 18, 11,
-			rl.Color{120, 130, 148, 180},
-		)
-		return
-	}
-
-	// Sphere selected (use scene_mgr so index matches when scene has quads)
-	if ev.selected_idx < 0 { return }
-	sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
-	if !ok { return }
-	fields := prop_field_rects(rect)
-
-	// Row 0 — position X Y Z
-	draw_drag_field("X", sphere.center[0], fields[0], ev.prop_drag_idx == 0, mouse)
-	draw_drag_field("Y", sphere.center[1], fields[1], ev.prop_drag_idx == 1, mouse)
-	draw_drag_field("Z", sphere.center[2], fields[2], ev.prop_drag_idx == 2, mouse)
-
-	// Row 1 — radius + material label
-	draw_drag_field("R", sphere.radius, fields[3], ev.prop_drag_idx == 3, mouse)
-
-	mat_name  := material_name(sphere.material_kind)
-	mat_x := i32(rect.x) + 8 + i32(PROP_COL)
-	mat_y := i32(rect.y) + 8 + 30 + 4
-	draw_ui_text(app, "Mat:",    mat_x,      mat_y, 12, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, mat_name,  mat_x + 36, mat_y, 12, ACCENT_COLOR)
-
-	// Hint
-	draw_ui_text(app,
-		"Drag field to adjust  •  Click+drag sphere in view to move",
-		i32(rect.x) + 8, i32(rect.y) + i32(EDIT_PROPS_H) - 18, 11,
-		rl.Color{120, 130, 148, 180},
-	)
-}
-
-// ── Context menu helpers ────────────────────────────────────────────────────
-
-CTX_MENU_W :: f32(160)
-
-// ctx_menu_build_items returns a temp-allocated slice of menu entries for the context menu.
-@(private="file")
-ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {
-	items := make([dynamic]MenuEntryDyn, context.temp_allocator)
-	append(&items, MenuEntryDyn{label = "Add Sphere"})
-	append(&items, MenuEntryDyn{label = "Add Quad"})
-	if ev.ctx_menu_hit_idx >= 0 {
-		append(&items, MenuEntryDyn{separator = true})
-		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = !cmd_is_enabled(app, CMD_EDIT_COPY),      shortcut = "Ctrl+C"})
-		append(&items, MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE), shortcut = "Ctrl+D"})
-		append(&items, MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE),     shortcut = "Ctrl+V"})
-		append(&items, MenuEntryDyn{separator = true})
-		append(&items, MenuEntryDyn{label = "Delete"})
-	} else {
-		append(&items, MenuEntryDyn{separator = true})
-		append(&items, MenuEntryDyn{label = "Paste", cmd_id = CMD_EDIT_PASTE, disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE), shortcut = "Ctrl+V"})
-	}
-	return items[:]
-}
-
-// ctx_menu_screen_rect returns the screen-clamped bounding rectangle for the open context menu.
-@(private="file")
-ctx_menu_screen_rect :: proc(app: ^App, ev: ^EditViewState) -> rl.Rectangle {
-	items := ctx_menu_build_items(app, ev)
-	h     := entry_list_height(items)
-	sw    := f32(rl.GetScreenWidth())
-	sh    := f32(rl.GetScreenHeight())
-	x := ev.ctx_menu_pos.x
-	y := ev.ctx_menu_pos.y
-	if x + CTX_MENU_W > sw { x = sw - CTX_MENU_W }
-	if y + h > sh           { y = sh - h           }
-	if x < 0               { x = 0                }
-	if y < 0               { y = 0                }
-	return rl.Rectangle{x, y, CTX_MENU_W, h}
-}
-
-// draw_edit_view_context_menu draws the right-click context menu on top of everything.
-@(private="file")
-draw_edit_view_context_menu :: proc(app: ^App, ev: ^EditViewState) {
-	items := ctx_menu_build_items(app, ev)
-	rect  := ctx_menu_screen_rect(app, ev)
-	mouse := rl.GetMousePosition()
-
-	rl.DrawRectangleRec(rect, PANEL_BG_COLOR)
-	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
-
-	ey: f32 = 0
-	for &entry in items {
-		ih := entry_height(entry)
-		ry := rect.y + ey
-
-		if entry.separator {
-			sep_y := i32(ry + ih * 0.5)
-			rl.DrawRectangle(i32(rect.x) + 4, sep_y, i32(rect.width) - 8, 1, BORDER_COLOR)
-			ey += ih
-			continue
-		}
-
-		item_rect := rl.Rectangle{rect.x, ry, CTX_MENU_W, ih}
-		item_hov  := rl.CheckCollisionPointRec(mouse, item_rect)
-		text_col  := CONTENT_TEXT_COLOR
-		if entry.disabled {
-			text_col = rl.Color{100, 105, 120, 180}
-		} else if item_hov {
-			rl.DrawRectangleRec(item_rect, rl.Color{60, 65, 95, 255})
-		}
-
-		label_c := make_cstring_temp(entry.label)
-		draw_ui_text(app, label_c, i32(rect.x) + 8, i32(ry) + 3, 13, text_col)
-
-		if len(entry.shortcut) > 0 {
-			sc_c := make_cstring_temp(entry.shortcut)
-			sc_w := measure_ui_text(app, sc_c, 11).width
-			sc_x := i32(rect.x + CTX_MENU_W) - sc_w - 6
-			draw_ui_text(app, sc_c, sc_x, i32(ry) + 5, 11, rl.Color{140, 150, 170, 200})
-		}
-
-		ey += ih
-	}
 }
 
 // ── Panel draw ─────────────────────────────────────────────────────────────
@@ -900,12 +315,6 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 
 	// AABB / BVH visualization toggles
 	btn_aabb, btn_sel, btn_bvh, btn_d_plus, btn_d_minus := edit_view_aabb_toolbar_rects(content)
-
-	// btn_aabb    := rl.Rectangle{content.x + 278, content.y + 5, 44, 22}
-	// btn_sel     := rl.Rectangle{content.x + 324, content.y + 5, 28, 22}
-	// btn_bvh     := rl.Rectangle{content.x + 354, content.y + 5, 34, 22}
-	// btn_d_plus  := rl.Rectangle{content.x + 390, content.y + 5, 22, 22}
-	// btn_d_minus := rl.Rectangle{content.x + 414, content.y + 5, 22, 22}
 	aabb_hover   := rl.CheckCollisionPointRec(mouse, btn_aabb)
 	sel_hover    := rl.CheckCollisionPointRec(mouse, btn_sel)
 	bvh_hover    := rl.CheckCollisionPointRec(mouse, btn_bvh)

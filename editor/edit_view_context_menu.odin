@@ -1,0 +1,83 @@
+package editor
+
+import rl "vendor:raylib"
+
+CTX_MENU_W :: f32(160)
+
+// ctx_menu_build_items returns a temp-allocated slice of menu entries for the context menu.
+ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {
+	items := make([dynamic]MenuEntryDyn, context.temp_allocator)
+	append(&items, MenuEntryDyn{label = "Add Sphere"})
+	append(&items, MenuEntryDyn{label = "Add Quad"})
+	if ev.ctx_menu_hit_idx >= 0 {
+		append(&items, MenuEntryDyn{separator = true})
+		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = !cmd_is_enabled(app, CMD_EDIT_COPY),      shortcut = "Ctrl+C"})
+		append(&items, MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE), shortcut = "Ctrl+D"})
+		append(&items, MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE),     shortcut = "Ctrl+V"})
+		append(&items, MenuEntryDyn{separator = true})
+		append(&items, MenuEntryDyn{label = "Delete"})
+	} else {
+		append(&items, MenuEntryDyn{separator = true})
+		append(&items, MenuEntryDyn{label = "Paste", cmd_id = CMD_EDIT_PASTE, disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE), shortcut = "Ctrl+V"})
+	}
+	return items[:]
+}
+
+// ctx_menu_screen_rect returns the screen-clamped bounding rectangle for the open context menu.
+ctx_menu_screen_rect :: proc(app: ^App, ev: ^EditViewState) -> rl.Rectangle {
+	items := ctx_menu_build_items(app, ev)
+	h     := entry_list_height(items)
+	sw    := f32(rl.GetScreenWidth())
+	sh    := f32(rl.GetScreenHeight())
+	x := ev.ctx_menu_pos.x
+	y := ev.ctx_menu_pos.y
+	if x + CTX_MENU_W > sw { x = sw - CTX_MENU_W }
+	if y + h > sh           { y = sh - h           }
+	if x < 0               { x = 0                }
+	if y < 0               { y = 0                }
+	return rl.Rectangle{x, y, CTX_MENU_W, h}
+}
+
+// draw_edit_view_context_menu draws the right-click context menu on top of everything.
+draw_edit_view_context_menu :: proc(app: ^App, ev: ^EditViewState) {
+	items := ctx_menu_build_items(app, ev)
+	rect  := ctx_menu_screen_rect(app, ev)
+	mouse := rl.GetMousePosition()
+
+	rl.DrawRectangleRec(rect, PANEL_BG_COLOR)
+	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
+
+	ey: f32 = 0
+	for &entry in items {
+		ih := entry_height(entry)
+		ry := rect.y + ey
+
+		if entry.separator {
+			sep_y := i32(ry + ih * 0.5)
+			rl.DrawRectangle(i32(rect.x) + 4, sep_y, i32(rect.width) - 8, 1, BORDER_COLOR)
+			ey += ih
+			continue
+		}
+
+		item_rect := rl.Rectangle{rect.x, ry, CTX_MENU_W, ih}
+		item_hov  := rl.CheckCollisionPointRec(mouse, item_rect)
+		text_col  := CONTENT_TEXT_COLOR
+		if entry.disabled {
+			text_col = rl.Color{100, 105, 120, 180}
+		} else if item_hov {
+			rl.DrawRectangleRec(item_rect, rl.Color{60, 65, 95, 255})
+		}
+
+		label_c := make_cstring_temp(entry.label)
+		draw_ui_text(app, label_c, i32(rect.x) + 8, i32(ry) + 3, 13, text_col)
+
+		if len(entry.shortcut) > 0 {
+			sc_c := make_cstring_temp(entry.shortcut)
+			sc_w := measure_ui_text(app, sc_c, 11).width
+			sc_x := i32(rect.x + CTX_MENU_W) - sc_w - 6
+			draw_ui_text(app, sc_c, sc_x, i32(ry) + 5, 11, rl.Color{140, 150, 170, 200})
+		}
+
+		ey += ih
+	}
+}

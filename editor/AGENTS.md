@@ -32,16 +32,29 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 
 | File | Panel |
 |---|---|
-| `panel_render.odin` | Render Preview |
+| `panel_render.odin` | Render Preview; also `get_render_aspect(app)`, `get_aspect_ratio(idx)`, resolution bounds. |
 | `panel_stats.odin` | Stats |
 | `panel_log.odin` | Log |
 | `panel_system_info.odin` | System Info |
-| `panel_edit_view.odin` | Edit View |
+| `panel_edit_view.odin` | Edit View — viewport draw/update, toolbar draw, render button; delegates to edit_view_* and ui_viewport_scene. |
 | `panel_camera.odin` | Camera (includes **shutter open/close** for motion blur). |
-| `panel_preview.odin` | Camera Preview Port |
+| `panel_preview.odin` | Camera Preview Port — uses `get_render_aspect`, `draw_scene_objects_simple` (no interactions). |
 | `panel_obj_props.odin` | Object Properties (camera: shutter; sphere: **MOTION** section with **dX/dY/dZ** = center1 − center, undo/dirty on edit). |
 | `panel_file_modal.odin` | File modal (Preset Name; Import/Save As only with FILE_MODAL_FALLBACK). `file_import_from_path`, `file_save_as_path`. |
 | `panel_confirm_modal.odin` | Save Changes? (exit/import when dirty); Load Example confirmation. |
+
+**Edit View split (shared / state / UI):**
+
+| File | Responsibility |
+|---|---|
+| `edit_view_state.odin` | `EditViewState`, `ViewportSphereCacheEntry`, `init_edit_view`, `update_orbit_camera`, `get_orbit_camera_pose`. |
+| `edit_view_camera_math.odin` | Camera basis, roll, yaw/pitch: `_compute_camera_basis`, `compute_vup_from_forward_and_roll`, `cam_forward_angles`, `roll_from_vup`, `lookat_from_angles`, `lookat_from_forward`. |
+| `edit_view_properties.odin` | Property strip: `EDIT_PROPS_H`, `PROP_*`, `cam_orbit_prop_rects`, `prop_field_rects`, `draw_drag_field`, `draw_edit_properties`. |
+| `edit_view_context_menu.odin` | Context menu: `ctx_menu_build_items`, `ctx_menu_screen_rect`, `draw_edit_view_context_menu`. |
+| `edit_view_toolbar.odin` | Toolbar layout: `EDIT_TOOLBAR_H`, `edit_view_aabb_toolbar_rects`, `edit_view_add_dropdown_rects`, `ADD_DROPDOWN_*`. |
+| `ui_viewport_scene.odin` | Shared 3D scene drawing: `draw_quad_3d`, `sphere_solid_color_from_albedo`, `draw_sphere_solid`, `draw_quad_with_material_color`, `draw_scene_objects_simple` (used by Edit View and Preview). |
+
+**Selection kind:** `EditViewSelectionKind` lives in **core_scene.odin** (used by picking and panels).
 
 ## Naming / scope
 
@@ -76,13 +89,13 @@ The Edit View has two camera concepts:
 
 ## Edit View data structures
 
-**EditViewSelectionKind** — What is selected in the viewport:
+**EditViewSelectionKind** — Defined in **core_scene.odin**. What is selected in the viewport:
 
 - `None` — Nothing selected.
 - `Sphere` — A scene sphere; `selected_idx` is the index into the scene objects.
 - `Camera` — The render camera (gizmo); not deletable.
 
-**EditViewState** — State for the Edit View panel (lives in `app.e_edit_view`):
+**EditViewState** — Defined in **edit_view_state.odin**; lives in `app.e_edit_view`.
 
 | Field | Purpose |
 |-------|--------|
@@ -103,4 +116,4 @@ The Edit View has two camera concepts:
 | `show_frustum_gizmo`, `show_focal_indicator` | Toolbar toggles for gizmos. |
 | `initialized` | One-time init done. |
 
-Key procedures: `init_edit_view`, `update_orbit_camera`, `get_orbit_camera_pose`, `draw_viewport_3d`, `draw_edit_properties`, `update_edit_view_content`. Camera basis/roll helpers: `_compute_camera_basis`, `compute_vup_from_forward_and_roll`, `roll_from_vup`, `lookat_from_angles`, `lookat_from_forward`, `cam_forward_angles`, `cam_orbit_prop_rects`.
+Key procedures: `init_edit_view`, `update_orbit_camera`, `get_orbit_camera_pose` (edit_view_state); `draw_viewport_3d`, `draw_edit_view_content`, `update_edit_view_content` (panel_edit_view); `draw_edit_properties` (edit_view_properties). Camera basis/roll: edit_view_camera_math. Property strip rects: edit_view_properties.

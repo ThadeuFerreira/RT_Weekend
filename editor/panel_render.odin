@@ -13,6 +13,11 @@ get_aspect_ratio :: proc(idx: int) -> f32 {
     return 16.0 / 9.0
 }
 
+// get_render_aspect returns the aspect ratio (width/height) used by the render from app.r_aspect_ratio.
+get_render_aspect :: proc(app: ^App) -> f32 {
+    return get_aspect_ratio(app.r_aspect_ratio)
+}
+
 // Input field constants
 RENDER_INPUT_H :: f32(22)
 RENDER_INPUT_W :: f32(70)
