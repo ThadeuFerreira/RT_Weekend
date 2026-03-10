@@ -318,7 +318,6 @@ mark_scene_dirty :: proc(app: ^App) {
         app.e_scene_dirty = true
         if app.e_edit_view.initialized {
             app.e_edit_view.viz_bvh_dirty             = true
-            app.e_edit_view.viewport_sphere_cache_dirty = true
         }
     }
 }
