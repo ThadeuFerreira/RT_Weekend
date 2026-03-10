@@ -54,7 +54,7 @@ prop_field_rects :: proc(r: rl.Rectangle) -> [4]rl.Rectangle {
 
 // draw_drag_field draws a single labeled drag-float widget.
 // The label is placed immediately to the left of the value box.
-draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: bool, mouse: rl.Vector2) {
+draw_drag_field :: proc(app: ^App, label: cstring, value: f32, box: rl.Rectangle, active: bool, mouse: rl.Vector2) {
 	hovered := rl.CheckCollisionPointRec(mouse, box)
 	bg: rl.Color
 	switch {
@@ -65,9 +65,9 @@ draw_drag_field :: proc(label: cstring, value: f32, box: rl.Rectangle, active: b
 	border := (active || hovered) ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(box, bg)
 	rl.DrawRectangleLinesEx(box, 1, border)
-	draw_ui_text(g_app, fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
 	// Label to the left
-	draw_ui_text(g_app, label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
+	draw_ui_text(app, label, i32(box.x) - i32(PROP_LW + PROP_GAP) + 2, i32(box.y) + 4, 12, CONTENT_TEXT_COLOR)
 }
 
 draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, objs: []core.SceneSphere) {
@@ -128,17 +128,17 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 
 		// Row 0 label "Pos"
 		draw_ui_text(app, "Pos", i32(rect.x) + 8, i32(rect.y) + 8 + 4, 11, CONTENT_TEXT_COLOR)
-		draw_drag_field(labels[0], vals[0], fields[0], ev.cam_prop_drag_idx == 0, mouse)
-		draw_drag_field(labels[1], vals[1], fields[1], ev.cam_prop_drag_idx == 1, mouse)
-		draw_drag_field(labels[2], vals[2], fields[2], ev.cam_prop_drag_idx == 2, mouse)
+		draw_drag_field(app, labels[0], vals[0], fields[0], ev.cam_prop_drag_idx == 0, mouse)
+		draw_drag_field(app, labels[1], vals[1], fields[1], ev.cam_prop_drag_idx == 1, mouse)
+		draw_drag_field(app, labels[2], vals[2], fields[2], ev.cam_prop_drag_idx == 2, mouse)
 
 		// Row 1 — yaw / pitch / distance
-		draw_drag_field(labels[3], vals[3], fields[3], ev.cam_prop_drag_idx == 3, mouse)
-		draw_drag_field(labels[4], vals[4], fields[4], ev.cam_prop_drag_idx == 4, mouse)
-		draw_drag_field(labels[5], vals[5], fields[5], ev.cam_prop_drag_idx == 5, mouse)
+		draw_drag_field(app, labels[3], vals[3], fields[3], ev.cam_prop_drag_idx == 3, mouse)
+		draw_drag_field(app, labels[4], vals[4], fields[4], ev.cam_prop_drag_idx == 4, mouse)
+		draw_drag_field(app, labels[5], vals[5], fields[5], ev.cam_prop_drag_idx == 5, mouse)
 
 		// Row 2 — roll
-		draw_drag_field(labels[6], vals[6], fields[6], ev.cam_prop_drag_idx == 6, mouse)
+		draw_drag_field(app, labels[6], vals[6], fields[6], ev.cam_prop_drag_idx == 6, mouse)
 
 		// Hint
 		draw_ui_text(app,
@@ -156,12 +156,12 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 	fields := prop_field_rects(rect)
 
 	// Row 0 — position X Y Z
-	draw_drag_field("X", sphere.center[0], fields[0], ev.prop_drag_idx == 0, mouse)
-	draw_drag_field("Y", sphere.center[1], fields[1], ev.prop_drag_idx == 1, mouse)
-	draw_drag_field("Z", sphere.center[2], fields[2], ev.prop_drag_idx == 2, mouse)
+	draw_drag_field(app, "X", sphere.center[0], fields[0], ev.prop_drag_idx == 0, mouse)
+	draw_drag_field(app, "Y", sphere.center[1], fields[1], ev.prop_drag_idx == 1, mouse)
+	draw_drag_field(app, "Z", sphere.center[2], fields[2], ev.prop_drag_idx == 2, mouse)
 
 	// Row 1 — radius + material label
-	draw_drag_field("R", sphere.radius, fields[3], ev.prop_drag_idx == 3, mouse)
+	draw_drag_field(app, "R", sphere.radius, fields[3], ev.prop_drag_idx == 3, mouse)
 
 	mat_name  := material_name(sphere.material_kind)
 	mat_x := i32(rect.x) + 8 + i32(PROP_COL)

@@ -49,6 +49,24 @@ BUTTON_STYLE_NEUTRAL :: ButtonStyle{
 	font_size = 11,
 }
 
+// Render button: busy state (dim green, no hover change).
+BUTTON_STYLE_RENDER_BUSY :: ButtonStyle{
+	bg       = rl.Color{45, 75, 45, 200},
+	bg_hover = rl.Color{45, 75, 45, 200},
+	border   = BORDER_COLOR,
+	text     = rl.RAYWHITE,
+	font_size = 12,
+}
+
+// Render button: ready state (bright green, click to start).
+BUTTON_STYLE_RENDER_READY :: ButtonStyle{
+	bg       = rl.Color{80, 220, 80, 255},
+	bg_hover = rl.Color{80, 220, 80, 255},
+	border   = BORDER_COLOR,
+	text     = rl.RAYWHITE,
+	font_size = 12,
+}
+
 Button :: struct {
 	rect:    rl.Rectangle,
 	label:   cstring,

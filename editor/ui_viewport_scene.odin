@@ -173,10 +173,12 @@ draw_viewport_scene_objects :: proc(
 	selection_kind: EditViewSelectionKind,
 	selected_idx: int,
 ) {
+	if app == nil || ev == nil { return }
 	sm := ev.scene_mgr
 	if sm == nil { return }
 	n_objects := len(sm.objects)
 	for i in 0..<n_objects {
+		if i >= len(ev.viewport_sphere_cache) { continue }
 		selected := (selection_kind == .Sphere || selection_kind == .Quad) && selected_idx == i
 		#partial switch o in sm.objects[i] {
 		case core.SceneSphere:
@@ -201,6 +203,7 @@ draw_viewport_scene_objects :: proc(
 
 // draw_viewport_camera_gizmos draws the render camera gizmo (body), optional rotation rings, frustum wireframe, and focal-distance indicator.
 draw_viewport_camera_gizmos :: proc(app: ^App, ev: ^EditViewState) {
+	if app == nil || ev == nil { return }
 	cp := &app.c_camera_params
 	cam_pos := rl.Vector3{cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
 	cam_at  := rl.Vector3{cp.lookat[0], cp.lookat[1], cp.lookat[2]}

@@ -5,7 +5,7 @@ import rl "vendor:raylib"
 CTX_MENU_W :: f32(160)
 
 // ctx_menu_build_items returns a temp-allocated slice of menu entries for the context menu.
-ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {
+@(private="package") ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {
 	items := make([dynamic]MenuEntryDyn, context.temp_allocator)
 	append(&items, MenuEntryDyn{label = "Add Sphere"})
 	append(&items, MenuEntryDyn{label = "Add Quad"})
@@ -24,7 +24,7 @@ ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {
 }
 
 // ctx_menu_screen_rect returns the screen-clamped bounding rectangle for the open context menu.
-ctx_menu_screen_rect :: proc(app: ^App, ev: ^EditViewState) -> rl.Rectangle {
+@(private="package") ctx_menu_screen_rect :: proc(app: ^App, ev: ^EditViewState) -> rl.Rectangle {
 	items := ctx_menu_build_items(app, ev)
 	h     := entry_list_height(items)
 	sw    := f32(rl.GetScreenWidth())
@@ -39,7 +39,7 @@ ctx_menu_screen_rect :: proc(app: ^App, ev: ^EditViewState) -> rl.Rectangle {
 }
 
 // draw_edit_view_context_menu draws the right-click context menu on top of everything.
-draw_edit_view_context_menu :: proc(app: ^App, ev: ^EditViewState) {
+@(private="package") draw_edit_view_context_menu :: proc(app: ^App, ev: ^EditViewState) {
 	items := ctx_menu_build_items(app, ev)
 	rect  := ctx_menu_screen_rect(app, ev)
 	mouse := rl.GetMousePosition()

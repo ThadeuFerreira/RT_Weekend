@@ -175,9 +175,9 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	render_ready := app.finished && app.r_render_pending
 	render_style := BUTTON_STYLE_SUCCESS
 	if render_busy {
-		render_style = ButtonStyle{bg = rl.Color{45, 75, 45, 200}, bg_hover = rl.Color{45, 75, 45, 200}, border = BORDER_COLOR, text = rl.RAYWHITE, font_size = 12}
+		render_style = BUTTON_STYLE_RENDER_BUSY
 	} else if render_ready {
-		render_style = ButtonStyle{bg = rl.Color{80, 220, 80, 255}, bg_hover = rl.Color{80, 220, 80, 255}, border = BORDER_COLOR, text = rl.RAYWHITE, font_size = 12}
+		render_style = BUTTON_STYLE_RENDER_READY
 	}
 	btn_render := Button{
 		rect    = btn_render_rect,
