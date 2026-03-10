@@ -99,6 +99,16 @@ file_modal_update :: proc(app: ^App) {
     }
 }
 
+// world_has_ground_plane returns true if the world contains a sphere used as ground (center.y < -100).
+world_has_ground_plane :: proc(world: []rt.Object) -> bool {
+	for obj in world {
+		if s, ok := obj.(rt.Sphere); ok && s.center[1] < -100 {
+			return true
+		}
+	}
+	return false
+}
+
 // file_import_from_path loads a scene from path and restarts the render. Takes ownership of path (caller must not delete).
 // Used by native open dialog and by file_modal_confirm when FILE_MODAL_FALLBACK is used for Import.
 file_import_from_path :: proc(app: ^App, path: string) {
@@ -118,7 +128,8 @@ file_import_from_path :: proc(app: ^App, path: string) {
 
     edit_history_free(&app.edit_history)
     app.edit_history = EditHistory{}
-    app.include_ground_plane = true
+    // Only include ground plane when the loaded scene had one (sphere with center.y < -100).
+    app.include_ground_plane = world_has_ground_plane(world[:])
     app_set_ground_texture(app, nil)
 
     delete(app.current_scene_path)

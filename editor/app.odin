@@ -118,7 +118,7 @@ app_build_world_from_scene :: proc(app: ^App, scene_objects: []core.SceneSphere)
     return rt.build_world_from_scene(
         scene_objects,
         app_active_ground_texture(app),
-        app.image_texture_cache,
+        &app.image_texture_cache,
         app.include_ground_plane,
     )
 }
