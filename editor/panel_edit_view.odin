@@ -933,60 +933,6 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 		}
 	}
 
-	// Keyboard nudge (sphere only)
-	MOVE_SPEED   :: f32(0.05)
-	RADIUS_SPEED :: f32(0.02)
-	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
-		any_nudge :=
-			rl.IsKeyDown(.W)     || rl.IsKeyDown(.UP)          ||
-			rl.IsKeyDown(.S)     || rl.IsKeyDown(.DOWN)        ||
-			rl.IsKeyDown(.A)     || rl.IsKeyDown(.LEFT)        ||
-			rl.IsKeyDown(.D)     || rl.IsKeyDown(.RIGHT)       ||
-			rl.IsKeyDown(.Q)     || rl.IsKeyDown(.E)           ||
-			rl.IsKeyDown(.EQUAL) || rl.IsKeyDown(.KP_ADD)      ||
-			rl.IsKeyDown(.MINUS) || rl.IsKeyDown(.KP_SUBTRACT)
-
-		// Capture before-state on first keydown of a nudge session
-		if any_nudge && !ev.nudge_active {
-			ev.nudge_active = true
-			if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-				ev.nudge_before = sphere
-			}
-		}
-
-		if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-			if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)    { sphere.center[2] -= MOVE_SPEED }
-			if rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)  { sphere.center[2] += MOVE_SPEED }
-			if rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT)  { sphere.center[0] -= MOVE_SPEED }
-			if rl.IsKeyDown(.D) || rl.IsKeyDown(.RIGHT) { sphere.center[0] += MOVE_SPEED }
-			if rl.IsKeyDown(.Q)                         { sphere.center[1] -= MOVE_SPEED }
-			if rl.IsKeyDown(.E)                         { sphere.center[1] += MOVE_SPEED }
-			if rl.IsKeyDown(.EQUAL) || rl.IsKeyDown(.KP_ADD) {
-				sphere.radius += RADIUS_SPEED
-			}
-			if rl.IsKeyDown(.MINUS) || rl.IsKeyDown(.KP_SUBTRACT) {
-				sphere.radius -= RADIUS_SPEED
-				if sphere.radius < 0.05 { sphere.radius = 0.05 }
-			}
-			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
-		}
-
-		// Commit nudge to history when all keys released
-		if !any_nudge && ev.nudge_active {
-			ev.nudge_active = false
-			if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-				edit_history_push(&app.edit_history, ModifySphereAction{
-					idx    = ev.selected_idx,
-					before = ev.nudge_before,
-					after  = sphere,
-				})
-				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Nudge sphere"))
-				app.r_render_pending = true
-			}
-		}
-	} else {
-		// Selection lost — clear nudge state without pushing (nothing to commit)
-		ev.nudge_active = false
-	}
+	// Keyboard nudge (sphere only); uses app.keyboard (updated once per frame in main loop)
+	update_sphere_nudge(app, ev)
 }

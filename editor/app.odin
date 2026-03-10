@@ -270,6 +270,9 @@ App :: struct {
     ui_font_shader: rl.Shader,
     use_sdf_font:   bool,
 
+    // Keyboard state: updated once per frame by keyboard_update; use instead of rl.IsKeyDown in features (nudge, etc.)
+    keyboard: KeyboardState,
+
     // Input consumption: reset each frame, set by menu bar/modal first, prevents click bleed
     input_consumed: bool,
 
@@ -687,6 +690,7 @@ run_app :: proc(
         lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
 
         // ── Input phase (priority order) ──────────────────────────────────
+        keyboard_update(&app.keyboard)
         app.input_consumed = false
 
         // Priority 1: menu bar
