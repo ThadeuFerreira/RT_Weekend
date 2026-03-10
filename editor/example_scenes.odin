@@ -38,6 +38,7 @@ WEEKEND_CAMERA :: core.CameraParams{
     max_depth     = 50,
     shutter_open  = 0,
     shutter_close = 1,
+    background    = core.CAMERA_BACKGROUND_SKY,
 }
 
 // WeekendGridParams configures the shared "One Weekend" grid of small spheres + three large spheres.
@@ -235,6 +236,7 @@ build_next_week_quads_scene :: proc() -> (
         max_depth     = 50,
         shutter_open  = 0,
         shutter_close = 1,
+        background    = core.CAMERA_BACKGROUND_SKY,
     }
 
     return nil, result_quads[:], quad_camera, nil, false
@@ -250,6 +252,7 @@ TURBULENCE_CAMERA :: core.CameraParams{
     max_depth     = 50,
     shutter_open  = 0,
     shutter_close = 1,
+    background    = core.CAMERA_BACKGROUND_SKY,
 }
 
 // build_next_week_turbulence_scene returns the "perlin spheres" scene from "Ray Tracing: The Next Week".

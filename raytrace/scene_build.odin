@@ -45,6 +45,9 @@ sphere_to_scene_sphere :: proc(s: Sphere) -> core.SceneSphere {
 	case dielectric:
 		ss.material_kind = .Dielectric
 		ss.ref_idx = m.ref_idx
+	case diffuse_light:
+		ss.material_kind = .DiffuseLight
+		ss.albedo = core.ConstantTexture{color = m.emit}
 	case:
 		ss.material_kind = .Lambertian
 		ss.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
@@ -228,6 +231,14 @@ build_world_from_scene :: proc(
 			ref_idx := s.ref_idx
 			if ref_idx <= 0 { ref_idx = 1.5 }
 			mat = material(dielectric{ref_idx = ref_idx})
+		case .DiffuseLight:
+			emit_col := [3]f32{1, 1, 1}
+			if ct, ok := s.albedo.(core.ConstantTexture); ok {
+				emit_col = ct.color
+			} else if ct2, ok := s.albedo.(core.CheckerTexture); ok {
+				emit_col = ct2.even
+			}
+			mat = material(diffuse_light{emit = emit_col})
 		case:
 			albedo_fallback: RTexture = ConstantTexture{color = {0.5, 0.5, 0.5}}
 			switch a in s.albedo {

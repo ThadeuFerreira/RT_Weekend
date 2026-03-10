@@ -146,9 +146,11 @@ ray_at :: proc(r : ray, t : f32) -> [3]f32 {
     return r.origin + t*r.dir
 }
 
-ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^util.ThreadRNG, thread_breakdown: ^ThreadRenderingBreakdown = nil, bvh_root: ^BVHNode = nil) -> [3]f32 {
+// ray_color traces one ray: hit nothing → background; hit emitter → emission only or emission + scattered.
+// background is the color when the ray misses the scene (e.g. pure black so only emitters light the scene).
+ray_color :: proc(r: ray, depth: int, world: [dynamic]Object, rng: ^util.ThreadRNG, thread_breakdown: ^ThreadRenderingBreakdown = nil, bvh_root: ^BVHNode = nil, background: [3]f32 = {0, 0, 0}) -> [3]f32 {
     if depth <= 0 {
-        return [3]f32{0,0,0}
+        return [3]f32{0, 0, 0}
     }
     ray_t := Interval{0.001, math.inf_f32(1.0)}
     hr := hit_record{}
@@ -180,42 +182,37 @@ ray_color :: proc(r : ray, depth : int , world : [dynamic]Object, rng: ^util.Thr
         }
     }
 
-    if hit_anything{
-        scattered := ray{}
-        attenuation := [3]f32{}
-        scatter_result: bool
-
-        {
-            field_ptr := thread_breakdown != nil ? &thread_breakdown.scatter_time : nil
-            scope := PROFILE_SCOPE(field_ptr)
-            defer PROFILE_SCOPE_END(scope)
-            scatter_result = scatter(hr.material, r, hr, &attenuation, &scattered, rng)
-        }
-
-        if scatter_result {
-            return attenuation * ray_color(scattered, depth - 1, world, rng, thread_breakdown, bvh_root)
-        }
-        return [3]f32{0,0,0}
-    }
-
-    {
+    if !hit_anything {
         field_ptr := thread_breakdown != nil ? &thread_breakdown.background_time : nil
         scope := PROFILE_SCOPE(field_ptr)
         defer PROFILE_SCOPE_END(scope)
-
-        unit_direction := unit_vector(r.dir)
-        a := 0.5 * (unit_direction[1] + 1.0)
-        ones := [3]f32{1.0, 1.0, 1.0}
-        color := [3]f32{0.5,0.7,1}
-        result := (1.0-a)*ones + a*color
-        return result
+        return background
     }
+
+    color_from_emission := emitted(hr.material, hr.u, hr.v, hr.p)
+    scattered := ray{}
+    attenuation := [3]f32{}
+    scatter_result: bool
+
+    {
+        field_ptr := thread_breakdown != nil ? &thread_breakdown.scatter_time : nil
+        scope := PROFILE_SCOPE(field_ptr)
+        defer PROFILE_SCOPE_END(scope)
+        scatter_result = scatter(hr.material, r, hr, &attenuation, &scattered, rng)
+    }
+
+    if !scatter_result {
+        return color_from_emission
+    }
+    color_from_scatter := attenuation * ray_color(scattered, depth - 1, world, rng, thread_breakdown, bvh_root, background)
+    return color_from_emission + color_from_scatter
 }
 
 // ray_color_linear is the same as ray_color but prefers bvh_hit_linear
 // (iterative, cache-friendly) over the recursive bvh_hit when a flat
 // linear BVH is available.  Passing nil for linear_nodes falls back to
 // the recursive path so the two implementations remain comparable.
+// ray_color_linear: same as ray_color but uses bvh_hit_linear when linear_nodes is provided.
 ray_color_linear :: proc(
     r:              ray,
     depth:          int,
@@ -224,6 +221,7 @@ ray_color_linear :: proc(
     thread_breakdown: ^ThreadRenderingBreakdown = nil,
     bvh_root:       ^BVHNode = nil,
     linear_nodes:   []LinearBVHNode = nil,
+    background:     [3]f32 = {0, 0, 0},
 ) -> [3]f32 {
     if depth <= 0 { return [3]f32{0, 0, 0} }
 
@@ -238,7 +236,6 @@ ray_color_linear :: proc(
         defer PROFILE_SCOPE_END(scope)
 
         if linear_nodes != nil && len(linear_nodes) > 0 {
-            // Use the flat iterative BVH (Step 1 optimisation).
             world_slice := world[:]
             hr, hit_anything = bvh_hit_linear(linear_nodes, world_slice, r, ray_t)
             if hit_anything { closest = hr.t }
@@ -257,35 +254,30 @@ ray_color_linear :: proc(
         }
     }
 
-    if hit_anything {
-        scattered   := ray{}
-        attenuation := [3]f32{}
-        scatter_result: bool
-
-        {
-            field_ptr := thread_breakdown != nil ? &thread_breakdown.scatter_time : nil
-            scope := PROFILE_SCOPE(field_ptr)
-            defer PROFILE_SCOPE_END(scope)
-            scatter_result = scatter(hr.material, r, hr, &attenuation, &scattered, rng)
-        }
-
-        if scatter_result {
-            return attenuation * ray_color_linear(scattered, depth - 1, world, rng, thread_breakdown, bvh_root, linear_nodes)
-        }
-        return [3]f32{0, 0, 0}
-    }
-
-    {
+    if !hit_anything {
         field_ptr := thread_breakdown != nil ? &thread_breakdown.background_time : nil
         scope := PROFILE_SCOPE(field_ptr)
         defer PROFILE_SCOPE_END(scope)
-
-        unit_direction := unit_vector(r.dir)
-        a := 0.5 * (unit_direction[1] + 1.0)
-        ones  := [3]f32{1.0, 1.0, 1.0}
-        color := [3]f32{0.5, 0.7, 1.0}
-        return (1.0 - a) * ones + a * color
+        return background
     }
+
+    color_from_emission := emitted(hr.material, hr.u, hr.v, hr.p)
+    scattered     := ray{}
+    attenuation   := [3]f32{}
+    scatter_result: bool
+
+    {
+        field_ptr := thread_breakdown != nil ? &thread_breakdown.scatter_time : nil
+        scope := PROFILE_SCOPE(field_ptr)
+        defer PROFILE_SCOPE_END(scope)
+        scatter_result = scatter(hr.material, r, hr, &attenuation, &scattered, rng)
+    }
+
+    if !scatter_result {
+        return color_from_emission
+    }
+    color_from_scatter := attenuation * ray_color_linear(scattered, depth - 1, world, rng, thread_breakdown, bvh_root, linear_nodes, background)
+    return color_from_emission + color_from_scatter
 }
 
 unit_vector :: proc(v : [3]f32) -> [3]f32 {

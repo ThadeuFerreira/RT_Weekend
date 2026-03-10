@@ -323,6 +323,13 @@ scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = 
             gpu.fuzz_or_ior = m.ref_idx
             gpu.tex_type    = TEX_CONSTANT
             gpu.tex_index   = 0
+        case diffuse_light:
+            // GPU path has no MAT_EMISSIVE yet: render as non-emissive Lambertian (colored sphere only)
+            gpu.mat_type    = MAT_LAMBERTIAN
+            gpu.albedo      = m.emit
+            gpu.fuzz_or_ior = 0.0
+            gpu.tex_type    = TEX_CONSTANT
+            gpu.tex_index   = 0
         case:
             // Unknown material: default to white Lambertian (constant)
             gpu.mat_type  = MAT_LAMBERTIAN
@@ -401,6 +408,11 @@ scene_to_gpu_quads :: proc(objects: []Object, world_to_quad_gpu: []int = nil) ->
             gpu.mat_type    = MAT_DIELECTRIC
             gpu.albedo      = [3]f32{1, 1, 1}
             gpu.fuzz_or_ior = m.ref_idx
+            gpu.tex_type    = TEX_CONSTANT
+        case diffuse_light:
+            gpu.mat_type    = MAT_LAMBERTIAN
+            gpu.albedo      = m.emit
+            gpu.fuzz_or_ior = 0.0
             gpu.tex_type    = TEX_CONSTANT
         case:
             gpu.mat_type  = MAT_LAMBERTIAN
