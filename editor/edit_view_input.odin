@@ -30,7 +30,10 @@ edit_view_rects_from_content :: proc(content: rl.Rectangle) -> EditViewRects {
 	r.btn_focal    = rl.Rectangle{content.x + 234, content.y + 5, 40, 22}
 	r.btn_aabb, r.btn_sel, r.btn_bvh, r.btn_d_plus, r.btn_d_minus = edit_view_aabb_toolbar_rects(content)
 	r.btn_bg, r.swatch_bg, r.popover_bg = edit_view_background_rects(content)
+<<<<<<< 107-refactor-ui-components-to-use-centralized-logging-and-tracing-in-debug-mode
 	r.btn_bg, r.swatch_bg, r.popover_bg = edit_view_background_rects(content)
+=======
+>>>>>>> main
 	r.btn_fromview = rl.Rectangle{content.x + content.width - 178, content.y + 5, 82, 22}
 	r.btn_render   = rl.Rectangle{content.x + content.width - 90, content.y + 5, 82, 22}
 	r.vp_rect = rl.Rectangle{
@@ -62,6 +65,7 @@ EditViewInputPhase :: enum {
 }
 
 get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) -> EditViewInputPhase {
+<<<<<<< 107-refactor-ui-components-to-use-centralized-logging-and-tracing-in-debug-mode
 	switch true {
 	case ev.ctx_menu_open:
 		return .ContextMenu
@@ -96,6 +100,25 @@ get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 	case lmb_pressed && ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_minus):
 		return .Toolbar
 	case lmb_pressed:
+=======
+	if ev.ctx_menu_open { return .ContextMenu }
+	if ev.cam_rot_drag_axis >= 0 { return .CamRotDrag }
+	if ev.cam_drag_active { return .CamBodyDrag }
+	if ev.cam_prop_drag_idx >= 0 { return .CamPropDrag }
+	if ev.prop_drag_idx >= 0 { return .SpherePropDrag }
+	if ev.drag_obj_active { return .ViewportObjectDrag }
+	if ev.bg_drag_idx >= 0 { return .Toolbar }
+	if lmb_pressed {
+		if rl.CheckCollisionPointRec(mouse, rects.btn_bg) { return .Toolbar }
+		if ev.bg_picker_open && rl.CheckCollisionPointRec(mouse, rects.popover_bg) { return .Toolbar }
+		if rl.CheckCollisionPointRec(mouse, rects.btn_frustum) { return .Toolbar }
+		if rl.CheckCollisionPointRec(mouse, rects.btn_focal) { return .Toolbar }
+		if rl.CheckCollisionPointRec(mouse, rects.btn_aabb) { return .Toolbar }
+		if ev.show_aabbs && rl.CheckCollisionPointRec(mouse, rects.btn_sel) { return .Toolbar }
+		if rl.CheckCollisionPointRec(mouse, rects.btn_bvh) { return .Toolbar }
+		if ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_plus) { return .Toolbar }
+		if ev.show_bvh_hierarchy && rl.CheckCollisionPointRec(mouse, rects.btn_d_minus) { return .Toolbar }
+>>>>>>> main
 		dd_rect, _, _ := edit_view_add_dropdown_rects(rects.btn_add)
 		switch true {
 		case ev.add_dropdown_open && rl.CheckCollisionPointRec(mouse, dd_rect),
@@ -372,7 +395,10 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 }
 
 handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, rects: ^EditViewRects) {
+<<<<<<< 107-refactor-ui-components-to-use-centralized-logging-and-tracing-in-debug-mode
 	_ts := ui_trace_handler_begin("handle_toolbar_input"); defer ui_trace_handler_end(_ts)
+=======
+>>>>>>> main
 	lmb := rl.IsMouseButtonDown(.LEFT)
 	lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
 
