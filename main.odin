@@ -139,8 +139,40 @@ main :: proc() {
             fmt.fprintf(os.stderr, "Error: -headless requires -output <path>\n")
             return
         }
-        // No scene file: use procedural scene (same as editor default).
-        if len(args.ScenePath) == 0 {
+        // Special test: "-scene test-rotation" exercises build_world_from_scene with editor-like camera + rotated sphere.
+        if args.ScenePath == "test-rotation" {
+            delete(r_world)
+            free(r_camera)
+            r_camera = raytrace.make_camera(image_width, image_height, samples_per_pixel)
+            cam_params := core.CameraParams{
+                lookfrom     = {8, 2, 3},
+                lookat       = {0, 0, 0},
+                vup          = {0, 1, 0},
+                vfov         = 20,
+                focus_dist   = 10,
+                defocus_angle = 0.6,
+                max_depth    = 20,
+                background   = {1, 1, 1}, // white like editor default
+            }
+            raytrace.apply_scene_camera(r_camera, &cam_params)
+            raytrace.init_camera(r_camera)
+            // Editor default 3 spheres, second one (metallic blue at origin) has rotation added
+            scene_spheres := []core.SceneSphere{
+                {center = {-3, 0.5, 0}, center1 = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.8, 0.2, 0.2}}},
+                {center = { 0, 0.5, 0}, center1 = { 0, 0.5, 0}, radius = 0.5, material_kind = .Metallic,   albedo = core.ConstantTexture{color={0.2, 0.2, 0.8}}, fuzz = 0.1, rotation_deg = {45, 0, 0}},
+                {center = { 3, 0.5, 0}, center1 = { 3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.2, 0.8, 0.2}}},
+            }
+            r_world = raytrace.build_world_from_scene(scene_spheres, raytrace.ConstantTexture{color = {0.5, 0.5, 0.5}}, nil, true)
+            fmt.printf("[TestRot] world has %d objects (1 TransformedObject expected for metallic blue sphere)\n", len(r_world))
+            for _wi in 0..<len(r_world) {
+                switch o in r_world[_wi] {
+                case raytrace.Sphere:            fmt.printf("  [%d] Sphere center=%v r=%v\n", _wi, o.center, o.radius)
+                case raytrace.Quad:              fmt.printf("  [%d] Quad\n", _wi)
+                case raytrace.TransformedObject: fmt.printf("  [%d] TransformedObject transl=%v rot=%v bbox=(%v,%v)\n", _wi, o.translation, o.rotation_deg, [3]f32{o.bbox.x.min, o.bbox.y.min, o.bbox.z.min}, [3]f32{o.bbox.x.max, o.bbox.y.max, o.bbox.z.max})
+                }
+            }
+        } else if len(args.ScenePath) == 0 {
+            // No scene file: use procedural scene (same as editor default).
             raytrace.free_world_volumes(r_world)
             delete(r_world)
             free(r_camera)

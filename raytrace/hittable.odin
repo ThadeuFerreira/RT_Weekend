@@ -886,11 +886,13 @@ set_face_normal :: proc(rec : ^hit_record, r : ray, outward_normal : [3]f32) {
 // primitive, then transforms the hit point and normal back to world space.
 // t is invariant under the transform (see derivation in transform.odin).
 hit_transformed :: proc(inst: TransformedObject, r_world: ray, ray_t: Interval, rec: ^hit_record, closest_so_far: ^f32) -> bool {
-	// Transform ray to object space (direction as vector, no translation component).
+	// Transform ray to object space. UV coordinates are computed inside hit_sphere/hit_quad
+	// using the object-space normal, so the texture automatically follows object rotation.
 	origin_obj := mat4_transform_point(inst.xform.world_to_object, r_world.origin)
 	dir_obj    := mat4_transform_vector(inst.xform.world_to_object, r_world.dir)
 	r_obj      := ray{origin = origin_obj, dir = dir_obj, time = r_world.time}
 
+	// Test the inner primitive in object space.
 	temp_rec  := hit_record{}
 	hit_inner := false
 	switch inner in inst.inner {
@@ -911,7 +913,7 @@ hit_transformed :: proc(inst: TransformedObject, r_world: ray, ray_t: Interval, 
 	// Transform normal using inverse-transpose (= transpose of world_to_object).
 	outward_world := unit_vector(mat4_transform_vector(mat4_transpose(inst.xform.world_to_object), outward_obj))
 
-	// Re-apply front-face test in world space.
+	// Re-apply front-face test in world space (u,v from object space are preserved as-is).
 	set_face_normal(&temp_rec, r_world, outward_world)
 
 	rec^            = temp_rec
