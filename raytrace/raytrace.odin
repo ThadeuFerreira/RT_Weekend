@@ -152,6 +152,8 @@ setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_sphe
     cam := make_camera(image_width, image_height, samples_per_pixel)
     init_camera(cam)
 
+    cam.background = [3]f32{1, 1, 1}
+
     return cam, world
 }
 

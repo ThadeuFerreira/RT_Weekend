@@ -6,6 +6,105 @@ import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
 
+BG_PRESET_COUNT :: 6
+BG_PRESET_ITEM_H :: f32(22)
+
+bg_preset_name :: proc(i: int) -> cstring {
+	switch i {
+	case 0: return "Sky Blue"
+	case 1: return "Dark Blue"
+	case 2: return "Black"
+	case 3: return "Neutral Gray"
+	case 4: return "Warm Sunset"
+	case 5: return "White"
+	case:  return "Custom"  // Unreachable when i in 0..<BG_PRESET_COUNT; kept for exhaustiveness.
+	}
+}
+
+// Default returns black; not the "Custom" label color (no single Custom preset value).
+bg_preset_color :: proc(i: int) -> [3]f32 {
+	switch i {
+	case 0: return core.CAMERA_BACKGROUND_SKY
+	case 1: return {0.06, 0.09, 0.14}
+	case 2: return {0.0, 0.0, 0.0}
+	case 3: return {0.25, 0.27, 0.30}
+	case 4: return {0.80, 0.55, 0.35}
+	case 5: return {1.0, 1.0, 1.0}
+	case:  return {0.0, 0.0, 0.0}
+	}
+}
+
+bg_preset_item_rect :: proc(popover: rl.Rectangle, idx: int) -> rl.Rectangle {
+	return rl.Rectangle{
+		popover.x + 6,
+		popover.y + 6 + f32(idx) * BG_PRESET_ITEM_H,
+		popover.width - 12,
+		BG_PRESET_ITEM_H - 2,
+	}
+}
+
+// Max lines per axis per level to keep grid draw calls bounded on weak hardware.
+// Worst case: 3 levels × 2 axes × 52 = 312 DrawLine3D calls (was ~1,320 at level_ext 55).
+MAX_GRID_LINES_PER_AXIS :: 52
+
+draw_adaptive_infinite_grid :: proc(ev: ^EditViewState) {
+	if ev == nil || !ev.grid_visible { return }
+	center, radius, _ := scene_scale_recommendations(ev.scene_mgr)
+	cam := ev.cam3d.position
+	base_cell := clamp(radius / 18.0, f32(0.1), f32(1000.0)) / clamp(ev.grid_density, f32(0.25), f32(8.0))
+	levels := [3]f32{base_cell, base_cell * 10.0, base_cell * 100.0}
+	level_ext := [3]f32{28.0, 40.0, 55.0}
+	axis_col := rl.Color{120, 140, 185, 170}
+
+	for li in 0..<len(levels) {
+		cell := levels[li]
+		ext_cells := level_ext[li]
+		range_w := ext_cells * cell
+		min_x := math.floor((cam.x - range_w) / cell) * cell
+		max_x := math.ceil((cam.x + range_w) / cell) * cell
+		min_z := math.floor((cam.z - range_w) / cell) * cell
+		max_z := math.ceil((cam.z + range_w) / cell) * cell
+
+		count_x := int((max_x - min_x) / cell + 1)
+		count_z := int((max_z - min_z) / cell + 1)
+		step_x := 1
+		if count_x > MAX_GRID_LINES_PER_AXIS {
+			step_x = (count_x + MAX_GRID_LINES_PER_AXIS - 1) / MAX_GRID_LINES_PER_AXIS
+		}
+		step_z := 1
+		if count_z > MAX_GRID_LINES_PER_AXIS {
+			step_z = (count_z + MAX_GRID_LINES_PER_AXIS - 1) / MAX_GRID_LINES_PER_AXIS
+		}
+
+		x_step := cell * f32(step_x)
+		z_step := cell * f32(step_z)
+		a_base := f32(110 - li * 25)
+
+		for x := min_x; x <= max_x; x += x_step {
+			dist := math.abs(x - cam.x) / max(range_w, f32(1e-3))
+			alpha := clamp(1.0 - dist, 0.0, 1.0) * a_base
+			col := rl.Color{95, 105, 130, u8(alpha)}
+			if math.abs(x - center[0]) < cell * 0.25 { col = axis_col }
+			rl.DrawLine3D(
+				rl.Vector3{x, 0, min_z},
+				rl.Vector3{x, 0, max_z},
+				col,
+			)
+		}
+		for z := min_z; z <= max_z; z += z_step {
+			dist := math.abs(z - cam.z) / max(range_w, f32(1e-3))
+			alpha := clamp(1.0 - dist, 0.0, 1.0) * a_base
+			col := rl.Color{95, 105, 130, u8(alpha)}
+			if math.abs(z - center[2]) < cell * 0.25 { col = axis_col }
+			rl.DrawLine3D(
+				rl.Vector3{min_x, 0, z},
+				rl.Vector3{max_x, 0, z},
+				col,
+			)
+		}
+	}
+}
+
 draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	ev := &app.e_edit_view
 	sm := ev.scene_mgr
@@ -30,7 +129,7 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	rl.BeginTextureMode(ev.viewport_tex)
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})
 	rl.BeginMode3D(ev.cam3d)
-	rl.DrawGrid(20, 1.0)
+	draw_adaptive_infinite_grid(ev)
 	draw_viewport_scene_objects(app, ev, ev.selection_kind, ev.selected_idx)
 	draw_viewport_camera_gizmos(app, ev)
 
@@ -160,10 +259,15 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		draw_ui_text(app, depth_label, i32(btn_d_minus.x) + 22 + 4, i32(btn_d_minus.y) + 5, 11, rl.Color{180, 185, 200, 220})
 	}
 
-	// Background color (swatch opens R G B popover)
+	// Background color (button opens preset dropdown)
 	btn_bg, swatch_bg, popover_bg := edit_view_background_rects(content)
 	bg := app.c_camera_params.background
-	draw_ui_text(app, "Background", i32(btn_bg.x), i32(btn_bg.y) + 5, 10, CONTENT_TEXT_COLOR)
+	_ = draw_button(app, Button{
+		rect    = btn_bg,
+		label   = "Background",
+		style   = BUTTON_STYLE_NEUTRAL,
+		enabled = true,
+	}, mouse)
 	swatch_c := rl.Color{
 		u8(clamp(bg[0], 0, 1) * 255),
 		u8(clamp(bg[1], 0, 1) * 255),
@@ -172,20 +276,6 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	}
 	rl.DrawRectangleRec(swatch_bg, swatch_c)
 	rl.DrawRectangleLinesEx(swatch_bg, 1, BORDER_COLOR)
-	if ev.bg_picker_open {
-		draw_dropdown_panel(popover_bg)
-		op_section_label(app, "Background", popover_bg.x + 8, popover_bg.y + 6)
-		x0 := popover_bg.x + 8 + OP_LW + OP_GAP
-		cy := popover_bg.y + 6 + 18
-		box_rgb := [3]rl.Rectangle{
-			{x0,             cy, OP_FW, OP_FH},
-			{x0 + OP_COL,   cy, OP_FW, OP_FH},
-			{x0 + 2*OP_COL, cy, OP_FW, OP_FH},
-		}
-		op_drag_field(app, "R", bg[0], box_rgb[0], ev.bg_drag_idx == 0, mouse)
-		op_drag_field(app, "G", bg[1], box_rgb[1], ev.bg_drag_idx == 1, mouse)
-		op_drag_field(app, "B", bg[2], box_rgb[2], ev.bg_drag_idx == 2, mouse)
-	}
 
 	// From View
 	btn_fromview := Button{
@@ -231,6 +321,29 @@ draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		EDIT_PROPS_H,
 	}
 	draw_edit_properties(app, props_rect, mouse, ev.export_scratch[:])
+
+	// Draw background dropdown late so it stays above viewport/properties.
+	if ev.bg_picker_open {
+		draw_dropdown_panel(popover_bg)
+		for i in 0..<BG_PRESET_COUNT {
+			item := bg_preset_item_rect(popover_bg, i)
+			hovered := rl.CheckCollisionPointRec(mouse, item)
+			if hovered {
+				rl.DrawRectangleRec(item, rl.Color{60, 65, 95, 255})
+			}
+			p := bg_preset_color(i)
+			p_col := rl.Color{
+				u8(clamp(p[0], 0, 1) * 255),
+				u8(clamp(p[1], 0, 1) * 255),
+				u8(clamp(p[2], 0, 1) * 255),
+				255,
+			}
+			swatch := rl.Rectangle{item.x + 4, item.y + 3, 16, item.height - 6}
+			rl.DrawRectangleRec(swatch, p_col)
+			rl.DrawRectangleLinesEx(swatch, 1, BORDER_COLOR)
+			draw_ui_text(app, bg_preset_name(i), i32(item.x) + 26, i32(item.y) + 4, 11, CONTENT_TEXT_COLOR)
+		}
+	}
 
 	// Context menu drawn last so it renders on top of everything
 	if ev.ctx_menu_open {
@@ -285,6 +398,7 @@ update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector
 	content := rect
 
 	defer update_orbit_camera(ev)
+	ev.nav_keys_consumed = false
 
 	rects := edit_view_rects_from_content(content)
 	if lmb_pressed && ev.bg_picker_open && !rl.CheckCollisionPointRec(mouse, rects.popover_bg) && !rl.CheckCollisionPointRec(mouse, rects.btn_bg) {

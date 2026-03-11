@@ -53,6 +53,7 @@ main :: proc() {
 
     // Load config file if -config path given; override width/height/samples only when present and positive
     initial_editor: ^persistence.EditorLayout = nil
+    initial_editor_view: ^persistence.EditorViewConfig = nil
     initial_presets: []persistence.LayoutPreset = nil
     if len(args.ConfigPath) > 0 {
         if loaded, ok := persistence.load_config(args.ConfigPath); ok {
@@ -67,6 +68,9 @@ main :: proc() {
             }
             if loaded.editor != nil {
                 initial_editor = loaded.editor
+            }
+            if loaded.editor_view != nil {
+                initial_editor_view = loaded.editor_view
             }
             if loaded.presets != nil {
                 initial_presets = loaded.presets
@@ -190,10 +194,13 @@ main :: proc() {
         return
     }
 
-    editor.run_app(r_camera, r_world, thread_count, args.UseGPU, initial_editor, args.SaveConfigPath, initial_presets)
+    editor.run_app(r_camera, r_world, thread_count, args.UseGPU, initial_editor, initial_editor_view, args.SaveConfigPath, initial_presets)
     if initial_editor != nil {
         delete(initial_editor.panels)
         free(initial_editor)
+    }
+    if initial_editor_view != nil {
+        free(initial_editor_view)
     }
     if initial_presets != nil {
         delete(initial_presets)

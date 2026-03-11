@@ -120,6 +120,57 @@ get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 	return .ViewportOrbitAndPick
 }
 
+_vec_norm :: proc(v: [3]f32) -> [3]f32 {
+	len_sq := rt.vector_length_squared(v)
+	if len_sq <= 1e-8 { return {0, 0, 0} }
+	inv := 1.0 / math.sqrt(len_sq)
+	return {v[0] * inv, v[1] * inv, v[2] * inv}
+}
+
+_free_fly_apply_motion :: proc(ev: ^EditViewState, mouse_in_vp, rmb_down: bool) {
+	ev.nav_keys_consumed = false
+
+	// Mouse wheel (viewport-only); arrow/WASD/EQ keys work regardless of mouse position.
+	wheel := mouse_in_vp ? rl.GetMouseWheelMove() : 0
+	if wheel != 0 {
+		if wheel > 0 {
+			ev.speed_factor *= 1.18
+		} else {
+			ev.speed_factor /= 1.18
+		}
+		ev.speed_factor = clamp(ev.speed_factor, f32(0.05), f32(50.0))
+	}
+
+	forward_v := free_fly_forward(ev.fly_yaw, ev.fly_pitch)
+	forward := [3]f32{forward_v.x, forward_v.y, forward_v.z}
+	right := _vec_norm({forward[2], 0, -forward[0]})
+	up := [3]f32{0, 1, 0}
+	move := [3]f32{0, 0, 0}
+
+	if (rmb_down && rl.IsKeyDown(.W)) || rl.IsKeyDown(.UP) { move += forward }
+	if (rmb_down && rl.IsKeyDown(.S)) || rl.IsKeyDown(.DOWN) { move -= forward }
+	if (rmb_down && rl.IsKeyDown(.D)) || rl.IsKeyDown(.RIGHT) { move += right }
+	if (rmb_down && rl.IsKeyDown(.A)) || rl.IsKeyDown(.LEFT) { move -= right }
+	if rl.IsKeyDown(.E) || rl.IsKeyDown(.PAGE_UP) { move += up }
+	if rl.IsKeyDown(.Q) || rl.IsKeyDown(.PAGE_DOWN) { move -= up }
+
+	if rt.vector_length_squared(move) <= 1e-8 { return }
+	ev.nav_keys_consumed = true
+	move = _vec_norm(move)
+	modifier := f32(1.0)
+	if rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT) {
+		modifier *= 4.0
+	}
+	if rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL) {
+		modifier *= 0.2
+	}
+	step := move * ev.move_speed * ev.speed_factor * modifier * rl.GetFrameTime()
+	if ev.lock_axis_x { step[0] = 0 }
+	if ev.lock_axis_y { step[1] = 0 }
+	if ev.lock_axis_z { step[2] = 0 }
+	ev.fly_lookfrom += step
+}
+
 handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2) {
 	_ts := ui_trace_handler_begin("handle_context_menu_input"); defer ui_trace_handler_end(_ts)
 	app.input_consumed = true
@@ -132,47 +183,47 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 			for &entry in items {
 				ih := entry_height(entry)
 				if !entry.separator && !entry.disabled && local_y >= ey && local_y < ey + ih {
-					switch entry.label {
-					case "Add Sphere":
-						AppendDefaultSphere(ev.scene_mgr)
-						new_idx := SceneManagerLen(ev.scene_mgr) - 1
-						ev.selection_kind = .Sphere
-						ev.selected_idx   = new_idx
-						if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
-							edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
-							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Add sphere"))
-						}
-						app.r_render_pending = true
-					case "Add Quad":
-						AppendDefaultQuad(ev.scene_mgr)
-						new_idx := SceneManagerLen(ev.scene_mgr) - 1
-						ev.selection_kind = .Quad
-						ev.selected_idx   = new_idx
-						if new_quad, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
-							edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = new_quad})
-							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Add quad"))
-						}
-						app.r_render_pending = true
-					case "Delete":
-						del_idx := ev.ctx_menu_hit_idx
-						if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
-							edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
-							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Delete sphere"))
-						} else if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
-							edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
-							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Delete quad"))
-						}
-						OrderedRemove(ev.scene_mgr, del_idx)
-						ev.selection_kind = .None
-						ev.selected_idx   = -1
-						app.r_render_pending = true
-					case:
-						if len(entry.cmd_id) > 0 {
-							cmd_execute(app, entry.cmd_id)
+					if len(entry.cmd_id) > 0 {
+						cmd_execute(app, entry.cmd_id)
+					} else {
+						switch entry.label {
+						case "Add Sphere":
+							AppendDefaultSphere(ev.scene_mgr)
+							new_idx := SceneManagerLen(ev.scene_mgr) - 1
+							ev.selection_kind = .Sphere
+							ev.selected_idx   = new_idx
+							if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
+								edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Add sphere"))
+							}
+							app.r_render_pending = true
+						case "Add Quad":
+							AppendDefaultQuad(ev.scene_mgr)
+							new_idx := SceneManagerLen(ev.scene_mgr) - 1
+							ev.selection_kind = .Quad
+							ev.selected_idx   = new_idx
+							if new_quad, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
+								edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = new_quad})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Add quad"))
+							}
+							app.r_render_pending = true
+						case "Delete":
+							del_idx := ev.ctx_menu_hit_idx
+							if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+								edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Delete sphere"))
+							} else if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
+								edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Delete quad"))
+							}
+							OrderedRemove(ev.scene_mgr, del_idx)
+							ev.selection_kind = .None
+							ev.selected_idx   = -1
+							app.r_render_pending = true
 						}
 					}
 					break
@@ -235,6 +286,8 @@ handle_cam_body_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, l
 			if xz, ok2 := ray_hit_plane_y(ray, ev.cam_drag_plane_y); ok2 {
 				dx := xz.x - ev.cam_drag_start_hit_xz[0]
 				dz := xz.y - ev.cam_drag_start_hit_xz[1]
+				if ev.lock_axis_x { dx = 0 }
+				if ev.lock_axis_z { dz = 0 }
 				app.c_camera_params.lookfrom[0] = ev.cam_drag_start_lookfrom.x + dx
 				app.c_camera_params.lookfrom[2] = ev.cam_drag_start_lookfrom.z + dz
 				app.c_camera_params.lookat[0]   = ev.cam_drag_start_lookat.x + dx
@@ -266,14 +319,17 @@ handle_cam_prop_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, l
 		switch ev.cam_prop_drag_idx {
 		case 0:
 			d := delta * 0.02
+			if ev.lock_axis_x { d = 0 }
 			app.c_camera_params.lookfrom[0] = sf.x + d
 			app.c_camera_params.lookat[0]   = sa.x + d
 		case 1:
 			d := delta * 0.02
+			if ev.lock_axis_y { d = 0 }
 			app.c_camera_params.lookfrom[1] = sf.y + d
 			app.c_camera_params.lookat[1]   = sa.y + d
 		case 2:
 			d := delta * 0.02
+			if ev.lock_axis_z { d = 0 }
 			app.c_camera_params.lookfrom[2] = sf.z + d
 			app.c_camera_params.lookat[2]   = sa.z + d
 		case 3:
@@ -375,7 +431,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 	lmb := rl.IsMouseButtonDown(.LEFT)
 	lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
 
-	// Background color picker: ongoing drag or click to open/close/drag
+	// Background color picker: ongoing drag or click to open/close/select
 	if ev.bg_drag_idx >= 0 {
 		if !lmb {
 			ev.bg_drag_idx = -1
@@ -391,13 +447,6 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 		return
 	}
 	if ev.bg_picker_open {
-		x0 := rects.popover_bg.x + 8 + OP_LW + OP_GAP
-		cy := rects.popover_bg.y + 6 + 18
-		box_rgb := [3]rl.Rectangle{
-			{x0,             cy, OP_FW, OP_FH},
-			{x0 + OP_COL,   cy, OP_FW, OP_FH},
-			{x0 + 2*OP_COL, cy, OP_FW, OP_FH},
-		}
 		if lmb_pressed {
 			in_popover := rl.CheckCollisionPointRec(mouse, rects.popover_bg)
 			in_btn_bg  := rl.CheckCollisionPointRec(mouse, rects.btn_bg)
@@ -406,11 +455,12 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 			} else if !in_popover {
 				ev.bg_picker_open = false
 			} else {
-				for i in 0..<3 {
-					if rl.CheckCollisionPointRec(mouse, box_rgb[i]) {
-						ev.bg_drag_idx       = i
-						ev.bg_drag_start_x   = mouse.x
-						ev.bg_drag_start_val = app.c_camera_params.background[i]
+				for i in 0..<BG_PRESET_COUNT {
+					if rl.CheckCollisionPointRec(mouse, bg_preset_item_rect(rects.popover_bg, i)) {
+						app.c_camera_params.background = bg_preset_color(i)
+						mark_scene_dirty(app)
+						app.r_render_pending = true
+						ev.bg_picker_open = false
 						return
 					}
 				}
@@ -607,6 +657,9 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 	rmb_pressed := rl.IsMouseButtonPressed(.RIGHT)
 	rmb_down    := rl.IsMouseButtonDown(.RIGHT)
 	rmb_release := rl.IsMouseButtonReleased(.RIGHT)
+	if mouse_in_vp && rl.IsKeyPressed(.F) {
+		ev.camera_mode = ev.camera_mode == .FreeFly ? .Orbit : .FreeFly
+	}
 
 	if rmb_pressed && mouse_in_vp {
 		ev.rmb_press_pos = mouse
@@ -614,17 +667,25 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 		ev.rmb_held      = false
 		ev.last_mouse    = mouse
 	}
-	if rmb_down {
+	if rmb_down && mouse_in_vp {
 		delta := rl.Vector2{mouse.x - ev.rmb_press_pos.x, mouse.y - ev.rmb_press_pos.y}
 		dist  := math.sqrt(delta.x*delta.x + delta.y*delta.y)
 		if dist > ev.rmb_drag_dist { ev.rmb_drag_dist = dist }
 		if ev.rmb_drag_dist >= RMB_DRAG_THRESHOLD { ev.rmb_held = true }
 		if ev.rmb_held {
 			orb_delta := rl.Vector2{mouse.x - ev.last_mouse.x, mouse.y - ev.last_mouse.y}
-			ev.camera_yaw   += orb_delta.x * 0.005
-			ev.camera_pitch += -orb_delta.y * 0.005
+			if ev.camera_mode == .FreeFly {
+				ev.fly_yaw   += orb_delta.x * 0.005
+				ev.fly_pitch += -orb_delta.y * 0.005
+			} else {
+				ev.camera_yaw   += orb_delta.x * 0.005
+				ev.camera_pitch += -orb_delta.y * 0.005
+			}
 		}
 		ev.last_mouse = mouse
+	}
+	if ev.camera_mode == .FreeFly {
+		_free_fly_apply_motion(ev, mouse_in_vp, rmb_down)
 	}
 	if rmb_release && mouse_in_vp && ev.rmb_drag_dist < RMB_DRAG_THRESHOLD {
 		update_orbit_camera(ev)
@@ -643,7 +704,9 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 	if !rmb_down { ev.rmb_held = false }
 
 	if mouse_in_vp {
-		ev.orbit_distance -= rl.GetMouseWheelMove() * 0.8
+		if ev.camera_mode != .FreeFly {
+			ev.orbit_distance -= rl.GetMouseWheelMove() * 0.8
+		}
 	}
 
 	if lmb_pressed && mouse_in_vp {
@@ -757,3 +820,4 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 		}
 	}
 }
+

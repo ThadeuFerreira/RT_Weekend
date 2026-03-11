@@ -338,6 +338,7 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     ev.selection_kind = .None
     ev.selected_idx   = -1
     app.c_camera_params = cam
+    align_editor_camera_to_render(ev, app.c_camera_params, true)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     delete(app.current_scene_path)
     app.current_scene_path = ""

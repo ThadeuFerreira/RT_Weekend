@@ -20,12 +20,12 @@ BG_SWATCH_W   :: f32(24)
 BG_SWATCH_H   :: f32(18)
 BG_BTN_W      :: f32(80)
 BG_POPOVER_W  :: f32(160)
-BG_POPOVER_H  :: f32(72)
+BG_POPOVER_H  :: f32(150)
 
 edit_view_background_rects :: proc(content: rl.Rectangle) -> (btn_rect, swatch_rect, popover_rect: rl.Rectangle) {
 	btn_rect    = rl.Rectangle{content.x + content.width - 178 - 8 - BG_BTN_W, content.y + 5, BG_BTN_W, 22}
 	swatch_rect = rl.Rectangle{btn_rect.x + BG_BTN_W - BG_SWATCH_W - 4, btn_rect.y + 2, BG_SWATCH_W, BG_SWATCH_H}
-	popover_rect = rl.Rectangle{btn_rect.x - 20, content.y + 32 + 2, BG_POPOVER_W, BG_POPOVER_H}
+	popover_rect = rl.Rectangle{btn_rect.x - 20, btn_rect.y + btn_rect.height + 2, BG_POPOVER_W, BG_POPOVER_H}
 	return
 }
 

@@ -16,6 +16,10 @@ MIN_RADIUS   :: f32(0.05)
 // on first keydown, applies movement/radius each frame, and pushes undo on key release.
 update_sphere_nudge :: proc(app: ^App, ev: ^EditViewState) {
 	if app == nil || ev == nil { return }
+	if ev.nav_keys_consumed {
+		ev.nudge_active = false
+		return
+	}
 	kb := &app.keyboard
 	if ev.selection_kind != .Sphere || ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) {
 		ev.nudge_active = false

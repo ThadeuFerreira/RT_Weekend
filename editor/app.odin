@@ -415,6 +415,46 @@ build_editor_layout_from_app :: proc(app: ^App) -> ^persistence.EditorLayout {
     return layout
 }
 
+apply_editor_view_config :: proc(ev: ^EditViewState, cfg: ^persistence.EditorViewConfig) {
+    if ev == nil || cfg == nil { return }
+    if cfg.camera_mode == "free_fly" {
+        ev.camera_mode = .FreeFly
+    } else if cfg.camera_mode == "orbit" {
+        ev.camera_mode = .Orbit
+    }
+    if cfg.move_speed > 0 {
+        ev.move_speed = cfg.move_speed
+    }
+    if cfg.speed_factor > 0 {
+        ev.speed_factor = cfg.speed_factor
+    }
+    ev.lock_axis_x = cfg.lock_axis_x
+    ev.lock_axis_y = cfg.lock_axis_y
+    ev.lock_axis_z = cfg.lock_axis_z
+    ev.grid_visible = cfg.grid_visible
+    if cfg.grid_density > 0 {
+        ev.grid_density = cfg.grid_density
+    }
+}
+
+build_editor_view_config_from_app :: proc(ev: ^EditViewState) -> ^persistence.EditorViewConfig {
+    if ev == nil { return nil }
+    camera_mode := "orbit"
+    if ev.camera_mode == .FreeFly { camera_mode = "free_fly" }
+    cfg := new(persistence.EditorViewConfig)
+    cfg^ = persistence.EditorViewConfig{
+        camera_mode  = camera_mode,
+        move_speed   = ev.move_speed,
+        speed_factor = ev.speed_factor,
+        lock_axis_x  = ev.lock_axis_x,
+        lock_axis_y  = ev.lock_axis_y,
+        lock_axis_z  = ev.lock_axis_z,
+        grid_visible = ev.grid_visible,
+        grid_density = ev.grid_density,
+    }
+    return cfg
+}
+
 app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^rawptr) {
     context = runtime.default_context()
     if g_app == nil { return }
@@ -435,6 +475,7 @@ run_app :: proc(
     num_threads: int,
     use_gpu: bool = false,
     initial_editor_layout: ^persistence.EditorLayout = nil,
+    initial_editor_view: ^persistence.EditorViewConfig = nil,
     config_save_path: string = "",
     initial_presets: []persistence.LayoutPreset = nil,
 ) {
@@ -512,12 +553,22 @@ run_app :: proc(
         append(&app.layout_presets, import_preset)
     }
     rt.copy_camera_to_scene_params(&app.c_camera_params, r_camera)
+	// Startup default (no loaded world): editor uses its built-in 3 spheres.
+	// Ensure they are visible by default with a white miss/background color.
+	if len(r_world) == 0 {
+		app.c_camera_params.background = [3]f32{1, 1, 1}
+		rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+	}
     app_set_image_texture_cache_from_world(&app, r_world)
     init_edit_view(&app.e_edit_view)
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
     if len(r_world) > 0 {
         LoadFromWorld(app.e_edit_view.scene_mgr, r_world[:])
+    }
+    align_editor_camera_to_render(&app.e_edit_view, app.c_camera_params, true)
+    if initial_editor_view != nil {
+        apply_editor_view_config(&app.e_edit_view, initial_editor_view)
     }
     delete(r_world) // edit view is now the source of truth; free the raw rt.Object array
     // Build the startup world from the edit view (always): spheres + quads.
@@ -825,6 +876,7 @@ run_app :: proc(
             samples_per_pixel = r_camera.samples_per_pixel,
         }
         config.editor = build_editor_layout_from_app(&app)
+        config.editor_view = build_editor_view_config_from_app(&app.e_edit_view)
         // Snapshot user presets for saving
         if len(app.layout_presets) > 0 {
             config.presets = app.layout_presets[:]
@@ -835,6 +887,9 @@ run_app :: proc(
         if config.editor != nil {
             delete(config.editor.panels)
             free(config.editor)
+        }
+        if config.editor_view != nil {
+            free(config.editor_view)
         }
     }
 

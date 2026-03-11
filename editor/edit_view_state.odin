@@ -5,6 +5,11 @@ import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
 
+EditViewCameraMode :: enum {
+	Orbit,
+	FreeFly,
+}
+
 // EditViewState holds all state for the Edit View panel (viewport, orbit camera, selection, drag, etc.).
 EditViewState :: struct {
 	// Off-screen 3D viewport
@@ -19,6 +24,22 @@ EditViewState :: struct {
 	camera_pitch:    f32,
 	orbit_distance:  f32,
 	orbit_target:    rl.Vector3,
+	camera_mode:     EditViewCameraMode,
+
+	// Free-fly camera parameters
+	fly_lookfrom: [3]f32,
+	fly_yaw:      f32,
+	fly_pitch:    f32,
+	move_speed:   f32, // world-units per second
+	speed_factor: f32, // user multiplier (wheel-adjusted)
+	lock_axis_x:  bool,
+	lock_axis_y:  bool,
+	lock_axis_z:  bool,
+
+	// View grid controls
+	grid_visible: bool,
+	grid_density: f32,
+	nav_keys_consumed: bool,
 
 	// Right-drag orbit state
 	rmb_held:     bool,
@@ -116,6 +137,15 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.camera_pitch    = 0.3
 	ev.orbit_distance = 15.0
 	ev.orbit_target   = rl.Vector3{0, 0, 0}
+	ev.camera_mode    = .Orbit
+	ev.fly_lookfrom   = {8, 6, 8}
+	ev.fly_yaw        = math.atan2(f32(-8.0), f32(-8.0))
+	ev.fly_pitch      = -0.35
+	ev.move_speed     = 2.0
+	ev.speed_factor   = 1.0
+	ev.grid_visible   = true
+	ev.grid_density   = 1.0
+	ev.nav_keys_consumed = false
 	ev.selection_kind = .None
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
@@ -148,7 +178,63 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ui_log_lifecycle(nil, "EditView", "Create")
 }
 
+align_editor_camera_to_render :: proc(ev: ^EditViewState, cp: core.CameraParams, place_in_front: bool) {
+	if ev == nil { return }
+	from := cp.lookfrom
+	at := cp.lookat
+	fwd := at - from
+	flen := math.sqrt(fwd[0]*fwd[0] + fwd[1]*fwd[1] + fwd[2]*fwd[2])
+	if flen < 1e-5 {
+		fwd = {0, 0, -1}
+	} else {
+		fwd /= flen
+	}
+	_, radius, scene_speed := scene_scale_recommendations(ev.scene_mgr)
+	ev.move_speed = scene_speed
+	if place_in_front {
+		// Min offset avoids clipping through geometry when radius is small; keep well above near clip.
+		PLACE_IN_FRONT_MIN_OFFSET :: 2.0
+		PLACE_IN_FRONT_NEAR_CLIP  :: 0.01
+		offset := max(radius * 0.35, PLACE_IN_FRONT_MIN_OFFSET, 50.0 * PLACE_IN_FRONT_NEAR_CLIP)
+		from -= fwd * offset
+		at -= fwd * offset
+	}
+	ev.orbit_target = rl.Vector3{at[0], at[1], at[2]}
+	dv := from - at
+	dist := math.sqrt(dv[0]*dv[0] + dv[1]*dv[1] + dv[2]*dv[2])
+	if dist < 0.5 { dist = 0.5 }
+	ev.orbit_distance = dist
+	ev.camera_pitch = math.asin(clamp(dv[1]/dist, f32(-1), f32(1)))
+	ev.camera_yaw   = math.atan2(dv[0], dv[2])
+
+	ev.fly_lookfrom = from
+	ev.fly_pitch = math.asin(clamp(fwd[1], f32(-1), f32(1)))
+	ev.fly_yaw   = math.atan2(fwd[0], fwd[2])
+}
+
+free_fly_forward :: proc(yaw, pitch: f32) -> rl.Vector3 {
+	return {
+		math.cos(pitch) * math.sin(yaw),
+		math.sin(pitch),
+		math.cos(pitch) * math.cos(yaw),
+	}
+}
+
 update_orbit_camera :: proc(ev: ^EditViewState) {
+	if ev.camera_mode == .FreeFly {
+		pitch := clamp(ev.fly_pitch, f32(-math.PI * 0.49), f32(math.PI * 0.49))
+		ev.fly_pitch = pitch
+		forward := free_fly_forward(ev.fly_yaw, pitch)
+		pos := rl.Vector3{ev.fly_lookfrom[0], ev.fly_lookfrom[1], ev.fly_lookfrom[2]}
+		ev.cam3d = rl.Camera3D{
+			position   = pos,
+			target     = pos + forward,
+			up         = rl.Vector3{0, 1, 0},
+			fovy       = 45.0,
+			projection = .PERSPECTIVE,
+		}
+		return
+	}
 	pitch := ev.camera_pitch
 	if pitch >  math.PI * 0.45 { pitch =  math.PI * 0.45 }
 	if pitch < -math.PI * 0.45 { pitch = -math.PI * 0.45 }

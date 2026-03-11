@@ -53,6 +53,17 @@ MaterialKind :: enum {
 	DiffuseLight,
 }
 
+// Ground-sphere heuristic: used when a sphere is not explicitly marked (e.g. loading from world or legacy scenes).
+// Spheres with center.y below this and radius above GROUND_SPHERE_RADIUS_MIN are treated as ground (excluded from bounds, skipped in edit list).
+GROUND_SPHERE_CENTER_Y_MAX :: -100
+GROUND_SPHERE_RADIUS_MIN   :: 100
+
+// is_ground_heuristic returns true if the given center_y and radius match the legacy ground-plane convention.
+// Use for rt.Sphere (world) or when SceneSphere.is_ground is not set. Scale-invariant identification should use is_ground on SceneSphere instead.
+is_ground_heuristic :: proc(center_y, radius: f32) -> bool {
+	return center_y < GROUND_SPHERE_CENTER_Y_MAX && radius > GROUND_SPHERE_RADIUS_MIN
+}
+
 // SceneSphere is the canonical in-memory representation of a sphere for the editor and the renderer.
 // The edit view stores these; raytrace.build_world_from_scene converts them to raytrace.Object.
 // For Lambertian: texture_kind and optional checker_* / image_path define the texture (albedo = even/constant color).
@@ -70,6 +81,13 @@ SceneSphere :: struct {
 	fuzz:              f32,          // used for Metallic (default 0.1)
 	ref_idx:           f32,          // used for Dielectric (default 1.5)
 	is_moving:         bool,
+	is_ground:         bool,         // if true, sphere is treated as ground (excluded from bounds, etc.); use for scale-invariant scenes
+}
+
+// scene_sphere_is_ground returns true if the sphere should be treated as ground (excluded from bounds, skip in edit list).
+// Uses is_ground when set; otherwise falls back to is_ground_heuristic for backward compatibility.
+scene_sphere_is_ground :: proc(s: SceneSphere) -> bool {
+	return s.is_ground || is_ground_heuristic(s.center[1], s.radius)
 }
 
 // Default sky color when a ray misses the scene. Black so the only light comes from emitters.

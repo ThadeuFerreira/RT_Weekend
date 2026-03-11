@@ -2,15 +2,34 @@ package editor
 
 import rl "vendor:raylib"
 
-CTX_MENU_W :: f32(160)
+CTX_MENU_W :: f32(280)
 
 // ctx_menu_build_items returns a temp-allocated slice of menu entries for the context menu.
 @(private="package") ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {
 	items := make([dynamic]MenuEntryDyn, context.temp_allocator)
 	append(&items, MenuEntryDyn{label = "Add Sphere"})
 	append(&items, MenuEntryDyn{label = "Add Quad"})
+	append(&items, MenuEntryDyn{separator = true})
+	append(&items, MenuEntryDyn{label = "Align editor camera to render camera", cmd_id = CMD_EDIT_VIEW_ALIGN_CAMERA})
+	append(&items, MenuEntryDyn{label = "Frame all geometry (horizontal)", cmd_id = CMD_EDIT_VIEW_FRAME_GEOMETRY})
+	append(&items, MenuEntryDyn{
+		label   = ev.camera_mode == .FreeFly ? "Switch to orbit mode" : "Switch to free-fly mode",
+		cmd_id  = CMD_EDIT_VIEW_CAMERA_MODE,
+		checked = ev.camera_mode == .FreeFly,
+		shortcut = "F",
+	})
+	append(&items, MenuEntryDyn{label = "Lock X axis", cmd_id = CMD_EDIT_VIEW_LOCK_AXIS_X, checked = ev.lock_axis_x})
+	append(&items, MenuEntryDyn{label = "Lock Y axis", cmd_id = CMD_EDIT_VIEW_LOCK_AXIS_Y, checked = ev.lock_axis_y})
+	append(&items, MenuEntryDyn{label = "Lock Z axis", cmd_id = CMD_EDIT_VIEW_LOCK_AXIS_Z, checked = ev.lock_axis_z})
+	append(&items, MenuEntryDyn{label = "Grid visible", cmd_id = CMD_EDIT_VIEW_GRID_VISIBLE, checked = ev.grid_visible})
+	append(&items, MenuEntryDyn{label = "Grid density +", cmd_id = CMD_EDIT_VIEW_GRID_DENSITY_PLUS})
+	append(&items, MenuEntryDyn{label = "Grid density -", cmd_id = CMD_EDIT_VIEW_GRID_DENSITY_MINUS})
+	append(&items, MenuEntryDyn{label = "Movement speed: Slow", cmd_id = CMD_EDIT_VIEW_SPEED_SLOW})
+	append(&items, MenuEntryDyn{label = "Movement speed: Medium", cmd_id = CMD_EDIT_VIEW_SPEED_MEDIUM})
+	append(&items, MenuEntryDyn{label = "Movement speed: Fast", cmd_id = CMD_EDIT_VIEW_SPEED_FAST})
+	append(&items, MenuEntryDyn{label = "Movement speed: Very fast", cmd_id = CMD_EDIT_VIEW_SPEED_VERY_FAST})
+	append(&items, MenuEntryDyn{separator = true})
 	if ev.ctx_menu_hit_idx >= 0 {
-		append(&items, MenuEntryDyn{separator = true})
 		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = !cmd_is_enabled(app, CMD_EDIT_COPY),      shortcut = "Ctrl+C"})
 		append(&items, MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE), shortcut = "Ctrl+D"})
 		append(&items, MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE),     shortcut = "Ctrl+V"})
@@ -68,8 +87,13 @@ CTX_MENU_W :: f32(160)
 			rl.DrawRectangleRec(item_rect, rl.Color{60, 65, 95, 255})
 		}
 
+		label_x := i32(rect.x) + 8
+		if entry.checked {
+			draw_ui_text(app, "\u2713", label_x, i32(ry) + 3, 13, text_col)
+			label_x += 14
+		}
 		label_c := make_cstring_temp(entry.label)
-		draw_ui_text(app, label_c, i32(rect.x) + 8, i32(ry) + 3, 13, text_col)
+		draw_ui_text(app, label_c, label_x, i32(ry) + 3, 13, text_col)
 
 		if len(entry.shortcut) > 0 {
 			sc_c := make_cstring_temp(entry.shortcut)

@@ -56,14 +56,16 @@ sphere_to_scene_sphere :: proc(s: Sphere) -> core.SceneSphere {
 }
 
 // convert_world_to_edit_spheres converts rt.Object spheres to core.SceneSphere for the edit view.
-// Skips the ground plane (center.y < -100) and Quad objects (quads are not editable as spheres).
+// Skips the ground plane (core.is_ground_heuristic) and Quad objects (quads are not editable as spheres).
 // Caller must delete the returned array.
 convert_world_to_edit_spheres :: proc(world: []Object) -> [dynamic]core.SceneSphere {
 	result := make([dynamic]core.SceneSphere)
 	for obj in world {
 		s, ok := obj.(Sphere)
 		if !ok { continue }
-		if s.center[1] < -100 { continue } // skip ground plane
+		if core.is_ground_heuristic(s.center[1], s.radius) {
+			continue
+		}
 		ss := sphere_to_scene_sphere(s)
 		append(&result, ss)
 	}

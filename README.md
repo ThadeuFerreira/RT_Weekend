@@ -12,6 +12,7 @@ scene editing, and a GPU compute-shader path.
 - **GPU path tracer** — OpenGL 4.3 compute shader with progressive accumulation (`-gpu` flag)
 - **Live preview** — Raylib window with real-time texture upload as tiles / samples complete
 - **Scene editor** — interactive 3D viewport; add, move, and delete spheres; three material types
+- **Scene-load light safety** — imported scenes with no emissive materials and black/missing background auto-fallback to white background
 - **Cross-platform** — Linux (OpenGL 4.3+), Windows (OpenGL 4.3+), macOS (CPU fallback; OpenGL capped at 4.1)
 
 ## Getting Started
