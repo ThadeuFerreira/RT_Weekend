@@ -42,7 +42,28 @@ ModifyCameraAction :: struct {
     after:  core.CameraParams,
 }
 
-EditAction :: union { ModifySphereAction, AddSphereAction, DeleteSphereAction, AddQuadAction, DeleteQuadAction, ModifyQuadAction, ModifyCameraAction }
+ModifyVolumeAction :: struct {
+    idx:    int,
+    before: core.SceneVolume,
+    after:  core.SceneVolume,
+}
+
+AddVolumeAction :: struct {
+    idx:    int,
+    volume: core.SceneVolume,
+}
+
+DeleteVolumeAction :: struct {
+    idx:    int,
+    volume: core.SceneVolume,
+}
+
+EditAction :: union {
+    ModifySphereAction, AddSphereAction, DeleteSphereAction,
+    AddQuadAction, DeleteQuadAction, ModifyQuadAction,
+    ModifyCameraAction,
+    ModifyVolumeAction, AddVolumeAction, DeleteVolumeAction,
+}
 
 EditHistory :: struct {
     actions: [dynamic]EditAction,

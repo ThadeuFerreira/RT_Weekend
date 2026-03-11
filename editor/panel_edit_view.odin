@@ -131,6 +131,9 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	rl.BeginMode3D(ev.cam3d)
 	draw_adaptive_infinite_grid(ev)
 	draw_viewport_scene_objects(app, ev, ev.selection_kind, ev.selected_idx)
+	for v, i in app.e_volumes {
+		draw_volume_cube_wireframe(v, ev.selection_kind == .Volume && ev.selected_idx == i)
+	}
 	draw_viewport_camera_gizmos(app, ev)
 
 	// Draw a move indicator on the selected sphere during drag
@@ -145,6 +148,10 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 		if quad, ok := GetSceneQuad(sm, ev.selected_idx); ok {
 			draw_quad_3d(quad, rl.Color{255, 220, 0, 220}) // overlay tint
 		}
+	}
+	// Draw volume wireframe again on top when dragging so it stays visible
+	if ev.drag_obj_active && ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
+		draw_volume_cube_wireframe(app.e_volumes[ev.selected_idx], true)
 	}
 
 	// --- AABB Visualization ---

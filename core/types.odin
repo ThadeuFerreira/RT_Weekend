@@ -51,6 +51,19 @@ MaterialKind :: enum {
 	Metallic,
 	Dielectric,
 	DiffuseLight,
+	Isotropic,
+}
+
+// SceneVolume defines a constant-density participating medium (fog/smoke) inside an axis-aligned box.
+// The box is specified in local space (box_min, box_max), then rotated and translated.
+// density: scattering coefficient; albedo: color of the isotropic phase function.
+SceneVolume :: struct {
+	box_min:       [3]f32,
+	box_max:       [3]f32,
+	rotate_y_deg:  f32,
+	translate:     [3]f32,
+	density:       f32,
+	albedo:        [3]f32,
 }
 
 // Ground-sphere heuristic: used when a sphere is not explicitly marked (e.g. loading from world or legacy scenes).

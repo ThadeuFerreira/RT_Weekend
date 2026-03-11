@@ -331,6 +331,13 @@ scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = 
             gpu.fuzz_or_ior = 0.0
             gpu.tex_type    = TEX_CONSTANT
             gpu.tex_index   = 0
+        case isotropic:
+            // GPU path does not scatter isotropic; treat as non-emitting Lambertian for display
+            gpu.mat_type    = MAT_LAMBERTIAN
+            gpu.albedo      = m.albedo
+            gpu.fuzz_or_ior = 0.0
+            gpu.tex_type    = TEX_CONSTANT
+            gpu.tex_index   = 0
         case:
             // Unknown material: default to white Lambertian (constant)
             gpu.mat_type  = MAT_LAMBERTIAN
@@ -413,6 +420,11 @@ scene_to_gpu_quads :: proc(objects: []Object, world_to_quad_gpu: []int = nil) ->
         case diffuse_light:
             gpu.mat_type    = MAT_DIFFUSE_LIGHT
             gpu.albedo      = m.emit
+            gpu.fuzz_or_ior = 0.0
+            gpu.tex_type    = TEX_CONSTANT
+        case isotropic:
+            gpu.mat_type    = MAT_LAMBERTIAN
+            gpu.albedo      = m.albedo
             gpu.fuzz_or_ior = 0.0
             gpu.tex_type    = TEX_CONSTANT
         case:

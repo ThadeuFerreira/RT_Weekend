@@ -116,7 +116,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     if len(path) == 0 { return }
     ev := &app.e_edit_view
     app_clear_image_texture_cache(app)
-    cam, world, ok := persistence.load_scene(path, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel, &app.image_texture_cache)
+    cam, world, volumes, ok := persistence.load_scene(path, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel, &app.image_texture_cache)
     if !ok {
         app_push_log(app, fmt.aprintf("Import failed: %s", path))
         delete(path)
@@ -144,19 +144,23 @@ file_import_from_path :: proc(app: ^App, path: string) {
     }
     rt.free_session(app.r_session)
     app.r_session = nil
-    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    rt.free_world_volumes(app.r_world)
     delete(app.r_world)
-    app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
-    AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
+    app.r_world = world
+    world = nil
+    clear(&app.e_volumes)
+    if volumes != nil {
+        for v in volumes { append(&app.e_volumes, v) }
+        delete(volumes)
+    }
     app.finished     = false
     app.elapsed_secs = 0
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
-    app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", path, SceneManagerLen(ev.scene_mgr)))
+    app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", path, len(app.r_world)))
 
     free(cam)
-    delete(world)
 }
 
 // file_save_as_path saves the current scene to path. Takes ownership of path (caller must not delete).
@@ -176,7 +180,7 @@ file_save_as_path :: proc(app: ^App, path: string) -> bool {
     AppendQuadsToWorld(ev.scene_mgr, &world)
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-    if persistence.save_scene(path, app.r_camera, world) {
+    if persistence.save_scene(path, app.r_camera, world, app.e_volumes[:]) {
         delete(app.current_scene_path)
         app.current_scene_path = path
         app.e_scene_dirty = false

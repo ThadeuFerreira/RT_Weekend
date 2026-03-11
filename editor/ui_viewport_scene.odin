@@ -1,5 +1,6 @@
 package editor
 
+import "core:math"
 import "core:strings"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
@@ -166,6 +167,87 @@ ensure_viewport_sphere_cache_filled :: proc(app: ^App, ev: ^EditViewState) {
 		}
 		delete(tex_sig)
 	}
+}
+
+// volume_world_corners fills the 8 world-space corners of a SceneVolume (box after rotate_y + translate).
+// Order: back face z=min (0..3), front face z=max (4..7); same as box corners.
+volume_world_corners :: proc(v: core.SceneVolume, corners: ^[8]rl.Vector3) {
+	cos_y := math.cos(v.rotate_y_deg * (math.PI / 180.0))
+	sin_y := math.sin(v.rotate_y_deg * (math.PI / 180.0))
+	min_x, min_y, min_z := v.box_min[0], v.box_min[1], v.box_min[2]
+	max_x, max_y, max_z := v.box_max[0], v.box_max[1], v.box_max[2]
+	tx, ty, tz := v.translate[0], v.translate[1], v.translate[2]
+	rot_xz :: proc(x, z: f32, cx, sx: f32) -> (wx, wz: f32) {
+		wx = cx*x - sx*z
+		wz = sx*x + cx*z
+		return
+	}
+	local := [8][3]f32{
+		{min_x, min_y, min_z}, {max_x, min_y, min_z}, {max_x, max_y, min_z}, {min_x, max_y, min_z},
+		{min_x, min_y, max_z}, {max_x, min_y, max_z}, {max_x, max_y, max_z}, {min_x, max_y, max_z},
+	}
+	for i in 0..<8 {
+		lx, lz := local[i][0], local[i][2]
+		wx, wz := rot_xz(lx, lz, cos_y, sin_y)
+		corners[i] = rl.Vector3{tx + wx, ty + local[i][1], tz + wz}
+	}
+}
+
+// volume_world_aabb returns the world-space AABB of a SceneVolume (for ray picking).
+volume_world_aabb :: proc(v: core.SceneVolume) -> rl.BoundingBox {
+	corners: [8]rl.Vector3
+	volume_world_corners(v, &corners)
+	min_v := rl.Vector3{1e30, 1e30, 1e30}
+	max_v := rl.Vector3{-1e30, -1e30, -1e30}
+	for i in 0..<8 {
+		if corners[i].x < min_v.x { min_v.x = corners[i].x }
+		if corners[i].y < min_v.y { min_v.y = corners[i].y }
+		if corners[i].z < min_v.z { min_v.z = corners[i].z }
+		if corners[i].x > max_v.x { max_v.x = corners[i].x }
+		if corners[i].y > max_v.y { max_v.y = corners[i].y }
+		if corners[i].z > max_v.z { max_v.z = corners[i].z }
+	}
+	return rl.BoundingBox{min = min_v, max = max_v}
+}
+
+// PickClosestVolume returns the index and hit distance of the closest volume hit by the ray, or (-1, 1e30).
+PickClosestVolume :: proc(ray: rl.Ray, volumes: []core.SceneVolume) -> (idx: int, t: f32) {
+	idx = -1
+	t = 1e30
+	dir := rl.Vector3Normalize(ray.direction)
+	norm_ray := rl.Ray{position = ray.position, direction = dir}
+	for i in 0..<len(volumes) {
+		box := volume_world_aabb(volumes[i])
+		hit := rl.GetRayCollisionBox(norm_ray, box)
+		if hit.hit && hit.distance > 0 && f32(hit.distance) < t {
+			t = f32(hit.distance)
+			idx = i
+		}
+	}
+	return
+}
+
+// draw_volume_cube_wireframe draws a volume as a transparent wireframe box (edges only). Call inside BeginMode3D.
+// When selected is true, edges are drawn in yellow.
+draw_volume_cube_wireframe :: proc(v: core.SceneVolume, selected: bool = false) {
+	corners: [8]rl.Vector3
+	volume_world_corners(v, &corners)
+	edge_col := selected ? rl.Color{255, 220, 0, 200} : rl.Color{100, 200, 255, 180}
+	// Back face (z=min): 0-1-2-3
+	rl.DrawLine3D(corners[0], corners[1], edge_col)
+	rl.DrawLine3D(corners[1], corners[2], edge_col)
+	rl.DrawLine3D(corners[2], corners[3], edge_col)
+	rl.DrawLine3D(corners[3], corners[0], edge_col)
+	// Front face (z=max): 4-5-6-7
+	rl.DrawLine3D(corners[4], corners[5], edge_col)
+	rl.DrawLine3D(corners[5], corners[6], edge_col)
+	rl.DrawLine3D(corners[6], corners[7], edge_col)
+	rl.DrawLine3D(corners[7], corners[4], edge_col)
+	// Connecting edges
+	rl.DrawLine3D(corners[0], corners[4], edge_col)
+	rl.DrawLine3D(corners[1], corners[5], edge_col)
+	rl.DrawLine3D(corners[2], corners[6], edge_col)
+	rl.DrawLine3D(corners[3], corners[7], edge_col)
 }
 
 // draw_viewport_scene_objects draws all scene objects (spheres with cache or solid, quads).

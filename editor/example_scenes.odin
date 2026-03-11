@@ -6,8 +6,9 @@ import "RT_Weekend:raytrace"
 import "RT_Weekend:util"
 
 // ExampleScene is a named scene builder used by the Examples menu.
-// build() returns (spheres, quads, camera, ground_texture, include_ground).
+// build() returns (spheres, quads, camera, ground_texture, include_ground, volumes).
 // When ground_texture is nil, build_world_from_scene uses default grey ground.
+// When volumes is non-nil, caller must delete(volumes); volumes are copied into app.e_volumes and appended to world.
 ExampleScene :: struct {
     label: string,
     build: proc() -> (
@@ -16,6 +17,7 @@ ExampleScene :: struct {
         camera: core.CameraParams,
         ground_texture: raytrace.Texture,
         include_ground: bool,
+        volumes: []core.SceneVolume,
     ),
 }
 
@@ -27,6 +29,7 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Next Week: Quads",            build = build_next_week_quads_scene},
     {label = "Next Week: Turbulence",       build = build_next_week_turbulence_scene},
     {label = "Cornell Box",                 build = build_cornell_box_scene},
+    {label = "Volume Smoke",                 build = build_volume_smoke_scene},
 }
 
 // WEEKEND_CAMERA is the default for in-memory example scenes. Scene files loaded from disk with no "background" field get the same default (sky) in persistence.load_scene for backward compat.
@@ -127,11 +130,12 @@ build_weekend_final_scene :: proc() -> (
     camera: core.CameraParams,
     ground_texture: raytrace.Texture,
     include_ground: bool,
+    volumes: []core.SceneVolume,
 ) {
     rng := util.create_thread_rng(42)
     result := make([dynamic]core.SceneSphere)
     place_weekend_grid_spheres(&rng, &result, WeekendGridParams{})
-    return result[:], nil, WEEKEND_CAMERA, nil, true
+    return result[:], nil, WEEKEND_CAMERA, nil, true, nil
 }
 
 // build_next_week_bouncing_scene returns the bouncing balls scene from "Ray Tracing: The Next Week" Chapter 2.
@@ -143,11 +147,12 @@ build_next_week_bouncing_scene :: proc() -> (
     camera: core.CameraParams,
     ground_texture: raytrace.Texture,
     include_ground: bool,
+    volumes: []core.SceneVolume,
 ) {
     rng := util.create_thread_rng(42)
     result := make([dynamic]core.SceneSphere)
     place_weekend_grid_spheres(&rng, &result, WeekendGridParams{lambertian_moving = true})
-    return result[:], nil, WEEKEND_CAMERA, nil, true
+    return result[:], nil, WEEKEND_CAMERA, nil, true, nil
 }
 
 // build_next_week_texture_checker_scene returns the same grid with a checker ground texture.
@@ -158,6 +163,7 @@ build_next_week_texture_checker_scene :: proc() -> (
     camera: core.CameraParams,
     ground_texture: raytrace.Texture,
     include_ground: bool,
+    volumes: []core.SceneVolume,
 ) {
     rng := util.create_thread_rng(42)
     result := make([dynamic]core.SceneSphere)
@@ -167,7 +173,7 @@ build_next_week_texture_checker_scene :: proc() -> (
         even  = {0.2, 0.3, 0.1},
         odd   = {0.9, 0.9, 0.9},
     }
-    return result[:], nil, WEEKEND_CAMERA, gt, true
+    return result[:], nil, WEEKEND_CAMERA, gt, true, nil
 }
 
 // build_next_week_quads_scene returns the RTNW quad demo scene:
@@ -178,6 +184,7 @@ build_next_week_quads_scene :: proc() -> (
     camera: core.CameraParams,
     ground_texture: raytrace.Texture,
     include_ground: bool,
+    volumes: []core.SceneVolume,
 ) {
     result_quads := make([dynamic]raytrace.Quad)
 
@@ -241,7 +248,7 @@ build_next_week_quads_scene :: proc() -> (
         background    = core.CAMERA_BACKGROUND_SKY,
     }
 
-    return nil, result_quads[:], quad_camera, nil, false
+    return nil, result_quads[:], quad_camera, nil, false, nil
 }
 
 TURBULENCE_CAMERA :: core.CameraParams{
@@ -265,6 +272,7 @@ build_next_week_turbulence_scene :: proc() -> (
     camera: core.CameraParams,
     ground_texture: raytrace.Texture,
     include_ground: bool,
+    volumes: []core.SceneVolume,
 ) {
     result := make([dynamic]core.SceneSphere)
     append(&result, core.SceneSphere{
@@ -273,20 +281,10 @@ build_next_week_turbulence_scene :: proc() -> (
         material_kind = .Lambertian,
         albedo        = core.NoiseTexture{scale = 4},
     })
-    return result[:], nil, TURBULENCE_CAMERA, core.NoiseTexture{scale = 4}, true
+    return result[:], nil, TURBULENCE_CAMERA, core.NoiseTexture{scale = 4}, true, nil
 }
 
-// Cornell Box: unit room [0,1]^3, area light on ceiling, and two inner boxes.
-// No ground plane; only emitter contributes illumination.
-build_cornell_box_scene :: proc() -> (
-    spheres: []core.SceneSphere,
-    quads: []raytrace.Quad,
-    camera: core.CameraParams,
-    ground_texture: raytrace.Texture,
-    include_ground: bool,
-) {
-    result_quads := make([dynamic]raytrace.Quad)
-
+cornell_box_walls :: proc(result_quads: ^[dynamic]raytrace.Quad) {
     white := raytrace.material(raytrace.lambertian{
         albedo = raytrace.ConstantTexture{color = {0.73, 0.73, 0.73}},
     })
@@ -299,84 +297,93 @@ build_cornell_box_scene :: proc() -> (
     light_mat := raytrace.material(raytrace.diffuse_light{emit = {15, 15, 15}})
 
     // Left wall (green), right wall (red) per benchmark convention.
-    append(&result_quads, raytrace.make_quad(
+    append(result_quads, raytrace.make_quad(
         [3]f32{555, 0, 0},
         [3]f32{0, 555, 0},
         [3]f32{0, 0, 555},
         green,
     ))
-    append(&result_quads, raytrace.make_quad(
+    append(result_quads, raytrace.make_quad(
         [3]f32{0, 0, 0},
         [3]f32{0, 555, 0},
         [3]f32{0, 0, 555},
         red,
     ))
     // Ceiling area light.
-    append(&result_quads, raytrace.make_quad(
+    append(result_quads, raytrace.make_quad(
         [3]f32{343, 554, 332},
         [3]f32{-130, 0, 0},
         [3]f32{0, 0, -105},
         light_mat,
     ))
     // Room shell.
-    append(&result_quads, raytrace.make_quad(
+    append(result_quads, raytrace.make_quad(
         [3]f32{0, 0, 0},
         [3]f32{555, 0, 0},
         [3]f32{0, 0, 555},
         white,
     ))
-    append(&result_quads, raytrace.make_quad(
+    append(result_quads, raytrace.make_quad(
         [3]f32{555, 555, 555},
         [3]f32{-555, 0, 0},
         [3]f32{0, 0, -555},
         white,
     ))
-    append(&result_quads, raytrace.make_quad(
+    append(result_quads, raytrace.make_quad(
         [3]f32{0, 0, 555},
         [3]f32{555, 0, 0},
         [3]f32{0, 555, 0},
         white,
     ))
+}
 
-    // Tall box: 0.2 x 0.65 x 0.2 at (0.3, 0.0, 0.2), rotated Y by +15 deg.
-    {
-        ts := raytrace.TransformStack{}
-        raytrace.transform_stack_init(&ts)
-        defer raytrace.transform_stack_destroy(&ts)
+// cornell_box_boxes adds two inner boxes (as quads) with the given materials.
+// Tall box: local (0,0,0)-(165,330,165), rotate_y 15°, translate (265,0,295).
+// Short box: local (0,0,0)-(165,165,165), rotate_y -18°, translate (130,0,65).
+cornell_box_boxes :: proc(result_quads: ^[dynamic]raytrace.Quad, material1: raytrace.material, material2: raytrace.material) {
+    tr1 := raytrace.mat4_mul(
+        raytrace.mat4_translate([3]f32{265, 0, 295}),
+        raytrace.mat4_rotate_y(15.0 * math.PI / 180.0),
+    )
+    raytrace.append_box_transformed(
+        result_quads,
+        [3]f32{0, 0, 0},
+        [3]f32{165, 330, 165},
+        material1,
+        tr1,
+    )
+    tr2 := raytrace.mat4_mul(
+        raytrace.mat4_translate([3]f32{130, 0, 65}),
+        raytrace.mat4_rotate_y(-18.0 * math.PI / 180.0),
+    )
+    raytrace.append_box_transformed(
+        result_quads,
+        [3]f32{0, 0, 0},
+        [3]f32{165, 165, 165},
+        material2,
+        tr2,
+    )
+}
 
-        center := [3]f32{265,0,295}
-        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(center))
-        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_rotate_y(15.0 * math.PI / 180.0))
-        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(-center))
+// Cornell Box: unit room [0,1]^3, area light on ceiling, and two inner boxes.
+// No ground plane; only emitter contributes illumination.
+build_cornell_box_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+    volumes: []core.SceneVolume,
+) {
+    result_quads := make([dynamic]raytrace.Quad)
 
-        raytrace.append_box_transformed(
-            &result_quads,
-            [3]f32{265, 0.0, 295},
-            [3]f32{430, 330, 460},
-            white,
-            raytrace.transform_stack_current(&ts),
-        )
-    }
+    cornell_box_walls(&result_quads)
 
-    // Short box: 0.16 x 0.3 x 0.16 at (0.78, 0.0, 0.3), rotated Y by -18 deg.
-    {
-        ts := raytrace.TransformStack{}
-        raytrace.transform_stack_init(&ts)
-        defer raytrace.transform_stack_destroy(&ts)
+    white := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.73, 0.73, 0.73}},
+    })
 
-        center := [3]f32{130,0,65}
-        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(center))
-        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_rotate_y(-18.0 * math.PI / 180.0))
-        raytrace.transform_stack_push_mul(&ts, raytrace.mat4_translate(-center))
-
-        raytrace.append_box_transformed(
-            &result_quads,
-            [3]f32{130, 0.0, 65},
-            [3]f32{295, 165, 230},
-            white,
-            raytrace.transform_stack_current(&ts),
-        )
-    }
+    cornell_box_boxes(&result_quads, white, white)
 
     cornell_camera := core.CameraParams{
         lookfrom      = {278, 278, -800},
@@ -391,6 +398,52 @@ build_cornell_box_scene :: proc() -> (
         background    = {0, 0, 0},
     }
 
-    return nil, result_quads[:], cornell_camera, nil, false
+    return nil, result_quads[:], cornell_camera, nil, false, nil
 }
 
+// build_volume_smoke_scene returns Cornell box walls + light and two SceneVolumes (smoke boxes).
+// No inner box quads — the volumes define the boxes and fog; load path builds ConstantMediums.
+build_volume_smoke_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+    volumes: []core.SceneVolume,
+) {
+    result_quads := make([dynamic]raytrace.Quad)
+    cornell_box_walls(&result_quads)
+
+    volumes_dyn := make([dynamic]core.SceneVolume)
+    append(&volumes_dyn, core.SceneVolume{
+        box_min      = {0, 0, 0},
+        box_max      = {165, 330, 165},
+        rotate_y_deg = 15,
+        translate    = {265, 0, 295},
+        density      = 0.01,
+        albedo       = {0, 0, 0},
+    })
+    append(&volumes_dyn, core.SceneVolume{
+        box_min      = {0, 0, 0},
+        box_max      = {165, 165, 165},
+        rotate_y_deg = -18,
+        translate    = {130, 0, 65},
+        density      = 0.01,
+        albedo       = {1, 1, 1},
+    })
+
+    cornell_camera := core.CameraParams{
+        lookfrom      = {278, 278, -800},
+        lookat        = {278, 278, 0},
+        vup           = {0, 1, 0},
+        vfov          = 40,
+        defocus_angle = 0,
+        focus_dist    = 1.85,
+        max_depth     = 50,
+        shutter_open  = 0,
+        shutter_close = 1,
+        background    = {0, 0, 0},
+    }
+
+    return nil, result_quads[:], cornell_camera, nil, false, volumes_dyn[:]
+}

@@ -8,6 +8,7 @@ material :: union {
 	metallic,
 	dielectric,
 	diffuse_light,
+	isotropic,
 }
 
 lambertian :: struct {
@@ -28,13 +29,18 @@ diffuse_light :: struct {
 	emit: [3]f32,
 }
 
+// isotropic scatters uniformly in all directions (used for volumetric fog/smoke).
+isotropic :: struct {
+	albedo: [3]f32,
+}
+
 // emitted returns the color emitted by the surface at (u, v, p).
 // Base default is black (all non-emitting materials); only diffuse_light returns a non-zero color.
 emitted :: proc(mat: material, u, v: f32, p: [3]f32) -> [3]f32 {
 	switch m in mat {
 	case diffuse_light:
 		return m.emit
-	case lambertian, metallic, dielectric:
+	case lambertian, metallic, dielectric, isotropic:
 		return [3]f32{0, 0, 0}
 	}
 	return [3]f32{0, 0, 0}
@@ -81,6 +87,10 @@ scatter :: proc (mat : material, r_in : ray, rec : hit_record, attenuation : ^[3
 	case diffuse_light:
 		// Lights do not scatter.
 		return false
+	case isotropic:
+		scattered^ = ray{origin = rec.p, dir = vector_random_unit(rng), time = r_in.time}
+		attenuation^ = m.albedo
+		return true
 	}
 	return false
 }
@@ -105,6 +115,8 @@ material_display_color :: proc(mat: material) -> [3]f32 {
 		intensity := max(m.emit[0], max(m.emit[1], m.emit[2]))
 		if intensity <= 0 do return [3]f32{0, 0, 0}
 		return [3]f32{m.emit[0] / intensity, m.emit[1] / intensity, m.emit[2] / intensity}
+	case isotropic:
+		return m.albedo
 	}
 	return [3]f32{0.5, 0.5, 0.5}
 }

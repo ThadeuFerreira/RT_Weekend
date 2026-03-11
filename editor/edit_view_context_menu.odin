@@ -9,6 +9,7 @@ CTX_MENU_W :: f32(280)
 	items := make([dynamic]MenuEntryDyn, context.temp_allocator)
 	append(&items, MenuEntryDyn{label = "Add Sphere"})
 	append(&items, MenuEntryDyn{label = "Add Quad"})
+	append(&items, MenuEntryDyn{label = "Add Volume"})
 	append(&items, MenuEntryDyn{separator = true})
 	append(&items, MenuEntryDyn{label = "Align editor camera to render camera", cmd_id = CMD_EDIT_VIEW_ALIGN_CAMERA})
 	append(&items, MenuEntryDyn{label = "Frame all geometry (horizontal)", cmd_id = CMD_EDIT_VIEW_FRAME_GEOMETRY})
@@ -29,10 +30,13 @@ CTX_MENU_W :: f32(280)
 	append(&items, MenuEntryDyn{label = "Movement speed: Fast", cmd_id = CMD_EDIT_VIEW_SPEED_FAST})
 	append(&items, MenuEntryDyn{label = "Movement speed: Very fast", cmd_id = CMD_EDIT_VIEW_SPEED_VERY_FAST})
 	append(&items, MenuEntryDyn{separator = true})
-	if ev.ctx_menu_hit_idx >= 0 {
-		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = !cmd_is_enabled(app, CMD_EDIT_COPY),      shortcut = "Ctrl+C"})
-		append(&items, MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE), shortcut = "Ctrl+D"})
-		append(&items, MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE),     shortcut = "Ctrl+V"})
+	has_deletable := ev.ctx_menu_hit_idx >= 0 || (ev.selection_kind == .Volume && ev.selected_idx >= 0)
+	if has_deletable {
+		if ev.ctx_menu_hit_idx >= 0 {
+			append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = !cmd_is_enabled(app, CMD_EDIT_COPY),      shortcut = "Ctrl+C"})
+			append(&items, MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE), shortcut = "Ctrl+D"})
+			append(&items, MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE),     shortcut = "Ctrl+V"})
+		}
 		append(&items, MenuEntryDyn{separator = true})
 		append(&items, MenuEntryDyn{label = "Delete"})
 	} else {

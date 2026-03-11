@@ -176,6 +176,7 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     rt.free_session(app.r_session)
     app.r_session = nil
 
+    rt.free_world_volumes(app.r_world)
     delete(app.r_world)
     app.r_world = new_world
 
@@ -203,8 +204,13 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
     rt.free_session(app.r_session)
     app.r_session = nil
 
+    rt.free_world_volumes(app.r_world)
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, scene_objects)
+    AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
+    for v in app.e_volumes {
+        append(&app.r_world, rt.build_volume_from_scene_volume(v))
+    }
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -229,6 +235,7 @@ App :: struct {
     num_threads:   int,
     r_camera:      ^rt.Camera,
     r_world:       [dynamic]rt.Object,
+    e_volumes:     [dynamic]core.SceneVolume,
     custom_ground_texture: rt.Texture,
     has_custom_ground_texture: bool,
     include_ground_plane: bool,
@@ -478,6 +485,7 @@ run_app :: proc(
     initial_editor_view: ^persistence.EditorViewConfig = nil,
     config_save_path: string = "",
     initial_presets: []persistence.LayoutPreset = nil,
+    initial_volumes: [dynamic]core.SceneVolume = nil,
 ) {
     WIN_W :: i32(1280)
     WIN_H :: i32(1280)
@@ -570,11 +578,20 @@ run_app :: proc(
     if initial_editor_view != nil {
         apply_editor_view_config(&app.e_edit_view, initial_editor_view)
     }
+    rt.free_world_volumes(r_world)
     delete(r_world) // edit view is now the source of truth; free the raw rt.Object array
-    // Build the startup world from the edit view (always): spheres + quads.
+    app.e_volumes = make([dynamic]core.SceneVolume)
+    if initial_volumes != nil {
+        for v in initial_volumes { append(&app.e_volumes, v) }
+        delete(initial_volumes)
+    }
+    // Build the startup world from the edit view (always): spheres + quads + volumes.
     ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
     app.r_world = app_build_world_from_scene(&app, app.e_edit_view.export_scratch[:])
     AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
+    for v in app.e_volumes {
+        append(&app.r_world, rt.build_volume_from_scene_volume(v))
+    }
     app.e_object_props  = ObjectPropsPanelState{prop_drag_idx = -1}
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
@@ -598,7 +615,7 @@ run_app :: proc(
         }
     }
     defer { rt.free_session(app.r_session) }
-    defer delete(app.r_world)
+    defer { rt.free_world_volumes(app.r_world); delete(app.r_world); delete(app.e_volumes) }
     defer { if app.image_texture_cache != nil { delete(app.image_texture_cache) } }
     defer {
         for p in app.panels { free(p) }

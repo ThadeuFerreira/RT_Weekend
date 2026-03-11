@@ -99,7 +99,7 @@ get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 		switch true {
 		case ev.add_dropdown_open && rl.CheckCollisionPointRec(mouse, dd_rect),
 		     rl.CheckCollisionPointRec(mouse, rects.btn_add),
-		     (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.btn_del),
+		     (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.btn_del),
 		     rl.CheckCollisionPointRec(mouse, rects.btn_fromview),
 		     app.finished && rl.CheckCollisionPointRec(mouse, rects.btn_render):
 			return .Toolbar
@@ -209,21 +209,50 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 								app_push_log(app, strings.clone("Add quad"))
 							}
 							app.r_render_pending = true
-						case "Delete":
-							del_idx := ev.ctx_menu_hit_idx
-							if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
-								edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
-								mark_scene_dirty(app)
-								app_push_log(app, strings.clone("Delete sphere"))
-							} else if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
-								edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
-								mark_scene_dirty(app)
-								app_push_log(app, strings.clone("Delete quad"))
+						case "Add Volume":
+							box_min, box_max, trans := default_volume_from_scene_scale(ev.scene_mgr)
+							new_vol := core.SceneVolume{
+								box_min      = box_min,
+								box_max      = box_max,
+								rotate_y_deg = 0,
+								translate    = trans,
+								density      = 0.02,
+								albedo       = {0.8, 0.8, 0.8},
 							}
-							OrderedRemove(ev.scene_mgr, del_idx)
-							ev.selection_kind = .None
-							ev.selected_idx   = -1
+							append(&app.e_volumes, new_vol)
+							new_idx := len(app.e_volumes) - 1
+							ev.selection_kind = .Volume
+							ev.selected_idx   = new_idx
+							edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
+							mark_scene_dirty(app)
+							app_push_log(app, strings.clone("Add volume"))
 							app.r_render_pending = true
+						case "Delete":
+							if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
+								del_vol := app.e_volumes[ev.selected_idx]
+								edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = del_vol})
+								ordered_remove(&app.e_volumes, ev.selected_idx)
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Delete volume"))
+								ev.selection_kind = .None
+								ev.selected_idx   = -1
+								app.r_render_pending = true
+							} else {
+								del_idx := ev.ctx_menu_hit_idx
+								if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+									edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+									mark_scene_dirty(app)
+									app_push_log(app, strings.clone("Delete sphere"))
+								} else if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
+									edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
+									mark_scene_dirty(app)
+									app_push_log(app, strings.clone("Delete quad"))
+								}
+								OrderedRemove(ev.scene_mgr, del_idx)
+								ev.selection_kind = .None
+								ev.selected_idx   = -1
+								app.r_render_pending = true
+							}
 						}
 					}
 					break
@@ -402,6 +431,21 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 				app_push_log(app, strings.clone("Move quad"))
 				app.r_render_pending = true
 			}
+		} else if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
+			ui_log_drag_end(app, "Volume")
+			edit_history_push(&app.edit_history, ModifyVolumeAction{
+				idx = ev.selected_idx, before = ev.drag_before_volume, after = app.e_volumes[ev.selected_idx],
+			})
+			mark_scene_dirty(app)
+			app_push_log(app, strings.clone("Move volume"))
+			app.r_render_pending = true
+		}
+	} else if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
+		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, rects.vp_rect, false); ok {
+			if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+				app.e_volumes[ev.selected_idx].translate[0] = xz.x - ev.drag_offset_xz[0]
+				app.e_volumes[ev.selected_idx].translate[2] = xz.y - ev.drag_offset_xz[1]
+			}
 		}
 	} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, rects.vp_rect, false); ok {
@@ -536,7 +580,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 			}
 		} else if rl.CheckCollisionPointRec(mouse, rects.btn_add) {
 			ev.add_dropdown_open = true
-		} else if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.btn_del) {
+		} else if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.btn_del) {
 			del_idx := ev.selected_idx
 			if ev.selection_kind == .Sphere {
 				if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
@@ -544,14 +588,21 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 					mark_scene_dirty(app)
 					app_push_log(app, strings.clone("Delete sphere"))
 				}
+				OrderedRemove(ev.scene_mgr, del_idx)
 			} else if ev.selection_kind == .Quad {
 				if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
 					edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
 					mark_scene_dirty(app)
 					app_push_log(app, strings.clone("Delete quad"))
 				}
+				OrderedRemove(ev.scene_mgr, del_idx)
+			} else if ev.selection_kind == .Volume && del_idx < len(app.e_volumes) {
+				del_vol := app.e_volumes[del_idx]
+				edit_history_push(&app.edit_history, DeleteVolumeAction{idx = del_idx, volume = del_vol})
+				ordered_remove(&app.e_volumes, del_idx)
+				mark_scene_dirty(app)
+				app_push_log(app, strings.clone("Delete volume"))
 			}
-			OrderedRemove(ev.scene_mgr, del_idx)
 			ev.selection_kind = .None
 			ev.selected_idx   = -1
 			app.r_render_pending = true
@@ -567,6 +618,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 		} else if app.finished && rl.CheckCollisionPointRec(mouse, rects.btn_render) {
 			ui_log_click(app, "Render")
 			ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+			rt.free_world_volumes(app.r_world)
 			delete(app.r_world)
 			app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
 			AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
@@ -690,8 +742,12 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 	if rmb_release && mouse_in_vp && ev.rmb_drag_dist < RMB_DRAG_THRESHOLD {
 		update_orbit_camera(ev)
 		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, rects.vp_rect, false); ok {
-			pick_kind, pick_idx, _ := PickClosestObject(ev.scene_mgr, ray)
-			if pick_idx >= 0 {
+			pick_kind, pick_idx, t_geom := PickClosestObject(ev.scene_mgr, ray)
+			vol_idx, t_vol := PickClosestVolume(ray, app.e_volumes[:])
+			if vol_idx >= 0 && (pick_idx < 0 || t_vol < t_geom) {
+				ev.selection_kind = .Volume
+				ev.selected_idx   = vol_idx
+			} else if pick_idx >= 0 {
 				ev.selection_kind = pick_kind
 				ev.selected_idx   = pick_idx
 			}
@@ -741,8 +797,20 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 					}
 					ui_log_drag_start(app, "CamBody")
 				case:
-					pick_kind, pick_idx, _ := PickClosestObject(ev.scene_mgr, ray)
+					pick_kind, pick_idx, t_geom := PickClosestObject(ev.scene_mgr, ray)
+					vol_idx, t_vol := PickClosestVolume(ray, app.e_volumes[:])
 					switch {
+					case vol_idx >= 0 && (pick_idx < 0 || t_vol < t_geom):
+						ev.selection_kind  = .Volume
+						ev.selected_idx    = vol_idx
+						ev.drag_obj_active = true
+						v := &app.e_volumes[vol_idx]
+						ev.drag_before_volume = v^
+						ev.drag_plane_y = v.translate[1]
+						if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+							ev.drag_offset_xz = {xz.x - v.translate[0], xz.y - v.translate[2]}
+						}
+						ui_log_drag_start(app, "Volume")
 					case pick_idx >= 0 && pick_kind == .Sphere:
 						ev.selection_kind  = .Sphere
 						ev.selected_idx    = pick_idx
@@ -773,8 +841,20 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 					}
 				}
 			} else {
-				pick_kind, pick_idx, _ := PickClosestObject(ev.scene_mgr, ray)
+				pick_kind, pick_idx, t_geom := PickClosestObject(ev.scene_mgr, ray)
+				vol_idx, t_vol := PickClosestVolume(ray, app.e_volumes[:])
 				switch {
+				case vol_idx >= 0 && (pick_idx < 0 || t_vol < t_geom):
+					ev.selection_kind  = .Volume
+					ev.selected_idx    = vol_idx
+					ev.drag_obj_active = true
+					v := &app.e_volumes[vol_idx]
+					ev.drag_before_volume = v^
+					ev.drag_plane_y = v.translate[1]
+					if xz, ok2 := ray_hit_plane_y(ray, ev.drag_plane_y); ok2 {
+						ev.drag_offset_xz = {xz.x - v.translate[0], xz.y - v.translate[2]}
+					}
+					ui_log_drag_start(app, "Volume")
 				case pick_idx >= 0 && pick_kind == .Sphere:
 					ev.selection_kind  = .Sphere
 					ev.selected_idx    = pick_idx

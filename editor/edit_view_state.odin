@@ -64,12 +64,13 @@ EditViewState :: struct {
 	prop_drag_start_x:   f32,
 	prop_drag_start_val: f32,
 
-	// Viewport left-drag to move selected object (sphere or quad)
-	drag_obj_active:   bool,
+	// Viewport left-drag to move selected object (sphere, quad, or volume)
+	drag_obj_active:    bool,
 	drag_plane_y:      f32,    // Y of the horizontal movement plane
-	drag_offset_xz:   [2]f32, // grab-point offset in world XZ so the object doesn't snap
-	drag_before:      core.SceneSphere, // sphere state captured at viewport-drag start
-	drag_before_quad: rt.Quad,          // quad state captured at viewport-drag start
+	drag_offset_xz:    [2]f32, // grab-point offset in world XZ so the object doesn't snap
+	drag_before:       core.SceneSphere, // sphere state captured at viewport-drag start
+	drag_before_quad:  rt.Quad,          // quad state captured at viewport-drag start
+	drag_before_volume: core.SceneVolume, // volume state captured at viewport-drag start
 
 	// Keyboard nudge history tracking
 	nudge_active: bool,             // true while any nudge key is held

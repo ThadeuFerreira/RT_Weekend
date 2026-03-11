@@ -9,6 +9,7 @@ material_name :: proc(k: core.MaterialKind) -> cstring {
 	case .Metallic:     return "Metallic"
 	case .Dielectric:   return "Dielectric"
 	case .DiffuseLight: return "Light"
+	case .Isotropic:    return "Isotropic"
 	}
 	return "Unknown"
 }

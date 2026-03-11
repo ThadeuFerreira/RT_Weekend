@@ -2,6 +2,7 @@ package raytrace
 
 import "core:fmt"
 import "core:math"
+import "RT_Weekend:util"
 
 // Compile-time flag: use SAH BVH (default) or median-split (comparison baseline).
 // Override with: -define:USE_SAH_BVH=false
@@ -20,9 +21,18 @@ hit_record :: struct {
     v: f32,
 }
 
+// ConstantMedium wraps a boundary (BVH of geometry) and implements probabilistic volumetric scattering.
+// Uses isotropic phase function; density controls mean free path.
+ConstantMedium :: struct {
+	boundary_bvh: ^BVHNode,
+	density:      f32,
+	albedo:       [3]f32,
+}
+
 Object :: union {
-    Sphere,
-    Quad,
+	Sphere,
+	Quad,
+	ConstantMedium,
 }
 
 AABB :: struct {
@@ -48,17 +58,18 @@ aabb_pad_to_minimums :: proc(box: ^AABB) {
 }
 
 object_bounding_box :: proc(obj: Object) -> AABB {
-    switch o in obj {
-    case Sphere:
-        return sphere_bounding_box(o)
-    case Quad:
-        return quad_bounding_box(o)
-    }
-    return AABB{
-        x = Interval{0, 0},
-        y = Interval{0, 0},
-        z = Interval{0, 0},
-    }
+	switch o in obj {
+	case Sphere:
+		return sphere_bounding_box(o)
+	case Quad:
+		return quad_bounding_box(o)
+	case ConstantMedium:
+		if o.boundary_bvh != nil {
+			return o.boundary_bvh.bbox
+		}
+		return AABB{x = Interval{0, 0}, y = Interval{0, 0}, z = Interval{0, 0}}
+	}
+	return AABB{x = Interval{0, 0}, y = Interval{0, 0}, z = Interval{0, 0}}
 }
 
 aabb_union :: proc(box0: AABB, box1: AABB) -> AABB {
@@ -172,15 +183,24 @@ aabb_hit_fast :: proc(box: AABB, dir: [3]f32, inv_dir: [3]f32, origin: [3]f32, r
 }
 
 object_center :: proc(obj: Object, axis: int) -> f32 {
-    switch o in obj {
-    case Sphere:
-        if o.is_moving { return (o.center[axis] + o.center1[axis]) * 0.5 }
-        return o.center[axis]
-    case Quad:
-        // Centroid: Q + (u + v) / 2
-        return o.Q[axis] + (o.u[axis] + o.v[axis]) * 0.5
-    }
-    return 0.0
+	switch o in obj {
+	case Sphere:
+		if o.is_moving { return (o.center[axis] + o.center1[axis]) * 0.5 }
+		return o.center[axis]
+	case Quad:
+		return o.Q[axis] + (o.u[axis] + o.v[axis]) * 0.5
+	case ConstantMedium:
+		if o.boundary_bvh != nil {
+			bb := o.boundary_bvh.bbox
+			switch axis {
+			case 0: return (bb.x.min + bb.x.max) * 0.5
+			case 1: return (bb.y.min + bb.y.max) * 0.5
+			case 2: return (bb.z.min + bb.z.max) * 0.5
+			}
+		}
+		return 0.0
+	}
+	return 0.0
 }
 
 @(private)
@@ -458,35 +478,59 @@ build_bvh_sah :: proc(objects: []Object, allocator := context.allocator) -> ^BVH
     return _build_bvh_sah(objects_work, indices, allocator)
 }
 
-bvh_hit :: proc(node: ^BVHNode, r: ray, ray_t: Interval, rec: ^hit_record, closest_so_far: ^f32) -> bool {
-    if node == nil {
-        return false
-    }
+// boundary_hit_interval returns (t_entry, t_exit, ok) for a ray through a closed boundary (e.g. box).
+// Used by ConstantMedium to get the segment inside the volume. ok false if ray misses the boundary.
+@(private)
+boundary_hit_interval :: proc(bvh: ^BVHNode, r: ray, ray_t: Interval) -> (t_entry, t_exit: f32, ok: bool) {
+	closest1: f32 = math.inf_f32(1)
+	rec1: hit_record
+	// Boundary BVH contains only geometry (no volumes); nil rng is ok.
+	if !bvh_hit(bvh, r, Interval{ray_t.min, math.inf_f32(1)}, &rec1, &closest1, nil) {
+		return 0, 0, false
+	}
+	t_entry = rec1.t
+	closest2: f32 = math.inf_f32(1)
+	rec2: hit_record
+	eps: f32 = 0.0001
+	if bvh_hit(bvh, r, Interval{t_entry + eps, math.inf_f32(1)}, &rec2, &closest2, nil) {
+		t_exit = rec2.t
+	} else {
+		// Ray origin inside volume: first hit is exit.
+		t_exit = t_entry
+		t_entry = math.max(ray_t.min, 0.001)
+	}
+	return t_entry, t_exit, true
+}
 
-    if !aabb_hit(node.bbox, r, ray_t) {
-        return false
-    }
+bvh_hit :: proc(node: ^BVHNode, r: ray, ray_t: Interval, rec: ^hit_record, closest_so_far: ^f32, rng: ^util.ThreadRNG = nil) -> bool {
+	if node == nil {
+		return false
+	}
 
-    if node.is_leaf {
-        return hit(r, ray_t, rec, node.object, closest_so_far)
-    }
+	if !aabb_hit(node.bbox, r, ray_t) {
+		return false
+	}
+
+	if node.is_leaf {
+		return hit(r, ray_t, rec, node.object, closest_so_far, rng)
+	}
 
     hit_left := false
     hit_right := false
     left_rec := hit_record{}
     right_rec := hit_record{}
 
-    if node.left != nil {
-        hit_left = bvh_hit(node.left, r, ray_t, &left_rec, closest_so_far)
-    }
+	if node.left != nil {
+		hit_left = bvh_hit(node.left, r, ray_t, &left_rec, closest_so_far, rng)
+	}
 
-    if node.right != nil {
-        updated_ray_t := ray_t
-        if hit_left {
-            updated_ray_t.max = left_rec.t
-        }
-        hit_right = bvh_hit(node.right, r, updated_ray_t, &right_rec, closest_so_far)
-    }
+	if node.right != nil {
+		updated_ray_t := ray_t
+		if hit_left {
+			updated_ray_t.max = left_rec.t
+		}
+		hit_right = bvh_hit(node.right, r, updated_ray_t, &right_rec, closest_so_far, rng)
+	}
 
     if hit_left && hit_right {
         if left_rec.t < right_rec.t {
@@ -538,8 +582,7 @@ _flatten_bvh_recurse :: proc(
         if node.is_leaf {
         // Find which index in objects matches this leaf's object.
         // Fast path (SAH builder): obj_index is stored in the node — O(1).
-        // Slow path (median builder): fall back to O(n) search; for Quad use geometry-only match
-        // so we get the correct index even when material union equality fails.
+        // Slow path (median builder): fall back to O(n) search; for Quad use geometry-only match.
         obj_idx := i32(-1)
         if node.obj_index >= 0 {
             obj_idx = i32(node.obj_index)
@@ -553,6 +596,8 @@ _flatten_bvh_recurse :: proc(
                         if a == b { obj_idx = i32(i) }
                         else if quad_geometry_equal(a, b) { obj_idx = i32(i) }
                     }
+                case ConstantMedium:
+                    if b, ok := objects[i].(ConstantMedium); ok && a.boundary_bvh == b.boundary_bvh && a.density == b.density && a.albedo == b.albedo { obj_idx = i32(i) }
                 }
             }
         }
@@ -610,13 +655,19 @@ _flatten_bvh_for_gpu_recurse :: proc(
                     if b, ok := objects[i].(Sphere); ok && a == b { obj_idx = i; break }
                 case Quad:
                     if b, ok := objects[i].(Quad); ok && (a == b || quad_geometry_equal(a, b)) { obj_idx = i; break }
+                case ConstantMedium:
+                    if b, ok := objects[i].(ConstantMedium); ok && a.boundary_bvh == b.boundary_bvh && a.density == b.density && a.albedo == b.albedo { obj_idx = i; break }
                 }
             }
         }
         left_val := LEAF_SPHERE
         right_val: i32 = -1
         if obj_idx >= 0 && obj_idx < len(objects) {
-            if sg := world_to_sphere_gpu[obj_idx]; sg >= 0 {
+            if _, is_vol := objects[obj_idx].(ConstantMedium); is_vol {
+                // GPU path does not support volumes yet; treat as empty leaf (skip hit).
+                left_val  = LEAF_SPHERE
+                right_val = -1
+            } else if sg := world_to_sphere_gpu[obj_idx]; sg >= 0 {
                 left_val  = LEAF_SPHERE
                 right_val = -i32(sg + 1)
             } else if qg := world_to_quad_gpu[obj_idx]; qg >= 0 {
@@ -669,6 +720,7 @@ bvh_hit_linear :: proc(
     objects: []Object,
     r:       ray,
     ray_t:   Interval,
+    rng:     ^util.ThreadRNG = nil,
 ) -> (HitRecord: hit_record, Hit: bool) {
     if len(nodes) == 0 { return }
 
@@ -701,17 +753,17 @@ bvh_hit_linear :: proc(
         }
         if !aabb_hit_fast(bbox, r.dir, inv_dir, r.origin, Interval{ray_t.min, closest}) { continue }
 
-        if node.left_idx == -1 {
-            // Leaf node: test the actual object.
-            obj_idx := int(-(node.right_or_obj_idx + 1))
-            if obj_idx >= 0 && obj_idx < len(objects) {
-                temp_rec := hit_record{}
-                if hit(r, Interval{ray_t.min, closest}, &temp_rec, objects[obj_idx], &closest) {
-                    rec          = temp_rec
-                    hit_anything = true
-                }
-            }
-        } else {
+		if node.left_idx == -1 {
+			// Leaf node: test the actual object (Sphere, Quad, or ConstantMedium).
+			obj_idx := int(-(node.right_or_obj_idx + 1))
+			if obj_idx >= 0 && obj_idx < len(objects) {
+				temp_rec := hit_record{}
+				if hit(r, Interval{ray_t.min, closest}, &temp_rec, objects[obj_idx], &closest, rng) {
+					rec          = temp_rec
+					hit_anything = true
+				}
+			}
+		} else {
             // Internal node: push both children; test closer one last (LIFO).
             if int(node.right_or_obj_idx) >= 0 && stack_ptr < 63 {
                 stack[stack_ptr] = int(node.right_or_obj_idx)
@@ -743,30 +795,57 @@ free_bvh :: proc(node: ^BVHNode, allocator := context.allocator) {
 }
 
 set_face_normal :: proc(rec : ^hit_record, r : ray, outward_normal : [3]f32) {
-    rec.front_face = dot(r.dir, outward_normal) < 0
-    if rec.front_face {
-        rec.normal = outward_normal
-    } else {
-        rec.normal = -outward_normal
-    }
+	rec.front_face = dot(r.dir, outward_normal) < 0
+	if rec.front_face {
+		rec.normal = outward_normal
+	} else {
+		rec.normal = -outward_normal
+	}
 }
 
-hit :: proc(r : ray, ray_t : Interval, rec : ^hit_record, object : Object, closest_so_far : ^f32) -> bool{
-    temp_rec := hit_record{}
-    closest_so_far := closest_so_far
-    switch s in object {
-    case Sphere:
-        if hit_sphere(s, r, Interval{ray_t.min, closest_so_far^}, &temp_rec) {
-            rec^ = temp_rec
-            closest_so_far^ = temp_rec.t
-            return true
-        }
-    case Quad:
-        if hit_quad(s, r, Interval{ray_t.min, closest_so_far^}, &temp_rec) {
-            rec^ = temp_rec
-            closest_so_far^ = temp_rec.t
-            return true
-        }
-    }
-    return false
+// constant_medium_hit implements probabilistic volumetric scattering: sample free path, scatter or pass through.
+constant_medium_hit :: proc(vol: ConstantMedium, r: ray, ray_t: Interval, rec: ^hit_record, closest_so_far: ^f32, rng: ^util.ThreadRNG) -> bool {
+	t_entry, t_exit, ok := boundary_hit_interval(vol.boundary_bvh, r, ray_t)
+	if !ok do return false
+	t_entry = math.max(t_entry, ray_t.min)
+	t_exit  = math.min(t_exit, ray_t.max)
+	if t_entry >= t_exit do return false
+	segment_length := t_exit - t_entry
+	// Exponential distribution: hit_distance = -ln(1 - U) / density; use 1-U to avoid ln(0).
+	u := util.random_float(rng)
+	if u >= 1.0 - 1e-7 do return false
+	hit_distance := -math.ln(1.0 - u) / vol.density
+	if hit_distance >= segment_length do return false
+	t_scatter := t_entry + hit_distance
+	if t_scatter >= closest_so_far^ do return false
+	rec.p = ray_at(r, t_scatter)
+	rec.t = t_scatter
+	rec.material = isotropic{albedo = vol.albedo}
+	rec.normal = vector_random_unit(rng)
+	rec.front_face = true
+	rec.u, rec.v = 0, 0
+	closest_so_far^ = t_scatter
+	return true
+}
+
+hit :: proc(r: ray, ray_t: Interval, rec: ^hit_record, object: Object, closest_so_far: ^f32, rng: ^util.ThreadRNG = nil) -> bool {
+	temp_rec := hit_record{}
+	switch s in object {
+	case Sphere:
+		if hit_sphere(s, r, Interval{ray_t.min, closest_so_far^}, &temp_rec) {
+			rec^ = temp_rec
+			closest_so_far^ = temp_rec.t
+			return true
+		}
+	case Quad:
+		if hit_quad(s, r, Interval{ray_t.min, closest_so_far^}, &temp_rec) {
+			rec^ = temp_rec
+			closest_so_far^ = temp_rec.t
+			return true
+		}
+	case ConstantMedium:
+		if rng == nil do return false
+		return constant_medium_hit(s, r, ray_t, rec, closest_so_far, rng)
+	}
+	return false
 }

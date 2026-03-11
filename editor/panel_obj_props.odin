@@ -69,7 +69,11 @@ noise_preview_unload :: proc(np: ^NoisePreview) {
 // ObjectPropsPanelState holds per-frame drag state for the Object Properties panel.
 // For sphere: data in app.e_edit_view.objects[selected_idx]. For camera: app.c_camera_params.
 // Drag indices: sphere 0–10 (xyz, radius, motion dX dY dZ, rgb, mat_param); camera 0–11 (from xyz, at xyz, vfov, defocus, focus, max_depth, shutter).
-// Drag index 11 = Noise/Marble scale.
+// Drag index 11 = Noise/Marble scale. Volume props: 100 + i*4 + 0 = density, +1..+3 = albedo R,G,B.
+// When a volume is selected: 200+0..2 = translate X,Y,Z; 3 = rotate_y_deg; 4 = density; 5,6,7 = albedo R,G,B; 8 = scale (uniform).
+OP_VOLUME_DRAG_BASE         :: 100
+OP_VOLUME_SELECTED_DRAG_BASE :: 200
+OP_VOLUME_SELECTED_DRAG_COUNT :: 9
 ObjectPropsPanelState :: struct {
 	prop_drag_idx:       int,
 	prop_drag_start_x:   f32,
@@ -78,6 +82,7 @@ ObjectPropsPanelState :: struct {
 	// Before-state captured at drag start (for undo history)
 	drag_before_sphere: core.SceneSphere,
 	drag_before_c_camera_params: core.CameraParams,
+	drag_before_volume: core.SceneVolume,
 
 	// Perlin noise preview (cached; regenerated when scale or type changes)
 	noise_preview: NoisePreview,
@@ -308,6 +313,76 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
 		draw_ui_text(app, "Click a sphere or the camera in the Edit View.",
 			i32(content.x) + 10, i32(content.y) + 40, 11, rl.Color{140, 150, 165, 200})
+		// Volumes section when scene has volumes (density / albedo editable)
+		if len(app.e_volumes) > 0 {
+			y0 := content.y + 70
+			op_section_label(app, "VOLUMES", content.x + 8, y0)
+			y0 += 20
+			lx := content.x + 8
+			x0 := content.x + 8 + OP_LW + OP_GAP
+			for v, i in app.e_volumes {
+				vol_label: [32]u8
+				vol_str := fmt.bprint(vol_label[:], "Volume ", i + 1)
+				if len(vol_str) < len(vol_label) { vol_label[len(vol_str)] = 0 }
+				draw_ui_text(app, cast(cstring)&vol_label[0], i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
+				y0 += OP_FH + 2
+				draw_ui_text(app, "Density", i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
+				box_d := rl.Rectangle{x0, y0, OP_FW, OP_FH}
+				op_drag_field(app, "", v.density, box_d, st.prop_drag_idx == OP_VOLUME_DRAG_BASE + i*4 + 0, mouse)
+				y0 += OP_FH + 2
+				draw_ui_text(app, "Albedo R G B", i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
+				box_r := rl.Rectangle{x0, y0, OP_FW, OP_FH}
+				box_g := rl.Rectangle{x0 + OP_COL, y0, OP_FW, OP_FH}
+				box_b := rl.Rectangle{x0 + 2*OP_COL, y0, OP_FW, OP_FH}
+				op_drag_field(app, "", v.albedo[0], box_r, st.prop_drag_idx == OP_VOLUME_DRAG_BASE + i*4 + 1, mouse)
+				op_drag_field(app, "", v.albedo[1], box_g, st.prop_drag_idx == OP_VOLUME_DRAG_BASE + i*4 + 2, mouse)
+				op_drag_field(app, "", v.albedo[2], box_b, st.prop_drag_idx == OP_VOLUME_DRAG_BASE + i*4 + 3, mouse)
+				y0 += OP_FH + OP_SP + 8
+			}
+		}
+		return
+	}
+
+	if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
+		v := &app.e_volumes[ev.selected_idx]
+		lx := content.x + 8
+		cy := content.y + 6
+		op_section_label(app, "VOLUME", lx, cy)
+		cy += 20
+		x0 := lx + OP_LW + OP_GAP
+		op_section_label(app, "Translate", lx, cy)
+		cy += 18
+		box_tx := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+		box_ty := rl.Rectangle{x0 + OP_COL, cy, OP_FW, OP_FH}
+		box_tz := rl.Rectangle{x0 + 2*OP_COL, cy, OP_FW, OP_FH}
+		op_drag_field(app, "X", v.translate[0], box_tx, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 0, mouse)
+		op_drag_field(app, "Y", v.translate[1], box_ty, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 1, mouse)
+		op_drag_field(app, "Z", v.translate[2], box_tz, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 2, mouse)
+		cy += OP_FH + 8
+		op_section_label(app, "Rotate Y (deg)", lx, cy)
+		cy += 18
+		box_rot := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+		op_drag_field(app, "", v.rotate_y_deg, box_rot, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 3, mouse)
+		cy += OP_FH + 8
+		volume_scale_val := (v.box_max[0] - v.box_min[0] + v.box_max[1] - v.box_min[1] + v.box_max[2] - v.box_min[2]) / 3.0
+		op_section_label(app, "Scale", lx, cy)
+		cy += 18
+		box_scale := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+		op_drag_field(app, "", volume_scale_val, box_scale, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 8, mouse)
+		cy += OP_FH + 8
+		op_section_label(app, "Density", lx, cy)
+		cy += 18
+		box_d := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+		op_drag_field(app, "", v.density, box_d, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 4, mouse)
+		cy += OP_FH + 8
+		op_section_label(app, "Albedo R G B", lx, cy)
+		cy += 18
+		box_r := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+		box_g := rl.Rectangle{x0 + OP_COL, cy, OP_FW, OP_FH}
+		box_b := rl.Rectangle{x0 + 2*OP_COL, cy, OP_FW, OP_FH}
+		op_drag_field(app, "", v.albedo[0], box_r, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 5, mouse)
+		op_drag_field(app, "", v.albedo[1], box_g, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 6, mouse)
+		op_drag_field(app, "", v.albedo[2], box_b, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 7, mouse)
 		return
 	}
 
@@ -529,8 +604,132 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 
 	if ev.selection_kind == .None {
 		if st.prop_drag_idx >= 0 {
-			st.prop_drag_idx = -1
-			rl.SetMouseCursor(.DEFAULT)
+			if st.prop_drag_idx >= OP_VOLUME_DRAG_BASE && len(app.e_volumes) > 0 {
+				if !lmb {
+					mark_scene_dirty(app)
+					ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+					app_restart_render_with_scene(app, ev.export_scratch[:])
+					st.prop_drag_idx = -1
+					rl.SetMouseCursor(.DEFAULT)
+				} else {
+					idx := (st.prop_drag_idx - OP_VOLUME_DRAG_BASE) / 4
+					sub := (st.prop_drag_idx - OP_VOLUME_DRAG_BASE) % 4
+					if idx >= 0 && idx < len(app.e_volumes) {
+						delta := mouse.x - st.prop_drag_start_x
+						switch sub {
+						case 0:
+							app.e_volumes[idx].density = st.prop_drag_start_val + delta * 0.002
+							if app.e_volumes[idx].density < 0.0001 { app.e_volumes[idx].density = 0.0001 }
+							if app.e_volumes[idx].density > 1 { app.e_volumes[idx].density = 1 }
+						case 1: app.e_volumes[idx].albedo[0] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
+						case 2: app.e_volumes[idx].albedo[1] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
+						case 3: app.e_volumes[idx].albedo[2] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
+						}
+					}
+					rl.SetMouseCursor(.RESIZE_EW)
+				}
+			} else {
+				st.prop_drag_idx = -1
+				rl.SetMouseCursor(.DEFAULT)
+			}
+			return
+		}
+		// Try start volume drag when nothing selected
+		if len(app.e_volumes) > 0 && lmb_pressed {
+			y0 := rect.y + 70 + 20
+			lx := rect.x + 8
+			x0 := rect.x + 8 + OP_LW + OP_GAP
+			for _, i in app.e_volumes {
+				box_d := rl.Rectangle{x0, y0, OP_FW, OP_FH}
+				y0 += OP_FH + 2
+				box_r := rl.Rectangle{x0, y0, OP_FW, OP_FH}
+				box_g := rl.Rectangle{x0 + OP_COL, y0, OP_FW, OP_FH}
+				box_b := rl.Rectangle{x0 + 2*OP_COL, y0, OP_FW, OP_FH}
+				y0 += OP_FH + OP_SP + 8
+				if op_try_start_drag(box_d, OP_VOLUME_DRAG_BASE + i*4 + 0, app.e_volumes[i].density, st, mouse, true) { return }
+				if op_try_start_drag(box_r, OP_VOLUME_DRAG_BASE + i*4 + 1, app.e_volumes[i].albedo[0], st, mouse, true) { return }
+				if op_try_start_drag(box_g, OP_VOLUME_DRAG_BASE + i*4 + 2, app.e_volumes[i].albedo[1], st, mouse, true) { return }
+				if op_try_start_drag(box_b, OP_VOLUME_DRAG_BASE + i*4 + 3, app.e_volumes[i].albedo[2], st, mouse, true) { return }
+			}
+		}
+		return
+	}
+
+	// ── Volume selected: drag OP_VOLUME_SELECTED_DRAG_BASE+0..7 → translate, rotate_y, density, albedo
+	if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
+		idx := ev.selected_idx
+		v := &app.e_volumes[idx]
+		if st.prop_drag_idx >= OP_VOLUME_SELECTED_DRAG_BASE && st.prop_drag_idx <= OP_VOLUME_SELECTED_DRAG_BASE + 8 {
+			if !lmb {
+				edit_history_push(&app.edit_history, ModifyVolumeAction{
+					idx = idx, before = st.drag_before_volume, after = app.e_volumes[idx],
+				})
+				mark_scene_dirty(app)
+				ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+				app_restart_render_with_scene(app, ev.export_scratch[:])
+				st.prop_drag_idx = -1
+				rl.SetMouseCursor(.DEFAULT)
+			} else {
+				delta := mouse.x - st.prop_drag_start_x
+				sub := st.prop_drag_idx - OP_VOLUME_SELECTED_DRAG_BASE
+				switch sub {
+				case 0: v.translate[0] = st.prop_drag_start_val + delta * 0.02
+				case 1: v.translate[1] = st.prop_drag_start_val + delta * 0.02
+				case 2: v.translate[2] = st.prop_drag_start_val + delta * 0.02
+				case 3: v.rotate_y_deg = st.prop_drag_start_val + delta * 0.2
+				case 4:
+					v.density = st.prop_drag_start_val + delta * 0.002
+					if v.density < 0.0001 { v.density = 0.0001 }
+					if v.density > 1 { v.density = 1 }
+				case 5: v.albedo[0] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
+				case 6: v.albedo[1] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
+				case 7: v.albedo[2] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
+				case 8:
+					new_scale := st.prop_drag_start_val + delta * 0.02
+					if new_scale < 0.01 { new_scale = 0.01 }
+					center := (v.box_min + v.box_max) * 0.5
+					half := (v.box_max - v.box_min) * 0.5
+					old_scale := (half[0] + half[1] + half[2]) / 3.0
+					if old_scale < 1e-6 { old_scale = 1e-6 }
+					factor := new_scale / old_scale
+					v.box_min[0] = center[0] - half[0] * factor
+					v.box_min[1] = center[1] - half[1] * factor
+					v.box_min[2] = center[2] - half[2] * factor
+					v.box_max[0] = center[0] + half[0] * factor
+					v.box_max[1] = center[1] + half[1] * factor
+					v.box_max[2] = center[2] + half[2] * factor
+				}
+				rl.SetMouseCursor(.RESIZE_EW)
+			}
+			return
+		}
+		if lmb_pressed {
+			lx := rect.x + 8
+			cy := rect.y + 6 + 20 + 18
+			x0 := lx + OP_LW + OP_GAP
+			box_tx := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+			box_ty := rl.Rectangle{x0 + OP_COL, cy, OP_FW, OP_FH}
+			box_tz := rl.Rectangle{x0 + 2*OP_COL, cy, OP_FW, OP_FH}
+			cy += OP_FH + 8 + 18
+			box_rot := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+			cy += OP_FH + 8 + 18
+			volume_scale_val := (v.box_max[0] - v.box_min[0] + v.box_max[1] - v.box_min[1] + v.box_max[2] - v.box_min[2]) / 3.0
+			box_scale := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+			cy += OP_FH + 8 + 18
+			box_d := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+			cy += OP_FH + 8 + 18
+			box_r := rl.Rectangle{x0, cy, OP_FW, OP_FH}
+			box_g := rl.Rectangle{x0 + OP_COL, cy, OP_FW, OP_FH}
+			box_b := rl.Rectangle{x0 + 2*OP_COL, cy, OP_FW, OP_FH}
+			if op_try_start_drag(box_tx, OP_VOLUME_SELECTED_DRAG_BASE + 0, v.translate[0], st, mouse, true) { st.drag_before_volume = v^; return }
+			if op_try_start_drag(box_ty, OP_VOLUME_SELECTED_DRAG_BASE + 1, v.translate[1], st, mouse, true) { st.drag_before_volume = v^; return }
+			if op_try_start_drag(box_tz, OP_VOLUME_SELECTED_DRAG_BASE + 2, v.translate[2], st, mouse, true) { st.drag_before_volume = v^; return }
+			if op_try_start_drag(box_rot, OP_VOLUME_SELECTED_DRAG_BASE + 3, v.rotate_y_deg, st, mouse, true) { st.drag_before_volume = v^; return }
+			if op_try_start_drag(box_scale, OP_VOLUME_SELECTED_DRAG_BASE + 8, volume_scale_val, st, mouse, true) { st.drag_before_volume = v^; return }
+			if op_try_start_drag(box_d, OP_VOLUME_SELECTED_DRAG_BASE + 4, v.density, st, mouse, true) { st.drag_before_volume = v^; return }
+			if op_try_start_drag(box_r, OP_VOLUME_SELECTED_DRAG_BASE + 5, v.albedo[0], st, mouse, true) { st.drag_before_volume = v^; return }
+			if op_try_start_drag(box_g, OP_VOLUME_SELECTED_DRAG_BASE + 6, v.albedo[1], st, mouse, true) { st.drag_before_volume = v^; return }
+			if op_try_start_drag(box_b, OP_VOLUME_SELECTED_DRAG_BASE + 7, v.albedo[2], st, mouse, true) { st.drag_before_volume = v^; return }
 		}
 		return
 	}

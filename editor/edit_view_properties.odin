@@ -83,6 +83,14 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 		return
 	}
 
+	if ev.selection_kind == .Volume {
+		draw_ui_text(app, "Volume selected",
+			i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
+		draw_ui_text(app, "Edit in Object Properties panel",
+			i32(rect.x) + 8, i32(rect.y) + 30, 11, rl.Color{140, 150, 165, 200})
+		return
+	}
+
 	if ev.selection_kind == .Quad {
 		if quad, ok := GetSceneQuad(ev.scene_mgr, ev.selected_idx); ok {
 			dc := rt.material_display_color(quad.material)
