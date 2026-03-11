@@ -26,7 +26,7 @@ cmd_action_file_new :: proc(app: ^App) {
         {center = { 0,   0.5, 0}, radius = 0.5, material_kind = .Metallic,   albedo = core.ConstantTexture{color={0.2, 0.2, 0.8}}, fuzz = 0.1},
         {center = { 1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.2, 0.8, 0.2}}},
     }
-LoadFromSceneSpheres(ev.scene_mgr, initial[:])
+    LoadFromSceneSpheres(ev.scene_mgr, initial[:])
     align_editor_camera_to_render(ev, app.c_camera_params, true)
     ev.selection_kind = .None
     ev.selected_idx   = -1
@@ -34,7 +34,7 @@ LoadFromSceneSpheres(ev.scene_mgr, initial[:])
     delete(app.current_scene_path)
     app.current_scene_path = ""
 
-ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)

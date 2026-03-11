@@ -192,7 +192,10 @@ align_editor_camera_to_render :: proc(ev: ^EditViewState, cp: core.CameraParams,
 	_, radius, scene_speed := scene_scale_recommendations(ev.scene_mgr)
 	ev.move_speed = scene_speed
 	if place_in_front {
-		offset := max(radius * 0.35, f32(2.0))
+		// Min offset avoids clipping through geometry when radius is small; keep well above near clip.
+		PLACE_IN_FRONT_MIN_OFFSET :: 2.0
+		PLACE_IN_FRONT_NEAR_CLIP  :: 0.01
+		offset := max(radius * 0.35, PLACE_IN_FRONT_MIN_OFFSET, 50.0 * PLACE_IN_FRONT_NEAR_CLIP)
 		from -= fwd * offset
 		at -= fwd * offset
 	}

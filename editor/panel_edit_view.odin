@@ -17,10 +17,11 @@ bg_preset_name :: proc(i: int) -> cstring {
 	case 3: return "Neutral Gray"
 	case 4: return "Warm Sunset"
 	case 5: return "White"
-	case:  return "Custom"
+	case:  return "Custom"  // Unreachable when i in 0..<BG_PRESET_COUNT; kept for exhaustiveness.
 	}
 }
 
+// Default returns black; not the "Custom" label color (no single Custom preset value).
 bg_preset_color :: proc(i: int) -> [3]f32 {
 	switch i {
 	case 0: return core.CAMERA_BACKGROUND_SKY

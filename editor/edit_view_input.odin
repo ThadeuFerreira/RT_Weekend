@@ -129,9 +129,9 @@ _vec_norm :: proc(v: [3]f32) -> [3]f32 {
 
 _free_fly_apply_motion :: proc(ev: ^EditViewState, mouse_in_vp, rmb_down: bool) {
 	ev.nav_keys_consumed = false
-	if !mouse_in_vp { return }
 
-	wheel := rl.GetMouseWheelMove()
+	// Mouse wheel (viewport-only); arrow/WASD/EQ keys work regardless of mouse position.
+	wheel := mouse_in_vp ? rl.GetMouseWheelMove() : 0
 	if wheel != 0 {
 		if wheel > 0 {
 			ev.speed_factor *= 1.18
