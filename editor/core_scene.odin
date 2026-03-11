@@ -1,5 +1,6 @@
 package editor
 
+import "core:math"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
 import rt "RT_Weekend:raytrace"
@@ -98,6 +99,119 @@ OrderedRemove :: proc(sm: ^SceneManager, idx: int) {
 SceneManagerLen :: proc(sm: ^SceneManager) -> int {
 	if sm == nil { return 0 }
 	return len(sm.objects)
+}
+
+scene_manager_bounds :: proc(sm: ^SceneManager) -> (bmin, bmax: [3]f32, ok: bool) {
+	if sm == nil || len(sm.objects) == 0 {
+		return {}, {}, false
+	}
+	bmin = {1e30, 1e30, 1e30}
+	bmax = {-1e30, -1e30, -1e30}
+	found := false
+	for obj in sm.objects {
+		#partial switch o in obj {
+		case core.SceneSphere:
+			if core.scene_sphere_is_ground(o) {
+				continue
+			}
+			r := o.radius
+			p0 := o.center - [3]f32{r, r, r}
+			p1 := o.center + [3]f32{r, r, r}
+			if o.is_moving {
+				p0m := o.center1 - [3]f32{r, r, r}
+				p1m := o.center1 + [3]f32{r, r, r}
+				if p0m[0] < p0[0] { p0[0] = p0m[0] }
+				if p0m[1] < p0[1] { p0[1] = p0m[1] }
+				if p0m[2] < p0[2] { p0[2] = p0m[2] }
+				if p1m[0] > p1[0] { p1[0] = p1m[0] }
+				if p1m[1] > p1[1] { p1[1] = p1m[1] }
+				if p1m[2] > p1[2] { p1[2] = p1m[2] }
+			}
+			if p0[0] < bmin[0] { bmin[0] = p0[0] }
+			if p0[1] < bmin[1] { bmin[1] = p0[1] }
+			if p0[2] < bmin[2] { bmin[2] = p0[2] }
+			if p1[0] > bmax[0] { bmax[0] = p1[0] }
+			if p1[1] > bmax[1] { bmax[1] = p1[1] }
+			if p1[2] > bmax[2] { bmax[2] = p1[2] }
+			found = true
+		case rt.Quad:
+			bb := rt.quad_bounding_box(o)
+			if bb.x.min < bmin[0] { bmin[0] = bb.x.min }
+			if bb.y.min < bmin[1] { bmin[1] = bb.y.min }
+			if bb.z.min < bmin[2] { bmin[2] = bb.z.min }
+			if bb.x.max > bmax[0] { bmax[0] = bb.x.max }
+			if bb.y.max > bmax[1] { bmax[1] = bb.y.max }
+			if bb.z.max > bmax[2] { bmax[2] = bb.z.max }
+			found = true
+		}
+	}
+	if !found {
+		return {}, {}, false
+	}
+	return bmin, bmax, true
+}
+
+scene_geometry_center :: proc(sm: ^SceneManager) -> (center: [3]f32, ok: bool) {
+	bmin, bmax, ok_bounds := scene_manager_bounds(sm)
+	if !ok_bounds {
+		return {}, false
+	}
+	center = (bmin + bmax) * 0.5
+	return center, true
+}
+
+// frame_editor_camera_horizontal fits the whole scene in view and looks at center.
+// Camera is aligned to the horizontal plane (pitch=0, world-up).
+frame_editor_camera_horizontal :: proc(ev: ^EditViewState, vertical_fov_deg: f32 = 45.0, fit_padding: f32 = 1.15) -> bool {
+	if ev == nil {
+		return false
+	}
+	bmin, bmax, ok := scene_manager_bounds(ev.scene_mgr)
+	if !ok {
+		return false
+	}
+	center := (bmin + bmax) * 0.5
+	half := (bmax - bmin) * 0.5
+	pad := fit_padding
+	if pad < 1.0 { pad = 1.0 }
+
+	// Horizontal framing from a fixed-height camera:
+	// fit XY extents by FOV, then add Z half-extent so near/far spread remains visible.
+	half_xy := math.sqrt(half[0]*half[0] + half[1]*half[1]) * pad
+	vfov_rad := max(vertical_fov_deg, f32(5.0)) * (math.PI / 180.0)
+	dist := half_xy / max(math.tan(vfov_rad * 0.5), f32(1e-4))
+	dist += half[2] * pad
+	if dist < 2.0 { dist = 2.0 }
+
+	ev.camera_mode = .Orbit
+	ev.orbit_target = rl.Vector3{center[0], center[1], center[2]}
+	ev.orbit_distance = dist
+	ev.camera_pitch = 0
+	ev.camera_yaw = 0
+
+	// Keep free-fly state in sync for callers that toggle mode later.
+	lookfrom := center + [3]f32{0, 0, dist}
+	ev.fly_lookfrom = lookfrom
+	ev.fly_pitch = 0
+	ev.fly_yaw = math.PI
+	return true
+}
+
+scene_scale_recommendations :: proc(sm: ^SceneManager) -> (center: [3]f32, radius, move_speed: f32) {
+	center = {0, 0, 0}
+	radius = 8.0
+	move_speed = 2.0
+	bmin, bmax, ok := scene_manager_bounds(sm)
+	if !ok {
+		return
+	}
+	center = (bmin + bmax) * 0.5
+	d := bmax - bmin
+	diag := math.sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2])
+	if diag < 1.0 { diag = 1.0 }
+	radius = max(diag * 0.45, f32(3.0))
+	move_speed = clamp(diag * 0.06, f32(0.2), f32(300.0))
+	return
 }
 
 PickSphereInManager :: proc(sm: ^SceneManager, ray: rl.Ray) -> int {
@@ -215,14 +329,16 @@ InsertQuadAt :: proc(sm: ^SceneManager, idx: int, q: rt.Quad) {
 
 // LoadFromWorld clears the scene manager and fills it from a raytrace world (spheres + quads).
 // Preserves object order so selected_idx and saved selections remain correct for mixed scenes.
-// world is a slice (e.g. r_world[:] or world[:]). Skips the ground plane (sphere with center.y < -100).
+// world is a slice (e.g. r_world[:] or world[:]). Skips the ground plane (see core.is_ground_heuristic).
 LoadFromWorld :: proc(sm: ^SceneManager, world: []rt.Object) {
 	if sm == nil { return }
 	clear(&sm.objects)
 	for obj in world {
 		switch o in obj {
 		case rt.Sphere:
-			if o.center[1] < -100 { continue } // skip ground plane
+			if core.is_ground_heuristic(o.center[1], o.radius) {
+				continue
+			}
 			append(&sm.objects, rt.sphere_to_scene_sphere(o))
 		case rt.Quad:
 			append(&sm.objects, o)

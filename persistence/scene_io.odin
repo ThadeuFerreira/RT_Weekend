@@ -56,7 +56,7 @@ SceneFile :: struct {
 
 @(private)
 _is_black_background :: proc(bg: [3]f32) -> bool {
-	return bg[0] <= 0 && bg[1] <= 0 && bg[2] <= 0
+	return bg[0] == 0.0 && bg[1] == 0.0 && bg[2] == 0.0
 }
 
 @(private)

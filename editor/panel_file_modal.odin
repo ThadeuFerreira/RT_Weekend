@@ -3,6 +3,7 @@ package editor
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
+import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import rt "RT_Weekend:raytrace"
 
@@ -99,10 +100,10 @@ file_modal_update :: proc(app: ^App) {
     }
 }
 
-// world_has_ground_plane returns true if the world contains a sphere used as ground (center.y < -100).
+// world_has_ground_plane returns true if the world contains a sphere used as ground (core.is_ground_heuristic).
 world_has_ground_plane :: proc(world: []rt.Object) -> bool {
 	for obj in world {
-		if s, ok := obj.(rt.Sphere); ok && s.center[1] < -100 {
+		if s, ok := obj.(rt.Sphere); ok && core.is_ground_heuristic(s.center[1], s.radius) {
 			return true
 		}
 	}
@@ -129,7 +130,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
 
     edit_history_free(&app.edit_history)
     app.edit_history = EditHistory{}
-    // Only include ground plane when the loaded scene had one (sphere with center.y < -100).
+    // Only include ground plane when the loaded scene had one (core.is_ground_heuristic).
     app.include_ground_plane = world_has_ground_plane(world[:])
     app_set_ground_texture(app, nil)
 

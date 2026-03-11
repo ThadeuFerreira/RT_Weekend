@@ -10,39 +10,24 @@ CTX_MENU_W :: f32(280)
 	append(&items, MenuEntryDyn{label = "Add Sphere"})
 	append(&items, MenuEntryDyn{label = "Add Quad"})
 	append(&items, MenuEntryDyn{separator = true})
-	append(&items, MenuEntryDyn{label = "Align editor camera to render camera"})
-	append(&items, MenuEntryDyn{label = "Frame all geometry (horizontal)"})
+	append(&items, MenuEntryDyn{label = "Align editor camera to render camera", cmd_id = CMD_EDIT_VIEW_ALIGN_CAMERA})
+	append(&items, MenuEntryDyn{label = "Frame all geometry (horizontal)", cmd_id = CMD_EDIT_VIEW_FRAME_GEOMETRY})
 	append(&items, MenuEntryDyn{
 		label   = ev.camera_mode == .FreeFly ? "Switch to orbit mode" : "Switch to free-fly mode",
+		cmd_id  = CMD_EDIT_VIEW_CAMERA_MODE,
 		checked = ev.camera_mode == .FreeFly,
 		shortcut = "F",
 	})
-	append(&items, MenuEntryDyn{
-		label   = "Lock X axis",
-		checked = ev.lock_axis_x,
-	})
-	append(&items, MenuEntryDyn{
-		label   = "Lock Y axis",
-		checked = ev.lock_axis_y,
-	})
-	append(&items, MenuEntryDyn{
-		label   = "Lock Z axis",
-		checked = ev.lock_axis_z,
-	})
-	append(&items, MenuEntryDyn{
-		label   = "Grid visible",
-		checked = ev.grid_visible,
-	})
-	append(&items, MenuEntryDyn{
-		label   = "Grid density +",
-	})
-	append(&items, MenuEntryDyn{
-		label   = "Grid density -",
-	})
-	append(&items, MenuEntryDyn{label = "Movement speed: Slow"})
-	append(&items, MenuEntryDyn{label = "Movement speed: Medium"})
-	append(&items, MenuEntryDyn{label = "Movement speed: Fast"})
-	append(&items, MenuEntryDyn{label = "Movement speed: Very fast"})
+	append(&items, MenuEntryDyn{label = "Lock X axis", cmd_id = CMD_EDIT_VIEW_LOCK_AXIS_X, checked = ev.lock_axis_x})
+	append(&items, MenuEntryDyn{label = "Lock Y axis", cmd_id = CMD_EDIT_VIEW_LOCK_AXIS_Y, checked = ev.lock_axis_y})
+	append(&items, MenuEntryDyn{label = "Lock Z axis", cmd_id = CMD_EDIT_VIEW_LOCK_AXIS_Z, checked = ev.lock_axis_z})
+	append(&items, MenuEntryDyn{label = "Grid visible", cmd_id = CMD_EDIT_VIEW_GRID_VISIBLE, checked = ev.grid_visible})
+	append(&items, MenuEntryDyn{label = "Grid density +", cmd_id = CMD_EDIT_VIEW_GRID_DENSITY_PLUS})
+	append(&items, MenuEntryDyn{label = "Grid density -", cmd_id = CMD_EDIT_VIEW_GRID_DENSITY_MINUS})
+	append(&items, MenuEntryDyn{label = "Movement speed: Slow", cmd_id = CMD_EDIT_VIEW_SPEED_SLOW})
+	append(&items, MenuEntryDyn{label = "Movement speed: Medium", cmd_id = CMD_EDIT_VIEW_SPEED_MEDIUM})
+	append(&items, MenuEntryDyn{label = "Movement speed: Fast", cmd_id = CMD_EDIT_VIEW_SPEED_FAST})
+	append(&items, MenuEntryDyn{label = "Movement speed: Very fast", cmd_id = CMD_EDIT_VIEW_SPEED_VERY_FAST})
 	append(&items, MenuEntryDyn{separator = true})
 	if ev.ctx_menu_hit_idx >= 0 {
 		append(&items, MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      disabled = !cmd_is_enabled(app, CMD_EDIT_COPY),      shortcut = "Ctrl+C"})

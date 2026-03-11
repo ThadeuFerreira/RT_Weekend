@@ -120,20 +120,8 @@ get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 	return .ViewportOrbitAndPick
 }
 
-_free_fly_forward :: proc(yaw, pitch: f32) -> [3]f32 {
-	return {
-		math.cos(pitch) * math.sin(yaw),
-		math.sin(pitch),
-		math.cos(pitch) * math.cos(yaw),
-	}
-}
-
-_vec_len_sq :: proc(v: [3]f32) -> f32 {
-	return v[0]*v[0] + v[1]*v[1] + v[2]*v[2]
-}
-
 _vec_norm :: proc(v: [3]f32) -> [3]f32 {
-	len_sq := _vec_len_sq(v)
+	len_sq := rt.vector_length_squared(v)
 	if len_sq <= 1e-8 { return {0, 0, 0} }
 	inv := 1.0 / math.sqrt(len_sq)
 	return {v[0] * inv, v[1] * inv, v[2] * inv}
@@ -153,7 +141,8 @@ _free_fly_apply_motion :: proc(ev: ^EditViewState, mouse_in_vp, rmb_down: bool) 
 		ev.speed_factor = clamp(ev.speed_factor, f32(0.05), f32(50.0))
 	}
 
-	forward := _free_fly_forward(ev.fly_yaw, ev.fly_pitch)
+	forward_v := free_fly_forward(ev.fly_yaw, ev.fly_pitch)
+	forward := [3]f32{forward_v.x, forward_v.y, forward_v.z}
 	right := _vec_norm({forward[2], 0, -forward[0]})
 	up := [3]f32{0, 1, 0}
 	move := [3]f32{0, 0, 0}
@@ -165,7 +154,7 @@ _free_fly_apply_motion :: proc(ev: ^EditViewState, mouse_in_vp, rmb_down: bool) 
 	if rl.IsKeyDown(.E) || rl.IsKeyDown(.PAGE_UP) { move += up }
 	if rl.IsKeyDown(.Q) || rl.IsKeyDown(.PAGE_DOWN) { move -= up }
 
-	if _vec_len_sq(move) <= 1e-8 { return }
+	if rt.vector_length_squared(move) <= 1e-8 { return }
 	ev.nav_keys_consumed = true
 	move = _vec_norm(move)
 	modifier := f32(1.0)
@@ -194,79 +183,47 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 			for &entry in items {
 				ih := entry_height(entry)
 				if !entry.separator && !entry.disabled && local_y >= ey && local_y < ey + ih {
-					switch entry.label {
-					case "Add Sphere":
-						AppendDefaultSphere(ev.scene_mgr)
-						new_idx := SceneManagerLen(ev.scene_mgr) - 1
-						ev.selection_kind = .Sphere
-						ev.selected_idx   = new_idx
-						if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
-							edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
-							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Add sphere"))
-						}
-						app.r_render_pending = true
-					case "Add Quad":
-						AppendDefaultQuad(ev.scene_mgr)
-						new_idx := SceneManagerLen(ev.scene_mgr) - 1
-						ev.selection_kind = .Quad
-						ev.selected_idx   = new_idx
-						if new_quad, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
-							edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = new_quad})
-							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Add quad"))
-						}
-						app.r_render_pending = true
-					case "Delete":
-						del_idx := ev.ctx_menu_hit_idx
-						if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
-							edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
-							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Delete sphere"))
-						} else if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
-							edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
-							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Delete quad"))
-						}
-						OrderedRemove(ev.scene_mgr, del_idx)
-						ev.selection_kind = .None
-						ev.selected_idx   = -1
-						app.r_render_pending = true
-					case "Align editor camera to render camera":
-						align_editor_camera_to_render(ev, app.c_camera_params, false)
-					case "Frame all geometry (horizontal)":
-						if !frame_editor_camera_horizontal(ev) {
-							app_push_log(app, strings.clone("Frame all geometry: no valid objects"))
-						}
-					case "Switch to free-fly mode", "Switch to orbit mode":
-						if ev.camera_mode == .FreeFly {
-							ev.camera_mode = .Orbit
-						} else {
-							ev.camera_mode = .FreeFly
-						}
-					case "Lock X axis":
-						ev.lock_axis_x = !ev.lock_axis_x
-					case "Lock Y axis":
-						ev.lock_axis_y = !ev.lock_axis_y
-					case "Lock Z axis":
-						ev.lock_axis_z = !ev.lock_axis_z
-					case "Grid visible":
-						ev.grid_visible = !ev.grid_visible
-					case "Grid density +":
-						ev.grid_density = clamp(ev.grid_density * 1.25, f32(0.25), f32(8.0))
-					case "Grid density -":
-						ev.grid_density = clamp(ev.grid_density / 1.25, f32(0.25), f32(8.0))
-					case "Movement speed: Slow":
-						ev.speed_factor = 0.5
-					case "Movement speed: Medium":
-						ev.speed_factor = 1.0
-					case "Movement speed: Fast":
-						ev.speed_factor = 2.0
-					case "Movement speed: Very fast":
-						ev.speed_factor = 4.0
-					case:
-						if len(entry.cmd_id) > 0 {
-							cmd_execute(app, entry.cmd_id)
+					if len(entry.cmd_id) > 0 {
+						cmd_execute(app, entry.cmd_id)
+					} else {
+						switch entry.label {
+						case "Add Sphere":
+							AppendDefaultSphere(ev.scene_mgr)
+							new_idx := SceneManagerLen(ev.scene_mgr) - 1
+							ev.selection_kind = .Sphere
+							ev.selected_idx   = new_idx
+							if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
+								edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Add sphere"))
+							}
+							app.r_render_pending = true
+						case "Add Quad":
+							AppendDefaultQuad(ev.scene_mgr)
+							new_idx := SceneManagerLen(ev.scene_mgr) - 1
+							ev.selection_kind = .Quad
+							ev.selected_idx   = new_idx
+							if new_quad, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
+								edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = new_quad})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Add quad"))
+							}
+							app.r_render_pending = true
+						case "Delete":
+							del_idx := ev.ctx_menu_hit_idx
+							if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+								edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Delete sphere"))
+							} else if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
+								edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
+								mark_scene_dirty(app)
+								app_push_log(app, strings.clone("Delete quad"))
+							}
+							OrderedRemove(ev.scene_mgr, del_idx)
+							ev.selection_kind = .None
+							ev.selected_idx   = -1
+							app.r_render_pending = true
 						}
 					}
 					break

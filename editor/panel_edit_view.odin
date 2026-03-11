@@ -42,6 +42,10 @@ bg_preset_item_rect :: proc(popover: rl.Rectangle, idx: int) -> rl.Rectangle {
 	}
 }
 
+// Max lines per axis per level to keep grid draw calls bounded on weak hardware.
+// Worst case: 3 levels × 2 axes × 52 = 312 DrawLine3D calls (was ~1,320 at level_ext 55).
+MAX_GRID_LINES_PER_AXIS :: 52
+
 draw_adaptive_infinite_grid :: proc(ev: ^EditViewState) {
 	if ev == nil || !ev.grid_visible { return }
 	center, radius, _ := scene_scale_recommendations(ev.scene_mgr)
@@ -50,6 +54,7 @@ draw_adaptive_infinite_grid :: proc(ev: ^EditViewState) {
 	levels := [3]f32{base_cell, base_cell * 10.0, base_cell * 100.0}
 	level_ext := [3]f32{28.0, 40.0, 55.0}
 	axis_col := rl.Color{120, 140, 185, 170}
+
 	for li in 0..<len(levels) {
 		cell := levels[li]
 		ext_cells := level_ext[li]
@@ -58,24 +63,38 @@ draw_adaptive_infinite_grid :: proc(ev: ^EditViewState) {
 		max_x := math.ceil((cam.x + range_w) / cell) * cell
 		min_z := math.floor((cam.z - range_w) / cell) * cell
 		max_z := math.ceil((cam.z + range_w) / cell) * cell
+
+		count_x := int((max_x - min_x) / cell + 1)
+		count_z := int((max_z - min_z) / cell + 1)
+		step_x := 1
+		if count_x > MAX_GRID_LINES_PER_AXIS {
+			step_x = (count_x + MAX_GRID_LINES_PER_AXIS - 1) / MAX_GRID_LINES_PER_AXIS
+		}
+		step_z := 1
+		if count_z > MAX_GRID_LINES_PER_AXIS {
+			step_z = (count_z + MAX_GRID_LINES_PER_AXIS - 1) / MAX_GRID_LINES_PER_AXIS
+		}
+
+		x_step := cell * f32(step_x)
+		z_step := cell * f32(step_z)
 		a_base := f32(110 - li * 25)
 
-		for x := min_x; x <= max_x; x += cell {
-			dist := math.abs(x-cam.x) / max(range_w, f32(1e-3))
-			alpha := clamp(1.0-dist, 0.0, 1.0) * a_base
+		for x := min_x; x <= max_x; x += x_step {
+			dist := math.abs(x - cam.x) / max(range_w, f32(1e-3))
+			alpha := clamp(1.0 - dist, 0.0, 1.0) * a_base
 			col := rl.Color{95, 105, 130, u8(alpha)}
-			if math.abs(x-center[0]) < cell*0.25 { col = axis_col }
+			if math.abs(x - center[0]) < cell * 0.25 { col = axis_col }
 			rl.DrawLine3D(
 				rl.Vector3{x, 0, min_z},
 				rl.Vector3{x, 0, max_z},
 				col,
 			)
 		}
-		for z := min_z; z <= max_z; z += cell {
-			dist := math.abs(z-cam.z) / max(range_w, f32(1e-3))
-			alpha := clamp(1.0-dist, 0.0, 1.0) * a_base
+		for z := min_z; z <= max_z; z += z_step {
+			dist := math.abs(z - cam.z) / max(range_w, f32(1e-3))
+			alpha := clamp(1.0 - dist, 0.0, 1.0) * a_base
 			col := rl.Color{95, 105, 130, u8(alpha)}
-			if math.abs(z-center[2]) < cell*0.25 { col = axis_col }
+			if math.abs(z - center[2]) < cell * 0.25 { col = axis_col }
 			rl.DrawLine3D(
 				rl.Vector3{min_x, 0, z},
 				rl.Vector3{max_x, 0, z},

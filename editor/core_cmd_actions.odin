@@ -411,6 +411,81 @@ cmd_enabled_duplicate :: proc(app: ^App) -> bool {
     return app.e_edit_view.selection_kind == .Sphere
 }
 
+// ── Edit View context menu actions ───────────────────────────────────────────
+
+cmd_action_edit_view_align_camera :: proc(app: ^App) {
+    ev := &app.e_edit_view
+    align_editor_camera_to_render(ev, app.c_camera_params, false)
+}
+
+cmd_action_edit_view_frame_geometry :: proc(app: ^App) {
+    ev := &app.e_edit_view
+    if !frame_editor_camera_horizontal(ev) {
+        app_push_log(app, strings.clone("Frame all geometry: no valid objects"))
+    }
+}
+
+cmd_action_edit_view_camera_mode :: proc(app: ^App) {
+    ev := &app.e_edit_view
+    if ev.camera_mode == .FreeFly {
+        ev.camera_mode = .Orbit
+    } else {
+        ev.camera_mode = .FreeFly
+    }
+}
+
+cmd_action_edit_view_lock_axis_x :: proc(app: ^App) {
+    app.e_edit_view.lock_axis_x = !app.e_edit_view.lock_axis_x
+}
+cmd_action_edit_view_lock_axis_y :: proc(app: ^App) {
+    app.e_edit_view.lock_axis_y = !app.e_edit_view.lock_axis_y
+}
+cmd_action_edit_view_lock_axis_z :: proc(app: ^App) {
+    app.e_edit_view.lock_axis_z = !app.e_edit_view.lock_axis_z
+}
+
+cmd_action_edit_view_grid_visible :: proc(app: ^App) {
+    app.e_edit_view.grid_visible = !app.e_edit_view.grid_visible
+}
+
+cmd_action_edit_view_grid_density_plus :: proc(app: ^App) {
+    ev := &app.e_edit_view
+    ev.grid_density = clamp(ev.grid_density * 1.25, f32(0.25), f32(8.0))
+}
+cmd_action_edit_view_grid_density_minus :: proc(app: ^App) {
+    ev := &app.e_edit_view
+    ev.grid_density = clamp(ev.grid_density / 1.25, f32(0.25), f32(8.0))
+}
+
+cmd_action_edit_view_speed_slow :: proc(app: ^App) {
+    app.e_edit_view.speed_factor = 0.5
+}
+cmd_action_edit_view_speed_medium :: proc(app: ^App) {
+    app.e_edit_view.speed_factor = 1.0
+}
+cmd_action_edit_view_speed_fast :: proc(app: ^App) {
+    app.e_edit_view.speed_factor = 2.0
+}
+cmd_action_edit_view_speed_very_fast :: proc(app: ^App) {
+    app.e_edit_view.speed_factor = 4.0
+}
+
+cmd_checked_edit_view_camera_mode :: proc(app: ^App) -> bool {
+    return app.e_edit_view.camera_mode == .FreeFly
+}
+cmd_checked_edit_view_lock_axis_x :: proc(app: ^App) -> bool {
+    return app.e_edit_view.lock_axis_x
+}
+cmd_checked_edit_view_lock_axis_y :: proc(app: ^App) -> bool {
+    return app.e_edit_view.lock_axis_y
+}
+cmd_checked_edit_view_lock_axis_z :: proc(app: ^App) -> bool {
+    return app.e_edit_view.lock_axis_z
+}
+cmd_checked_edit_view_grid_visible :: proc(app: ^App) -> bool {
+    return app.e_edit_view.grid_visible
+}
+
 // ── Example scene actions ────────────────────────────────────────────────────
 
 cmd_action_scene_load_example :: proc(app: ^App) {
@@ -462,4 +537,19 @@ register_all_commands :: proc(app: ^App) {
 
     // Examples
     cmd_register(cmd_reg, Command{id = CMD_SCENE_LOAD_EXAMPLE, label = "Load Example Scene", action = cmd_action_scene_load_example})
+
+    // Edit View context menu (viewport right-click)
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_ALIGN_CAMERA,   label = "Align editor camera to render camera", action = cmd_action_edit_view_align_camera})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_FRAME_GEOMETRY,  label = "Frame all geometry (horizontal)",       action = cmd_action_edit_view_frame_geometry})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_CAMERA_MODE,     label = "Free-fly / orbit",                       action = cmd_action_edit_view_camera_mode, checked_proc = cmd_checked_edit_view_camera_mode})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_LOCK_AXIS_X,     label = "Lock X axis",                           action = cmd_action_edit_view_lock_axis_x,  checked_proc = cmd_checked_edit_view_lock_axis_x})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_LOCK_AXIS_Y,     label = "Lock Y axis",                           action = cmd_action_edit_view_lock_axis_y,  checked_proc = cmd_checked_edit_view_lock_axis_y})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_LOCK_AXIS_Z,     label = "Lock Z axis",                           action = cmd_action_edit_view_lock_axis_z,  checked_proc = cmd_checked_edit_view_lock_axis_z})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_GRID_VISIBLE,     label = "Grid visible",                          action = cmd_action_edit_view_grid_visible, checked_proc = cmd_checked_edit_view_grid_visible})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_GRID_DENSITY_PLUS,  label = "Grid density +",                    action = cmd_action_edit_view_grid_density_plus})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_GRID_DENSITY_MINUS, label = "Grid density -",                    action = cmd_action_edit_view_grid_density_minus})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_SPEED_SLOW,      label = "Movement speed: Slow",                  action = cmd_action_edit_view_speed_slow})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_SPEED_MEDIUM,   label = "Movement speed: Medium",                 action = cmd_action_edit_view_speed_medium})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_SPEED_FAST,     label = "Movement speed: Fast",                   action = cmd_action_edit_view_speed_fast})
+    cmd_register(cmd_reg, Command{id = CMD_EDIT_VIEW_SPEED_VERY_FAST, label = "Movement speed: Very fast",             action = cmd_action_edit_view_speed_very_fast})
 }
