@@ -31,12 +31,24 @@ LayoutPreset :: struct {
 	layout: EditorLayout,
 }
 
+EditorViewConfig :: struct {
+	camera_mode:  string  `json:"camera_mode,omitempty"`, // "orbit" | "free_fly"
+	move_speed:   f32     `json:"move_speed,omitempty"`,
+	speed_factor: f32     `json:"speed_factor,omitempty"`,
+	lock_axis_x:  bool    `json:"lock_axis_x,omitempty"`,
+	lock_axis_y:  bool    `json:"lock_axis_y,omitempty"`,
+	lock_axis_z:  bool    `json:"lock_axis_z,omitempty"`,
+	grid_visible: bool    `json:"grid_visible,omitempty"`,
+	grid_density: f32     `json:"grid_density,omitempty"`,
+}
+
 // RenderConfig is the full config file: render settings and optional editor layout.
 RenderConfig :: struct {
 	width:             int            `json:"width,omitempty"`,
 	height:            int            `json:"height,omitempty"`,
 	samples_per_pixel: int            `json:"samples_per_pixel,omitempty"`,
 	editor:            ^EditorLayout  `json:"editor,omitempty"`,
+	editor_view:       ^EditorViewConfig `json:"editor_view,omitempty"`,
 	presets:           []LayoutPreset `json:"presets,omitempty"`,
 }
 

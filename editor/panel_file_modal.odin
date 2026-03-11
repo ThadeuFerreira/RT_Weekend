@@ -123,6 +123,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     }
     rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
     LoadFromWorld(ev.scene_mgr, world[:])
+    align_editor_camera_to_render(ev, app.c_camera_params, true)
     ev.selection_kind = .None
     ev.selected_idx   = -1
 

@@ -27,6 +27,7 @@ cmd_action_file_new :: proc(app: ^App) {
         {center = { 1.5, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.2, 0.8, 0.2}}},
     }
 LoadFromSceneSpheres(ev.scene_mgr, initial[:])
+    align_editor_camera_to_render(ev, app.c_camera_params, true)
     ev.selection_kind = .None
     ev.selected_idx   = -1
 

@@ -5,6 +5,11 @@ import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
 
+EditViewCameraMode :: enum {
+	Orbit,
+	FreeFly,
+}
+
 // EditViewState holds all state for the Edit View panel (viewport, orbit camera, selection, drag, etc.).
 EditViewState :: struct {
 	// Off-screen 3D viewport
@@ -19,6 +24,22 @@ EditViewState :: struct {
 	camera_pitch:    f32,
 	orbit_distance:  f32,
 	orbit_target:    rl.Vector3,
+	camera_mode:     EditViewCameraMode,
+
+	// Free-fly camera parameters
+	fly_lookfrom: [3]f32,
+	fly_yaw:      f32,
+	fly_pitch:    f32,
+	move_speed:   f32, // world-units per second
+	speed_factor: f32, // user multiplier (wheel-adjusted)
+	lock_axis_x:  bool,
+	lock_axis_y:  bool,
+	lock_axis_z:  bool,
+
+	// View grid controls
+	grid_visible: bool,
+	grid_density: f32,
+	nav_keys_consumed: bool,
 
 	// Right-drag orbit state
 	rmb_held:     bool,
@@ -116,6 +137,15 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.camera_pitch    = 0.3
 	ev.orbit_distance = 15.0
 	ev.orbit_target   = rl.Vector3{0, 0, 0}
+	ev.camera_mode    = .Orbit
+	ev.fly_lookfrom   = {8, 6, 8}
+	ev.fly_yaw        = math.atan2(f32(-8.0), f32(-8.0))
+	ev.fly_pitch      = -0.35
+	ev.move_speed     = 2.0
+	ev.speed_factor   = 1.0
+	ev.grid_visible   = true
+	ev.grid_density   = 1.0
+	ev.nav_keys_consumed = false
 	ev.selection_kind = .None
 	ev.selected_idx   = -1
 	ev.prop_drag_idx  = -1
@@ -148,7 +178,170 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ui_log_lifecycle(nil, "EditView", "Create")
 }
 
+scene_manager_bounds :: proc(sm: ^SceneManager) -> (bmin, bmax: [3]f32, ok: bool) {
+	if sm == nil || len(sm.objects) == 0 {
+		return {}, {}, false
+	}
+	bmin = {1e30, 1e30, 1e30}
+	bmax = {-1e30, -1e30, -1e30}
+	found := false
+	for obj in sm.objects {
+		#partial switch o in obj {
+		case core.SceneSphere:
+			// Ignore the very large "ground" sphere when present.
+			if o.center[1] < -100 && o.radius > 100 {
+				continue
+			}
+			r := o.radius
+			p0 := o.center - [3]f32{r, r, r}
+			p1 := o.center + [3]f32{r, r, r}
+			if o.is_moving {
+				p0m := o.center1 - [3]f32{r, r, r}
+				p1m := o.center1 + [3]f32{r, r, r}
+				if p0m[0] < p0[0] { p0[0] = p0m[0] }
+				if p0m[1] < p0[1] { p0[1] = p0m[1] }
+				if p0m[2] < p0[2] { p0[2] = p0m[2] }
+				if p1m[0] > p1[0] { p1[0] = p1m[0] }
+				if p1m[1] > p1[1] { p1[1] = p1m[1] }
+				if p1m[2] > p1[2] { p1[2] = p1m[2] }
+			}
+			if p0[0] < bmin[0] { bmin[0] = p0[0] }
+			if p0[1] < bmin[1] { bmin[1] = p0[1] }
+			if p0[2] < bmin[2] { bmin[2] = p0[2] }
+			if p1[0] > bmax[0] { bmax[0] = p1[0] }
+			if p1[1] > bmax[1] { bmax[1] = p1[1] }
+			if p1[2] > bmax[2] { bmax[2] = p1[2] }
+			found = true
+		case rt.Quad:
+			bb := rt.quad_bounding_box(o)
+			if bb.x.min < bmin[0] { bmin[0] = bb.x.min }
+			if bb.y.min < bmin[1] { bmin[1] = bb.y.min }
+			if bb.z.min < bmin[2] { bmin[2] = bb.z.min }
+			if bb.x.max > bmax[0] { bmax[0] = bb.x.max }
+			if bb.y.max > bmax[1] { bmax[1] = bb.y.max }
+			if bb.z.max > bmax[2] { bmax[2] = bb.z.max }
+			found = true
+		}
+	}
+	if !found {
+		return {}, {}, false
+	}
+	return bmin, bmax, true
+}
+
+scene_geometry_center :: proc(sm: ^SceneManager) -> (center: [3]f32, ok: bool) {
+	bmin, bmax, ok_bounds := scene_manager_bounds(sm)
+	if !ok_bounds {
+		return {}, false
+	}
+	center = (bmin + bmax) * 0.5
+	return center, true
+}
+
+// frame_editor_camera_horizontal fits the whole scene in view and looks at center.
+// Camera is aligned to the horizontal plane (pitch=0, world-up).
+frame_editor_camera_horizontal :: proc(ev: ^EditViewState, vertical_fov_deg: f32 = 45.0, fit_padding: f32 = 1.15) -> bool {
+	if ev == nil {
+		return false
+	}
+	bmin, bmax, ok := scene_manager_bounds(ev.scene_mgr)
+	if !ok {
+		return false
+	}
+	center := (bmin + bmax) * 0.5
+	half := (bmax - bmin) * 0.5
+	pad := fit_padding
+	if pad < 1.0 { pad = 1.0 }
+
+	// Horizontal framing from a fixed-height camera:
+	// fit XY extents by FOV, then add Z half-extent so near/far spread remains visible.
+	half_xy := math.sqrt(half[0]*half[0] + half[1]*half[1]) * pad
+	vfov_rad := max(vertical_fov_deg, f32(5.0)) * (math.PI / 180.0)
+	dist := half_xy / max(math.tan(vfov_rad * 0.5), f32(1e-4))
+	dist += half[2] * pad
+	if dist < 2.0 { dist = 2.0 }
+
+	ev.camera_mode = .Orbit
+	ev.orbit_target = rl.Vector3{center[0], center[1], center[2]}
+	ev.orbit_distance = dist
+	ev.camera_pitch = 0
+	ev.camera_yaw = 0
+
+	// Keep free-fly state in sync for callers that toggle mode later.
+	lookfrom := center + [3]f32{0, 0, dist}
+	ev.fly_lookfrom = lookfrom
+	ev.fly_pitch = 0
+	ev.fly_yaw = math.PI
+	return true
+}
+
+scene_scale_recommendations :: proc(sm: ^SceneManager) -> (center: [3]f32, radius, move_speed: f32) {
+	center = {0, 0, 0}
+	radius = 8.0
+	move_speed = 2.0
+	bmin, bmax, ok := scene_manager_bounds(sm)
+	if !ok {
+		return
+	}
+	center = (bmin + bmax) * 0.5
+	d := bmax - bmin
+	diag := math.sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2])
+	if diag < 1.0 { diag = 1.0 }
+	radius = max(diag * 0.45, f32(3.0))
+	move_speed = clamp(diag * 0.06, f32(0.2), f32(300.0))
+	return
+}
+
+align_editor_camera_to_render :: proc(ev: ^EditViewState, cp: core.CameraParams, place_in_front: bool) {
+	if ev == nil { return }
+	from := cp.lookfrom
+	at := cp.lookat
+	fwd := at - from
+	flen := math.sqrt(fwd[0]*fwd[0] + fwd[1]*fwd[1] + fwd[2]*fwd[2])
+	if flen < 1e-5 {
+		fwd = {0, 0, -1}
+	} else {
+		fwd /= flen
+	}
+	_, radius, scene_speed := scene_scale_recommendations(ev.scene_mgr)
+	ev.move_speed = scene_speed
+	if place_in_front {
+		offset := max(radius * 0.35, f32(2.0))
+		from -= fwd * offset
+		at -= fwd * offset
+	}
+	ev.orbit_target = rl.Vector3{at[0], at[1], at[2]}
+	dv := from - at
+	dist := math.sqrt(dv[0]*dv[0] + dv[1]*dv[1] + dv[2]*dv[2])
+	if dist < 0.5 { dist = 0.5 }
+	ev.orbit_distance = dist
+	ev.camera_pitch = math.asin(clamp(dv[1]/dist, f32(-1), f32(1)))
+	ev.camera_yaw   = math.atan2(dv[0], dv[2])
+
+	ev.fly_lookfrom = from
+	ev.fly_pitch = math.asin(clamp(fwd[1], f32(-1), f32(1)))
+	ev.fly_yaw   = math.atan2(fwd[0], fwd[2])
+}
+
 update_orbit_camera :: proc(ev: ^EditViewState) {
+	if ev.camera_mode == .FreeFly {
+		pitch := clamp(ev.fly_pitch, f32(-math.PI * 0.49), f32(math.PI * 0.49))
+		ev.fly_pitch = pitch
+		forward := rl.Vector3{
+			math.cos(pitch) * math.sin(ev.fly_yaw),
+			math.sin(pitch),
+			math.cos(pitch) * math.cos(ev.fly_yaw),
+		}
+		pos := rl.Vector3{ev.fly_lookfrom[0], ev.fly_lookfrom[1], ev.fly_lookfrom[2]}
+		ev.cam3d = rl.Camera3D{
+			position   = pos,
+			target     = pos + forward,
+			up         = rl.Vector3{0, 1, 0},
+			fovy       = 45.0,
+			projection = .PERSPECTIVE,
+		}
+		return
+	}
 	pitch := ev.camera_pitch
 	if pitch >  math.PI * 0.45 { pitch =  math.PI * 0.45 }
 	if pitch < -math.PI * 0.45 { pitch = -math.PI * 0.45 }
