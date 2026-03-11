@@ -263,13 +263,36 @@ build_world_from_scene :: proc(
 			}
 			mat = material(lambertian{albedo = albedo_fallback})
 		}
-		append(&world, Object(Sphere{
+		base_sphere := Sphere{
 			center    = s.center,
 			center1   = s.center1,
 			radius    = s.radius,
 			material  = mat,
 			is_moving = s.is_moving,
-		}))
+		}
+		has_rot := s.rotation_deg[0] != 0 || s.rotation_deg[1] != 0 || s.rotation_deg[2] != 0
+		has_scale := s.scale_xyz != {0, 0, 0} && s.scale_xyz != {1, 1, 1}
+		if has_rot || has_scale {
+			// Build unit sphere at origin so the TRS fully controls its world-space shape.
+			inner_sphere := Sphere{
+				center    = {0, 0, 0},
+				center1   = {0, 0, 0},
+				radius    = s.radius,
+				material  = mat,
+				is_moving = false,
+			}
+			eff_scale := s.scale_xyz
+			if eff_scale == {0, 0, 0} { eff_scale = {1, 1, 1} }
+			inst := make_transformed_object_trs(
+				TransformedPrimitive(inner_sphere),
+				s.center,
+				s.rotation_deg,
+				eff_scale,
+			)
+			append(&world, Object(inst))
+		} else {
+			append(&world, Object(base_sphere))
+		}
 	}
 
 	return world

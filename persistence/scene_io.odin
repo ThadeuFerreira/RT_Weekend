@@ -37,16 +37,18 @@ SceneMaterial :: struct {
 }
 
 SceneObject :: struct {
-	object_type: string        `json:"type"`,
-	center:      [3]f32        `json:"center,omitempty"`,
-	center1:     [3]f32        `json:"center1,omitempty"`, // end position for motion blur (t=1)
-	radius:      f32           `json:"radius,omitempty"`,
-	material:    SceneMaterial `json:"material"`,
-	is_moving:   bool          `json:"is_moving,omitempty"`,
+	object_type:  string        `json:"type"`,
+	center:       [3]f32        `json:"center,omitempty"`,
+	center1:      [3]f32        `json:"center1,omitempty"`, // end position for motion blur (t=1)
+	radius:       f32           `json:"radius,omitempty"`,
+	material:     SceneMaterial `json:"material"`,
+	is_moving:    bool          `json:"is_moving,omitempty"`,
 	// Quad: corner Q and edge vectors u, v.
-	q:           [3]f32        `json:"q,omitempty"`,
-	u:           [3]f32        `json:"u,omitempty"`,
-	v:           [3]f32        `json:"v,omitempty"`,
+	q:            [3]f32        `json:"q,omitempty"`,
+	u:            [3]f32        `json:"u,omitempty"`,
+	v:            [3]f32        `json:"v,omitempty"`,
+	rotation_deg: [3]f32        `json:"rotation_deg,omitempty"`,
+	scale_xyz:    [3]f32        `json:"scale_xyz,omitempty"`,
 }
 
 // SceneVolumeData is the JSON-serializable form of a volume (constant-density fog/smoke box).
@@ -204,13 +206,34 @@ load_scene :: proc(
 				if !obj.is_moving {
 					center1 = obj.center
 				}
-				append(&world, rt.Sphere{
-					center    = obj.center,
-					center1   = center1,
-					radius    = obj.radius,
-					material  = mat,
-					is_moving = obj.is_moving,
-				})
+				has_rot := obj.rotation_deg[0] != 0 || obj.rotation_deg[1] != 0 || obj.rotation_deg[2] != 0
+				has_scale := obj.scale_xyz != {0, 0, 0} && obj.scale_xyz != {1, 1, 1}
+				if has_rot || has_scale {
+					eff_scale := obj.scale_xyz
+					if eff_scale == ([3]f32{0, 0, 0}) { eff_scale = {1, 1, 1} }
+					inner_sphere := rt.Sphere{
+						center    = {0, 0, 0},
+						center1   = {0, 0, 0},
+						radius    = obj.radius,
+						material  = mat,
+						is_moving = false,
+					}
+					inst := rt.make_transformed_object_trs(
+						rt.TransformedPrimitive(inner_sphere),
+						obj.center,
+						obj.rotation_deg,
+						eff_scale,
+					)
+					append(&world, rt.Object(inst))
+				} else {
+					append(&world, rt.Sphere{
+						center    = obj.center,
+						center1   = center1,
+						radius    = obj.radius,
+						material  = mat,
+						is_moving = obj.is_moving,
+					})
+				}
 			case "quad":
 				append(&world, rt.Object(rt.make_quad(obj.q, obj.u, obj.v, mat)))
 			case:
@@ -326,6 +349,20 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 			})
 		case rt.ConstantMedium:
 			// Volume geometry is not round-tripped from world; save from volumes slice when provided.
+		case rt.TransformedObject:
+			// Serialize as sphere with rotation/scale fields so the scene file round-trips.
+			if s, is_sphere := o.inner.(rt.Sphere); is_sphere {
+				append(&scene.objects, SceneObject{
+					object_type  = "sphere",
+					center       = o.translation,
+					center1      = o.translation,
+					radius       = s.radius,
+					material     = material_to_scene_material(s.material, scene_dir),
+					is_moving    = false,
+					rotation_deg = o.rotation_deg,
+					scale_xyz    = o.scale_xyz,
+				})
+			}
 		}
 	}
 	if volumes != nil {

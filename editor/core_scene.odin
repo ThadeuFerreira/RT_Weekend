@@ -369,6 +369,16 @@ LoadFromWorld :: proc(sm: ^SceneManager, world: []rt.Object) {
 		case rt.ConstantMedium:
 			// Volumes are not editable in the scene manager; they remain in r_world for rendering.
 			continue
+		case rt.TransformedObject:
+			if s, is_sphere := o.inner.(rt.Sphere); is_sphere {
+				if o.translation[1] < -100 { continue }
+				ss := rt.sphere_to_scene_sphere(s)
+				ss.center       = o.translation
+				ss.rotation_deg = o.rotation_deg
+				ss.scale_xyz    = o.scale_xyz
+				append(&sm.objects, ss)
+			}
+			// Transformed quads not currently surfaced in the editor scene manager
 		}
 	}
 }

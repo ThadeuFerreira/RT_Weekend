@@ -21,6 +21,23 @@ hit_record :: struct {
     v: f32,
 }
 
+// TransformedPrimitive is the set of primitives that can be wrapped in a TransformedObject.
+// Kept separate from Object to avoid a recursive union type.
+TransformedPrimitive :: union { Sphere, Quad }
+
+// TransformedObject wraps a primitive with a full TRS transform. Rays and normals are
+// transformed between world and object space so existing hit logic needs no changes.
+// Use make_transformed_object_trs to construct; bbox is the precomputed world-space AABB.
+TransformedObject :: struct {
+	inner:        TransformedPrimitive,
+	xform:        ObjectTransform,
+	bbox:         AABB,
+	// Stored for editor round-trip (scene file → world → scene manager)
+	translation:  [3]f32,
+	rotation_deg: [3]f32,
+	scale_xyz:    [3]f32,
+}
+
 // ConstantMedium wraps a boundary (BVH of geometry) and implements probabilistic volumetric scattering.
 // Uses isotropic phase function; density controls mean free path.
 ConstantMedium :: struct {
@@ -33,6 +50,7 @@ Object :: union {
 	Sphere,
 	Quad,
 	ConstantMedium,
+	TransformedObject,
 }
 
 AABB :: struct {
@@ -57,12 +75,47 @@ aabb_pad_to_minimums :: proc(box: ^AABB) {
     }
 }
 
+// make_transformed_object_trs creates a TransformedObject with TRS params stored for round-tripping.
+// rotation_deg is Euler XYZ in degrees; scale_xyz {0,0,0} treated as {1,1,1}.
+make_transformed_object_trs :: proc(
+	inner:        TransformedPrimitive,
+	translation:  [3]f32,
+	rotation_deg: [3]f32,
+	scale_xyz:    [3]f32,
+) -> TransformedObject {
+	eff_scale := scale_xyz
+	if eff_scale == {0, 0, 0} { eff_scale = {1, 1, 1} }
+	rot_rad := [3]f32{
+		rotation_deg[0] * math.PI / 180.0,
+		rotation_deg[1] * math.PI / 180.0,
+		rotation_deg[2] * math.PI / 180.0,
+	}
+	xform := make_object_transform_trs(translation, rot_rad, eff_scale)
+	inner_bbox: AABB
+	switch i in inner {
+	case Sphere: inner_bbox = sphere_bounding_box(i)
+	case Quad:   inner_bbox = quad_bounding_box(i)
+	}
+	bbox := aabb_transform(inner_bbox, xform.object_to_world)
+	aabb_pad_to_minimums(&bbox)
+	return TransformedObject{
+		inner        = inner,
+		xform        = xform,
+		bbox         = bbox,
+		translation  = translation,
+		rotation_deg = rotation_deg,
+		scale_xyz    = eff_scale,
+	}
+}
+
 object_bounding_box :: proc(obj: Object) -> AABB {
 	switch o in obj {
 	case Sphere:
 		return sphere_bounding_box(o)
 	case Quad:
 		return quad_bounding_box(o)
+	case TransformedObject:
+		return o.bbox
 	case ConstantMedium:
 		if o.boundary_bvh != nil {
 			return o.boundary_bvh.bbox
@@ -189,6 +242,12 @@ object_center :: proc(obj: Object, axis: int) -> f32 {
 		return o.center[axis]
 	case Quad:
 		return o.Q[axis] + (o.u[axis] + o.v[axis]) * 0.5
+	case TransformedObject:
+		switch axis {
+		case 0: return (o.bbox.x.min + o.bbox.x.max) * 0.5
+		case 1: return (o.bbox.y.min + o.bbox.y.max) * 0.5
+		case 2: return (o.bbox.z.min + o.bbox.z.max) * 0.5
+		}
 	case ConstantMedium:
 		if o.boundary_bvh != nil {
 			bb := o.boundary_bvh.bbox
@@ -612,6 +671,8 @@ _flatten_bvh_recurse :: proc(
                         if a == b { obj_idx = i32(i) }
                         else if quad_geometry_equal(a, b) { obj_idx = i32(i) }
                     }
+                case TransformedObject:
+                    if b, ok := objects[i].(TransformedObject); ok && a.translation == b.translation && a.rotation_deg == b.rotation_deg { obj_idx = i32(i) }
                 case ConstantMedium:
                     if b, ok := objects[i].(ConstantMedium); ok && a.boundary_bvh == b.boundary_bvh && a.density == b.density && a.albedo == b.albedo { obj_idx = i32(i) }
                 }
@@ -672,6 +733,8 @@ _flatten_bvh_for_gpu_recurse :: proc(
                     if b, ok := objects[i].(Sphere); ok && a == b { obj_idx = i; break }
                 case Quad:
                     if b, ok := objects[i].(Quad); ok && (a == b || quad_geometry_equal(a, b)) { obj_idx = i; break }
+                case TransformedObject:
+                    if b, ok := objects[i].(TransformedObject); ok && a.translation == b.translation && a.rotation_deg == b.rotation_deg { obj_idx = i; break }
                 case ConstantMedium:
                     if b, ok := objects[i].(ConstantMedium); ok && a.boundary_bvh == b.boundary_bvh && a.density == b.density && a.albedo == b.albedo { obj_idx = i; break }
                 }
@@ -819,6 +882,43 @@ set_face_normal :: proc(rec : ^hit_record, r : ray, outward_normal : [3]f32) {
 	}
 }
 
+// hit_transformed transforms the world-space ray into object space, tests the inner
+// primitive, then transforms the hit point and normal back to world space.
+// t is invariant under the transform (see derivation in transform.odin).
+hit_transformed :: proc(inst: TransformedObject, r_world: ray, ray_t: Interval, rec: ^hit_record, closest_so_far: ^f32) -> bool {
+	// Transform ray to object space (direction as vector, no translation component).
+	origin_obj := mat4_transform_point(inst.xform.world_to_object, r_world.origin)
+	dir_obj    := mat4_transform_vector(inst.xform.world_to_object, r_world.dir)
+	r_obj      := ray{origin = origin_obj, dir = dir_obj, time = r_world.time}
+
+	temp_rec  := hit_record{}
+	hit_inner := false
+	switch inner in inst.inner {
+	case Sphere:
+		hit_inner = hit_sphere(inner, r_obj, Interval{ray_t.min, closest_so_far^}, &temp_rec)
+	case Quad:
+		hit_inner = hit_quad(inner, r_obj, Interval{ray_t.min, closest_so_far^}, &temp_rec)
+	}
+	if !hit_inner { return false }
+
+	// Transform hit point back to world space.
+	temp_rec.p = mat4_transform_point(inst.xform.object_to_world, temp_rec.p)
+
+	// Recover the outward normal in object space (undo the front_face flip set_face_normal applied).
+	outward_obj := temp_rec.normal
+	if !temp_rec.front_face { outward_obj = -outward_obj }
+
+	// Transform normal using inverse-transpose (= transpose of world_to_object).
+	outward_world := unit_vector(mat4_transform_vector(mat4_transpose(inst.xform.world_to_object), outward_obj))
+
+	// Re-apply front-face test in world space.
+	set_face_normal(&temp_rec, r_world, outward_world)
+
+	rec^            = temp_rec
+	closest_so_far^ = temp_rec.t
+	return true
+}
+
 // constant_medium_hit implements probabilistic volumetric scattering: sample free path, scatter or pass through.
 constant_medium_hit :: proc(vol: ConstantMedium, r: ray, ray_t: Interval, rec: ^hit_record, closest_so_far: ^f32, rng: ^util.ThreadRNG) -> bool {
 	t_entry, t_exit, ok := boundary_hit_interval(vol.boundary_bvh, r, ray_t)
@@ -859,6 +959,8 @@ hit :: proc(r: ray, ray_t: Interval, rec: ^hit_record, object: Object, closest_s
 			closest_so_far^ = temp_rec.t
 			return true
 		}
+	case TransformedObject:
+		return hit_transformed(s, r, ray_t, rec, closest_so_far)
 	case ConstantMedium:
 		if rng == nil do return false
 		return constant_medium_hit(s, r, ray_t, rec, closest_so_far, rng)

@@ -95,6 +95,8 @@ SceneSphere :: struct {
 	ref_idx:           f32,          // used for Dielectric (default 1.5)
 	is_moving:         bool,
 	is_ground:         bool,         // if true, sphere is treated as ground (excluded from bounds, etc.); use for scale-invariant scenes
+	rotation_deg:      [3]f32,      // Euler XYZ rotation in degrees (0 = no rotation)
+	scale_xyz:         [3]f32,      // per-axis scale; {0,0,0} = identity {1,1,1}
 }
 
 // scene_sphere_is_ground returns true if the sphere should be treated as ground (excluded from bounds, skip in edit list).

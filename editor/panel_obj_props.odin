@@ -92,9 +92,11 @@ ObjectPropsPanelState :: struct {
 // by op_compute_layout and consumed by both the draw and update procs.
 OpLayout :: struct {
 	lx, x0:        f32,           // left edge for labels/buttons; left edge for field boxes
-	y_transform:   f32,           // y of TRANSFORM section header
-	y_motion:      f32,           // y of MOTION section header (dX dY dZ)
-	y_material:    f32,           // y of MATERIAL section header
+	y_transform:    f32,           // y of TRANSFORM section header
+	y_rotation:     f32,           // y of ROTATION section header
+	boxes_rotation: [3]rl.Rectangle,
+	y_motion:       f32,           // y of MOTION section header (dX dY dZ)
+	y_material:     f32,           // y of MATERIAL section header
 	y_color:       f32,           // y of COLOR section header
 	boxes_xyz:     [3]rl.Rectangle,
 	box_radius:    rl.Rectangle,
@@ -141,6 +143,16 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind, al
 	cy += OP_FH + 6
 
 	lo.box_radius = rl.Rectangle{lo.x0, cy, OP_FW, OP_FH}
+	cy += OP_FH + 6
+
+	// ROTATION
+	lo.y_rotation = cy
+	cy += 18
+	lo.boxes_rotation = [3]rl.Rectangle{
+		{lo.x0,             cy, OP_FW, OP_FH},
+		{lo.x0 + OP_COL,   cy, OP_FW, OP_FH},
+		{lo.x0 + 2*OP_COL, cy, OP_FW, OP_FH},
+	}
 	cy += OP_FH + 6
 
 	// MOTION (dX dY dZ = center1 - center)
@@ -504,6 +516,12 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 	op_drag_field(app, "Y", sphere.center[1], lo.boxes_xyz[1], st.prop_drag_idx == 1, mouse)
 	op_drag_field(app, "Z", sphere.center[2], lo.boxes_xyz[2], st.prop_drag_idx == 2, mouse)
 	op_drag_field(app, "R", sphere.radius,    lo.box_radius,   st.prop_drag_idx == 3, mouse)
+
+	// ROTATION
+	op_section_label(app, "ROTATION", lo.lx, lo.y_rotation)
+	op_drag_field(app, "X", sphere.rotation_deg[0], lo.boxes_rotation[0], st.prop_drag_idx == 12, mouse)
+	op_drag_field(app, "Y", sphere.rotation_deg[1], lo.boxes_rotation[1], st.prop_drag_idx == 13, mouse)
+	op_drag_field(app, "Z", sphere.rotation_deg[2], lo.boxes_rotation[2], st.prop_drag_idx == 14, mouse)
 
 	// MOTION (offset = center1 - center)
 	motion_offset: [3]f32 = {0, 0, 0}
@@ -1039,6 +1057,9 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				case core.CheckerTexture:   {}
 				case core.ImageTexture:     {}
 				}
+			case 12: sphere.rotation_deg[0] = st.prop_drag_start_val + delta * 0.5
+			case 13: sphere.rotation_deg[1] = st.prop_drag_start_val + delta * 0.5
+			case 14: sphere.rotation_deg[2] = st.prop_drag_start_val + delta * 0.5
 			}
 			rl.SetMouseCursor(.RESIZE_EW)
 			// persist changes back to the scene manager
@@ -1194,6 +1215,10 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if op_try_start_drag(lo.boxes_motion[0], 8, motion_offset[0], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_motion[1], 9, motion_offset[1], st, mouse, lmb_pressed) { any_hovered = true }
 	if op_try_start_drag(lo.boxes_motion[2], 10, motion_offset[2], st, mouse, lmb_pressed) { any_hovered = true }
+	// Rotation drag (drag indices 12, 13, 14)
+	if op_try_start_drag(lo.boxes_rotation[0], 12, sphere.rotation_deg[0], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_rotation[1], 13, sphere.rotation_deg[1], st, mouse, lmb_pressed) { any_hovered = true }
+	if op_try_start_drag(lo.boxes_rotation[2], 14, sphere.rotation_deg[2], st, mouse, lmb_pressed) { any_hovered = true }
 	// Noise/Marble scale drag (drag index 11)
 	if lo.has_noise || lo.has_marble {
 		noise_scale: f32 = 4.0

@@ -155,3 +155,43 @@ transform_stack_pop :: proc(ts: ^TransformStack) {
 	}
 	pop(&ts.stack)
 }
+
+mat4_transpose :: proc(m: Mat4) -> Mat4 {
+	return Mat4{m = [16]f32{
+		m.m[0], m.m[4], m.m[8],  m.m[12],
+		m.m[1], m.m[5], m.m[9],  m.m[13],
+		m.m[2], m.m[6], m.m[10], m.m[14],
+		m.m[3], m.m[7], m.m[11], m.m[15],
+	}}
+}
+
+// aabb_transform transforms an AABB by a matrix by transforming all 8 corners and taking the world-space min/max.
+aabb_transform :: proc(box: AABB, m: Mat4) -> AABB {
+	corners := [8][3]f32{
+		{box.x.min, box.y.min, box.z.min},
+		{box.x.max, box.y.min, box.z.min},
+		{box.x.min, box.y.max, box.z.min},
+		{box.x.max, box.y.max, box.z.min},
+		{box.x.min, box.y.min, box.z.max},
+		{box.x.max, box.y.min, box.z.max},
+		{box.x.min, box.y.max, box.z.max},
+		{box.x.max, box.y.max, box.z.max},
+	}
+	p0 := mat4_transform_point(m, corners[0])
+	rmin := p0
+	rmax := p0
+	for i in 1..<8 {
+		p := mat4_transform_point(m, corners[i])
+		rmin[0] = math.min(rmin[0], p[0])
+		rmin[1] = math.min(rmin[1], p[1])
+		rmin[2] = math.min(rmin[2], p[2])
+		rmax[0] = math.max(rmax[0], p[0])
+		rmax[1] = math.max(rmax[1], p[1])
+		rmax[2] = math.max(rmax[2], p[2])
+	}
+	return AABB{
+		x = Interval{rmin[0], rmax[0]},
+		y = Interval{rmin[1], rmax[1]},
+		z = Interval{rmin[2], rmax[2]},
+	}
+}
