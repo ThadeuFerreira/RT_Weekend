@@ -54,6 +54,22 @@ SceneFile :: struct {
 	objects: [dynamic]SceneObject `json:"objects"`,
 }
 
+@(private)
+_is_black_background :: proc(bg: [3]f32) -> bool {
+	return bg[0] <= 0 && bg[1] <= 0 && bg[2] <= 0
+}
+
+@(private)
+_scene_has_emissive_material :: proc(objects: []SceneObject) -> bool {
+	for obj in objects {
+		switch obj.material.material_type {
+		case "diffuse_light", "emissive":
+			return true
+		}
+	}
+	return false
+}
+
 // _scene_resolve_image_path returns an absolute path for loading. Relative paths are resolved against scene_dir.
 @(private)
 _scene_resolve_image_path :: proc(scene_dir, image_path: string, allocator := context.allocator) -> string {
@@ -151,12 +167,11 @@ load_scene :: proc(
 		cam.shutter_open = scene.camera.shutter_open
 		cam.shutter_close = scene.camera.shutter_close
 	}
-	// background: use from file; absent or zero → sky so weekend-style scenes loaded from disk match WEEKEND_CAMERA (editor/example_scenes.odin).
-	// Old serialized scenes had no field and would otherwise get black; this backward-compat gives them the same default as in-memory example scenes.
+	// background: preserve scene value unless it's black/missing AND the scene has no emissive materials.
+	// In that no-light case, force white so imported scenes remain visible before users add lights.
 	cam.background = scene.camera.background
-	zero_bg: [3]f32 = {0, 0, 0}
-	if cam.background == zero_bg {
-		cam.background = core.CAMERA_BACKGROUND_SKY
+	if _is_black_background(cam.background) && !_scene_has_emissive_material(scene.objects[:]) {
+		cam.background = [3]f32{1, 1, 1}
 	}
 	rt.init_camera(cam)
 

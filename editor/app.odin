@@ -553,6 +553,12 @@ run_app :: proc(
         append(&app.layout_presets, import_preset)
     }
     rt.copy_camera_to_scene_params(&app.c_camera_params, r_camera)
+	// Startup default (no loaded world): editor uses its built-in 3 spheres.
+	// Ensure they are visible by default with a white miss/background color.
+	if len(r_world) == 0 {
+		app.c_camera_params.background = [3]f32{1, 1, 1}
+		rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+	}
     app_set_image_texture_cache_from_world(&app, r_world)
     init_edit_view(&app.e_edit_view)
     // If a world was passed in (from a scene file), populate the edit view with it.

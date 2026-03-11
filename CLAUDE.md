@@ -101,6 +101,8 @@ The renderer is a standard path tracer built around these layers:
 
 Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is `persistence.load_config` / `save_config`.
 
+**Scene background fallback on load:** `persistence.load_scene` preserves the serialized camera background when it is non-black. If the loaded scene background is black/missing and the scene has no emissive materials (`diffuse_light`), it forces a white background (`{1,1,1}`) before render so unlit scenes remain visible.
+
 ### Editor (`editor/`)
 `run_app()` (in `editor/app.odin`) owns the main thread and the Raylib event loop:
 1. Creates the window and a GPU texture sized to the render output
