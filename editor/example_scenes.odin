@@ -294,8 +294,7 @@ cornell_box_walls :: proc(result_quads: ^[dynamic]raytrace.Quad) {
     red := raytrace.material(raytrace.lambertian{
         albedo = raytrace.ConstantTexture{color = {0.65, 0.05, 0.05}},
     })
-    light_mat := raytrace.material(raytrace.diffuse_light{emit = {15, 15, 15}})
-
+    
     // Left wall (green), right wall (red) per benchmark convention.
     append(result_quads, raytrace.make_quad(
         [3]f32{555, 0, 0},
@@ -308,13 +307,6 @@ cornell_box_walls :: proc(result_quads: ^[dynamic]raytrace.Quad) {
         [3]f32{0, 555, 0},
         [3]f32{0, 0, 555},
         red,
-    ))
-    // Ceiling area light.
-    append(result_quads, raytrace.make_quad(
-        [3]f32{343, 554, 332},
-        [3]f32{-130, 0, 0},
-        [3]f32{0, 0, -105},
-        light_mat,
     ))
     // Room shell.
     append(result_quads, raytrace.make_quad(
@@ -379,6 +371,15 @@ build_cornell_box_scene :: proc() -> (
 
     cornell_box_walls(&result_quads)
 
+    // Ceiling area light.
+    light_mat := raytrace.material(raytrace.diffuse_light{emit = {15, 15, 15}})
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{343, 554, 332},
+        [3]f32{-130, 0, 0},
+        [3]f32{0, 0, -105},
+        light_mat,
+    ))
+
     white := raytrace.material(raytrace.lambertian{
         albedo = raytrace.ConstantTexture{color = {0.73, 0.73, 0.73}},
     })
@@ -403,6 +404,8 @@ build_cornell_box_scene :: proc() -> (
 
 // build_volume_smoke_scene returns Cornell box walls + light and two SceneVolumes (smoke boxes).
 // No inner box quads — the volumes define the boxes and fog; load path builds ConstantMediums.
+// Volumes use Cornell scale (room 0..555): same box layout as cornell_box_boxes (tall and short boxes).
+// Returns an owned volumes slice so the caller can delete(volumes); both entries are always valid.
 build_volume_smoke_scene :: proc() -> (
     spheres: []core.SceneSphere,
     quads: []raytrace.Quad,
@@ -414,23 +417,33 @@ build_volume_smoke_scene :: proc() -> (
     result_quads := make([dynamic]raytrace.Quad)
     cornell_box_walls(&result_quads)
 
-    volumes_dyn := make([dynamic]core.SceneVolume)
-    append(&volumes_dyn, core.SceneVolume{
+    // Ceiling area light.
+    light_mat := raytrace.material(raytrace.diffuse_light{emit = {7, 7, 7}})
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{113, 554, 127},
+        [3]f32{330, 0, 0},
+        [3]f32{0, 0, 305},
+        light_mat,
+    ))
+
+    // Owned slice: caller must delete(volumes). Ensures both volumes are valid and scale is correct.
+    volumes_out := make([]core.SceneVolume, 2)
+    volumes_out[0] = core.SceneVolume{
         box_min      = {0, 0, 0},
         box_max      = {165, 330, 165},
         rotate_y_deg = 15,
         translate    = {265, 0, 295},
         density      = 0.01,
         albedo       = {0, 0, 0},
-    })
-    append(&volumes_dyn, core.SceneVolume{
+    }
+    volumes_out[1] = core.SceneVolume{
         box_min      = {0, 0, 0},
         box_max      = {165, 165, 165},
         rotate_y_deg = -18,
         translate    = {130, 0, 65},
         density      = 0.01,
         albedo       = {1, 1, 1},
-    })
+    }
 
     cornell_camera := core.CameraParams{
         lookfrom      = {278, 278, -800},
@@ -445,5 +458,5 @@ build_volume_smoke_scene :: proc() -> (
         background    = {0, 0, 0},
     }
 
-    return nil, result_quads[:], cornell_camera, nil, false, volumes_dyn[:]
+    return nil, result_quads[:], cornell_camera, nil, false, volumes_out[:]
 }

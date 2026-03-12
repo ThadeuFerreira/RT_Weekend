@@ -615,11 +615,14 @@ start_render_auto :: proc(
     } else {
         session.bvh_root = build_bvh(world_slice)
     }
-    // GPU path: build sphere/quad arrays and BVH with LEAF_SPHERE/LEAF_QUAD encoding.
+    // GPU path: build sphere/quad/volume arrays and BVH with LEAF_SPHERE/LEAF_QUAD/LEAF_VOLUME encoding.
     world_to_sphere_gpu := make([]int, len(world))
     world_to_quad_gpu   := make([]int, len(world))
+    world_to_volume_gpu := make([]int, len(world))
     defer delete(world_to_sphere_gpu)
     defer delete(world_to_quad_gpu)
+    defer delete(world_to_volume_gpu)
+    for i in 0..<len(world) { world_to_sphere_gpu[i] = -1; world_to_quad_gpu[i] = -1; world_to_volume_gpu[i] = -1 }
     image_list, path_to_index := collect_image_textures_ordered(world_slice)
     defer delete(image_list)
     defer delete(path_to_index)
@@ -627,7 +630,16 @@ start_render_auto :: proc(
     defer delete(gpu_spheres)
     gpu_quads   := scene_to_gpu_quads(world_slice, world_to_quad_gpu)
     defer delete(gpu_quads)
-    session.linear_bvh = flatten_bvh_for_gpu(session.bvh_root, world_slice, world_to_sphere_gpu, world_to_quad_gpu)
+    gpu_volumes, gpu_volume_quads := scene_to_gpu_volumes(world_slice)
+    defer if gpu_volumes != nil { delete(gpu_volumes); delete(gpu_volume_quads) }
+    volume_idx := 0
+    for i in 0..<len(world) {
+        if _, ok := world_slice[i].(ConstantMedium); ok {
+            world_to_volume_gpu[i] = volume_idx
+            volume_idx += 1
+        }
+    }
+    session.linear_bvh = flatten_bvh_for_gpu(session.bvh_root, world_slice, world_to_sphere_gpu, world_to_quad_gpu, world_to_volume_gpu)
     stop_timer(&session.timing.bvh_construction)
     util.trace_scope_end(bvh_trace)
 
@@ -638,7 +650,7 @@ start_render_auto :: proc(
     session.thread_tile_counts          = make([dynamic]int, 0)
     session.thread_rendering_breakdowns = make([dynamic]ThreadRenderingBreakdown, 0)
 
-    renderer := create_gpu_renderer(r_camera, world_slice, gpu_spheres, gpu_quads, session.linear_bvh, r_camera.samples_per_pixel, image_list[:])
+    renderer := create_gpu_renderer(r_camera, world_slice, gpu_spheres, gpu_quads, session.linear_bvh, gpu_volumes, gpu_volume_quads, r_camera.samples_per_pixel, image_list[:])
     if renderer != nil {
         session.gpu_renderer = renderer
         session.use_gpu      = true

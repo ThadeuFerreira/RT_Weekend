@@ -39,6 +39,9 @@ cmd_action_file_new :: proc(app: ^App) {
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
+    for v in app.e_volumes {
+        append(&app.r_world, rt.build_volume_from_scene_volume(v))
+    }
 
     app.finished     = false
     app.elapsed_secs = 0

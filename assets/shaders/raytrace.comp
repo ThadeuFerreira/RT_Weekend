@@ -26,6 +26,8 @@
 //   binding=2  BVHBlock      (SSBO, std430) — LinearBVHNode array
 //   binding=3  OutputBlock   (SSBO, std430) — vec4 accumulation buffer
 //   binding=4  QuadsBlock    (SSBO, std430) — quad array (Q, u, v, w, normal, D, material)
+//   binding=5  VolumesBlock  (SSBO, std430) — volume array (density, albedo, quad_start)
+//   binding=6  VolumeQuadsBlock (SSBO, std430) — boundary quads for volumes (6 per volume)
 // ─────────────────────────────────────────────────────────────
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -66,6 +68,7 @@ const int MAT_LAMBERTIAN = 0;
 const int MAT_METALLIC   = 1;
 const int MAT_DIELECTRIC = 2;
 const int MAT_DIFFUSE_LIGHT = 3;
+const int MAT_ISOTROPIC = 4;
 
 // Texture type for Lambertian (mirror TEX_* in gpu_types.odin).
 const int TEX_CONSTANT = 0;
@@ -124,6 +127,7 @@ layout(std430, binding = 1) readonly buffer SpheresBlock {
 // =============================================================
 const int LEAF_SPHERE = -1;
 const int LEAF_QUAD   = -2;
+const int LEAF_VOLUME = -3;
 struct BVHNode {
     vec3 aabb_min;
     int  right_or_obj_idx;
@@ -183,6 +187,29 @@ layout(std430, binding = 4) readonly buffer QuadsBlock {
     int   quad_count;
     int   _quad_pad[3];
     Quad  quads[];
+};
+
+// Binding 5 — Volume array (SSBO, std430). Matches GPUVolume in gpu_types.odin.
+// Stride 48 bytes (alignment 16) so array elements are correctly aligned.
+struct Volume {
+    float density;
+    float _pad_d[3];
+    vec3  albedo;
+    float _pad_a;
+    int   quad_start;
+    int   _pad_stride[3];
+};
+layout(std430, binding = 5) readonly buffer VolumesBlock {
+    int     volume_count;
+    int     _vol_pad[3];
+    Volume  volumes[];
+};
+
+// Binding 6 — Volume boundary quads (6 per volume, geometry only; same Quad layout).
+layout(std430, binding = 6) readonly buffer VolumeQuadsBlock {
+    int   volume_quad_count;
+    int   _vq_pad[3];
+    Quad  volume_quads[];
 };
 
 // =============================================================
@@ -476,6 +503,22 @@ bool is_interior_quad(float alpha, float beta, out HitRecord rec) {
     return true;
 }
 
+// hit_quad_interval tests a ray against a planar quad; returns true and t if hit in [t_min, t_max].
+// Does not fill full HitRecord (used for volume boundary).
+bool hit_quad_t(Ray r, vec3 Q, vec3 u, vec3 v, vec3 normal, float D, vec3 w, float t_min, float t_max, out float t_hit) {
+    float denom = dot(normal, r.dir);
+    if (abs(denom) < 1e-8) return false;
+    float t = (D - dot(normal, r.origin)) / denom;
+    if (t < t_min || t > t_max) return false;
+    vec3 intersection = ray_at(r, t);
+    vec3 planar = intersection - Q;
+    float alpha = dot(w, cross(planar, v));
+    float beta  = dot(w, cross(u, planar));
+    if (alpha < 0.0 || alpha > 1.0 || beta < 0.0 || beta > 1.0) return false;
+    t_hit = t;
+    return true;
+}
+
 // hit_quad tests a ray against a planar quad (RTNW: Q + alpha*u + beta*v, alpha/beta in [0,1]).
 // Uses plane intersection then interior test with cached w.
 bool hit_quad(Quad q, Ray r, float t_min, float t_max, out HitRecord rec) {
@@ -514,6 +557,69 @@ bool hit_quad(Quad q, Ray r, float t_min, float t_max, out HitRecord rec) {
     return true;
 }
 
+// Volume boundary: ray vs 6 quads to get t_entry and t_exit (segment inside volume).
+bool volume_boundary_interval(int vol_idx, Ray r, float t_min, float t_max, out float t_entry, out float t_exit) {
+    if (vol_idx < 0 || vol_idx >= volume_count) return false;
+    Volume vol = volumes[vol_idx];
+    int start = vol.quad_start;
+    if (start < 0 || start + 6 > volume_quad_count) return false;
+    float hits[6];
+    int n = 0;
+    for (int i = 0; i < 6 && n < 6; i++) {
+        Quad q = volume_quads[start + i];
+        float th;
+        if (hit_quad_t(r, q.Q, q.u, q.v, q.normal, q.D, q.w, t_min, 1e30, th)) {
+            hits[n++] = th;
+        }
+    }
+    if (n == 0) return false;
+    if (n == 1) {
+        t_exit  = hits[0];
+        t_entry = max(t_min, 0.001);
+        return true;
+    }
+    float t_lo = hits[0], t_hi = hits[0];
+    for (int i = 1; i < n; i++) {
+        t_lo = min(t_lo, hits[i]);
+        t_hi = max(t_hi, hits[i]);
+    }
+    t_entry = t_lo;
+    t_exit  = t_hi;
+    return true;
+}
+
+// hit_volume tests probabilistic scatter inside a constant medium; fills rec and returns true if scatter.
+bool hit_volume(int vol_idx, Ray r, float t_min, float t_max, float closest, inout uint seed, out HitRecord rec) {
+    float t_entry, t_exit;
+    if (!volume_boundary_interval(vol_idx, r, t_min, t_max, t_entry, t_exit)) return false;
+    t_entry = max(t_entry, t_min);
+    t_exit  = min(t_exit, t_max);
+    if (t_entry >= t_exit) return false;
+    Volume vol = volumes[vol_idx];
+    float segment_length = t_exit - t_entry;
+    float u = rand(seed);
+    if (u >= 1.0 - 1e-7) return false;
+    float hit_distance = -log(1.0 - u) / vol.density;
+    if (hit_distance >= segment_length) return false;
+    float t_scatter = t_entry + hit_distance;
+    if (t_scatter >= closest) return false;
+    rec.p = ray_at(r, t_scatter);
+    rec.t = t_scatter;
+    rec.normal = rand_unit_vec3(seed);
+    rec.front_face = true;
+    rec.u = 0.0;
+    rec.v = 0.0;
+    rec.mat_type = MAT_ISOTROPIC;
+    rec.albedo = vol.albedo;
+    rec.fuzz_or_ior = 0.0;
+    rec.ray_time = r.time;
+    rec.tex_type = 0;
+    rec.tex_scale = 1.0;
+    rec.tex_even = rec.albedo;
+    rec.tex_odd = rec.albedo;
+    rec.tex_index = 0;
+    return true;
+}
 
 // =============================================================
 // AABB overlap test (robust variant)
@@ -564,7 +670,7 @@ bool aabb_hit_fast(vec3 aabb_min, vec3 aabb_max, vec3 dir, vec3 inv_dir, vec3 or
 // "closest" tracks the nearest hit found so far; AABB tests use
 // it as t_max so we automatically cull nodes behind existing hits.
 
-bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
+bool bvh_hit_scene(Ray r, float t_min, float t_max, inout uint seed, out HitRecord closest_rec) {
     float closest = t_max;
     bool  hit_anything = false;
 
@@ -602,6 +708,17 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, out HitRecord closest_rec) {
             if (obj_idx >= 0 && obj_idx < quad_count) {
                 HitRecord rec;
                 if (hit_quad(quads[obj_idx], r, t_min, closest, rec)) {
+                    closest     = rec.t;
+                    closest_rec = rec;
+                    hit_anything = true;
+                }
+            }
+        } else if (node.left_idx == LEAF_VOLUME) {
+            // ── Volume leaf ── right_or_obj_idx = -(volume_index + 1)
+            int vol_idx = -(node.right_or_obj_idx + 1);
+            if (vol_idx >= 0 && volume_count > 0) {
+                HitRecord rec;
+                if (hit_volume(vol_idx, r, t_min, t_max, closest, seed, rec)) {
                     closest     = rec.t;
                     closest_rec = rec;
                     hit_anything = true;
@@ -707,6 +824,14 @@ float schlick(float cosine, float ref_idx) {
     return r0 + (1.0 - r0) * pow(1.0 - cosine, 5.0);
 }
 
+// Isotropic (volumetric): scatter uniformly in all directions.
+bool scatter_isotropic(vec3 albedo, HitRecord rec, inout uint seed,
+                       out vec3 attenuation, out Ray scattered) {
+    scattered = Ray(rec.p, 0.0, rand_unit_vec3(seed), rec.ray_time);
+    attenuation = albedo;
+    return true;
+}
+
 // Dielectric (glass / water): refract or reflect based on Snell's law
 // and Fresnel reflectance (Schlick approximation).
 bool scatter_dielectric(float ior, Ray r_in, HitRecord rec,
@@ -762,7 +887,7 @@ vec3 path_trace(Ray r, inout uint seed) {
 
     for (int depth = 0; depth < max_depth; depth++) {
         HitRecord rec;
-        if (bvh_hit_scene(r, 0.001, 1e30, rec)) {
+        if (bvh_hit_scene(r, 0.001, 1e30, seed, rec)) {
             colour += throughput * material_emitted(rec);
 
             vec3 attenuation;
@@ -783,6 +908,9 @@ vec3 path_trace(Ray r, inout uint seed) {
                 break;
             case MAT_DIFFUSE_LIGHT:
                 did_scatter = false;
+                break;
+            case MAT_ISOTROPIC:
+                did_scatter = scatter_isotropic(rec.albedo, rec, seed, attenuation, scattered);
                 break;
             default:
                 did_scatter = false;

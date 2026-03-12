@@ -478,6 +478,20 @@ build_bvh_sah :: proc(objects: []Object, allocator := context.allocator) -> ^BVH
     return _build_bvh_sah(objects_work, indices, allocator)
 }
 
+// collect_quads_from_bvh appends all Quad leaves from the BVH tree to out.
+// Used by the GPU path to export volume boundary geometry (6 quads per ConstantMedium).
+collect_quads_from_bvh :: proc(node: ^BVHNode, out: ^[dynamic]Quad, allocator := context.allocator) {
+	if node == nil { return }
+	if node.is_leaf {
+		if q, ok := node.object.(Quad); ok {
+			append(out, q)
+		}
+		return
+	}
+	collect_quads_from_bvh(node.left, out, allocator)
+	collect_quads_from_bvh(node.right, out, allocator)
+}
+
 // boundary_hit_interval returns (t_entry, t_exit, ok) for a ray through a closed boundary (e.g. box).
 // Used by ConstantMedium to get the segment inside the volume. ok false if ray misses the boundary.
 @(private)
@@ -633,8 +647,8 @@ flatten_bvh :: proc(root: ^BVHNode, objects: []Object) -> []LinearBVHNode {
 }
 
 // flatten_bvh_for_gpu produces a LinearBVHNode array for the GPU: leaves use
-// LEAF_SPHERE/LEAF_QUAD and right_or_obj_idx = -(gpu_array_index + 1).
-// world_to_sphere_gpu[i] = GPU sphere index for objects[i] or -1; world_to_quad_gpu likewise.
+// LEAF_SPHERE/LEAF_QUAD/LEAF_VOLUME and right_or_obj_idx = -(gpu_array_index + 1).
+// world_to_sphere_gpu[i] = GPU sphere index for objects[i] or -1; world_to_quad_gpu and world_to_volume_gpu likewise.
 // Caller must delete(result).
 _flatten_bvh_for_gpu_recurse :: proc(
     node: ^BVHNode,
@@ -642,6 +656,7 @@ _flatten_bvh_for_gpu_recurse :: proc(
     objects: []Object,
     world_to_sphere_gpu: []int,
     world_to_quad_gpu: []int,
+    world_to_volume_gpu: []int,
 ) -> int {
     if node == nil { return -1 }
     my_index := len(nodes)
@@ -663,10 +678,9 @@ _flatten_bvh_for_gpu_recurse :: proc(
         left_val := LEAF_SPHERE
         right_val: i32 = -1
         if obj_idx >= 0 && obj_idx < len(objects) {
-            if _, is_vol := objects[obj_idx].(ConstantMedium); is_vol {
-                // GPU path does not support volumes yet; treat as empty leaf (skip hit).
-                left_val  = LEAF_SPHERE
-                right_val = -1
+            if vg := world_to_volume_gpu[obj_idx]; vg >= 0 {
+                left_val  = LEAF_VOLUME
+                right_val = -i32(vg + 1)
             } else if sg := world_to_sphere_gpu[obj_idx]; sg >= 0 {
                 left_val  = LEAF_SPHERE
                 right_val = -i32(sg + 1)
@@ -683,8 +697,8 @@ _flatten_bvh_for_gpu_recurse :: proc(
         }
         return my_index
     }
-    left_idx  := _flatten_bvh_for_gpu_recurse(node.left,  nodes, objects, world_to_sphere_gpu, world_to_quad_gpu)
-    right_idx := _flatten_bvh_for_gpu_recurse(node.right, nodes, objects, world_to_sphere_gpu, world_to_quad_gpu)
+    left_idx  := _flatten_bvh_for_gpu_recurse(node.left,  nodes, objects, world_to_sphere_gpu, world_to_quad_gpu, world_to_volume_gpu)
+    right_idx := _flatten_bvh_for_gpu_recurse(node.right, nodes, objects, world_to_sphere_gpu, world_to_quad_gpu, world_to_volume_gpu)
     nodes[my_index] = LinearBVHNode{
         aabb_min        = [3]f32{node.bbox.x.min, node.bbox.y.min, node.bbox.z.min},
         aabb_max        = [3]f32{node.bbox.x.max, node.bbox.y.max, node.bbox.z.max},
@@ -694,13 +708,13 @@ _flatten_bvh_for_gpu_recurse :: proc(
     return my_index
 }
 
-flatten_bvh_for_gpu :: proc(root: ^BVHNode, objects: []Object, world_to_sphere_gpu: []int, world_to_quad_gpu: []int) -> []LinearBVHNode {
+flatten_bvh_for_gpu :: proc(root: ^BVHNode, objects: []Object, world_to_sphere_gpu: []int, world_to_quad_gpu: []int, world_to_volume_gpu: []int) -> []LinearBVHNode {
     if root == nil { return nil }
-    if len(world_to_sphere_gpu) != len(objects) || len(world_to_quad_gpu) != len(objects) {
+    if len(world_to_sphere_gpu) != len(objects) || len(world_to_quad_gpu) != len(objects) || len(world_to_volume_gpu) != len(objects) {
         return nil
     }
     nodes := make([dynamic]LinearBVHNode, 0, 2 * len(objects))
-    _flatten_bvh_for_gpu_recurse(root, &nodes, objects, world_to_sphere_gpu, world_to_quad_gpu)
+    _flatten_bvh_for_gpu_recurse(root, &nodes, objects, world_to_sphere_gpu, world_to_quad_gpu, world_to_volume_gpu)
     return nodes[:]
 }
 

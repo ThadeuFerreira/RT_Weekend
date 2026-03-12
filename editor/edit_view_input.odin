@@ -622,6 +622,9 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 			delete(app.r_world)
 			app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
 			AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
+			for v in app.e_volumes {
+				append(&app.r_world, rt.build_volume_from_scene_volume(v))
+			}
 			width, height, res_ok := calculate_render_dimensions(app)
 			samples, samp_ok := strconv.parse_int(app.r_samples_input)
 			if !res_ok {

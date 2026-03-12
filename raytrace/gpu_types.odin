@@ -31,6 +31,8 @@ GPUBackend :: struct {
     ssbo_spheres:      u32,  // SSBO: [4]i32 header then []GPUSphere
     ssbo_quads:        u32,  // SSBO: [4]i32 header then []GPUQuad
     ssbo_bvh:          u32,  // SSBO: [4]i32 header then []LinearBVHNode
+    ssbo_volumes:      u32,  // SSBO: [4]i32 header then []GPUVolume
+    ssbo_volume_quads: u32,  // SSBO: [4]i32 header then []GPUQuad (boundary faces)
     ssbo_output:       u32,  // SSBO: vec4 per pixel (RGB accumulation)
     ubo_camera:        u32,  // UBO: GPUCameraUniforms (std140)
     image_texs:        [MAX_GPU_IMAGE_TEXTURES]u32, // 2D textures for Lambertian image maps (units 4..4+N-1)
@@ -64,8 +66,10 @@ GPUBackend :: struct {
 // Leaf sentinels for GPU BVH traversal (must match raytrace.comp).
 // left_idx == LEAF_SPHERE => right_or_obj_idx = -(sphere_index + 1)
 // left_idx == LEAF_QUAD   => right_or_obj_idx = -(quad_index + 1)
+// left_idx == LEAF_VOLUME => right_or_obj_idx = -(volume_index + 1)
 LEAF_SPHERE :: i32(-1)
 LEAF_QUAD   :: i32(-2)
+LEAF_VOLUME :: i32(-3)
 
 // Extensibility note:
 //   To add TriangleMesh leaves, add a second sentinel value for
@@ -88,7 +92,8 @@ MAT_LAMBERTIAN :: i32(0)   // Diffuse: scatter in cosine-weighted hemisphere
 MAT_METALLIC   :: i32(1)   // Specular: reflect + fuzz perturbation
 MAT_DIELECTRIC :: i32(2)   // Refract/reflect via Schlick approximation (glass)
 MAT_DIFFUSE_LIGHT :: i32(3) // Emissive: returns emit color, does not scatter
-// Future: MAT_PBR_GLOSSY :: i32(4), …
+MAT_ISOTROPIC     :: i32(4) // Volumetric: scatter uniformly (used by constant_medium)
+// Future: MAT_PBR_GLOSSY :: i32(5), …
 
 // Texture type for Lambertian (GPU only; must match raytrace.comp).
 TEX_CONSTANT :: i32(0)  // use albedo as-is
@@ -191,6 +196,57 @@ GPUQuad :: struct #packed {
     _pad8:     f32,
     tex_odd:   [3]f32,
     _pad9:     f32,
+}
+
+// GPUVolume describes one constant-density volume for the compute shader.
+// Boundary is 6 quads stored in a separate SSBO starting at quad_start_index.
+// std430: struct alignment 16 (vec3); size must be 48 so array stride is 48 (no implicit pad).
+GPUVolume :: struct #packed {
+    density:       f32,
+    _pad_d:        [3]f32,   // align albedo to 16
+    albedo:        [3]f32,
+    _pad_a:        f32,
+    quad_start:    i32,      // index into volume_quads (6 consecutive GPUQuads)
+    _pad_stride:   [3]i32,   // pad to 48 bytes for std430 array stride
+}
+
+// scene_to_gpu_volumes builds GPUVolume and boundary GPUQuad arrays from world.
+// Volumes are ConstantMedium objects; each volume's boundary_bvh is traversed to
+// collect 6 quads (from append_box_transformed). Caller must delete both returned slices.
+scene_to_gpu_volumes :: proc(objects: []Object) -> (volumes: []GPUVolume, volume_quads: []GPUQuad) {
+    count := 0
+    for o in objects {
+        if _, ok := o.(ConstantMedium); ok { count += 1 }
+    }
+    if count == 0 {
+        return nil, nil
+    }
+    volumes = make([]GPUVolume, count)
+    boundary_quads := make([dynamic]Quad)
+    defer delete(boundary_quads)
+    idx := 0
+    for o in objects {
+        vol, ok := o.(ConstantMedium)
+        if !ok { continue }
+        collect_quads_from_bvh(vol.boundary_bvh, &boundary_quads)
+        d := vol.density
+        if d <= 0 { d = 0.01 }
+        volumes[idx] = GPUVolume{
+            density    = d,
+            albedo     = vol.albedo,
+            quad_start = i32(len(boundary_quads) - 6),
+        }
+        idx += 1
+    }
+    volume_quads = make([]GPUQuad, len(boundary_quads))
+    for q, i in boundary_quads {
+        volume_quads[i] = GPUQuad{
+            Q = q.Q, u = q.u, v = q.v, w = q.w, normal = q.normal, D = q.D,
+            mat_type = MAT_LAMBERTIAN, albedo = [3]f32{0.73, 0.73, 0.73},
+            tex_type = TEX_CONSTANT,
+        }
+    }
+    return volumes, volume_quads
 }
 
 // GPUCameraUniforms is uploaded as a UBO (std140).
@@ -332,8 +388,7 @@ scene_to_gpu_spheres :: proc(objects: []Object, path_to_index: map[string]int = 
             gpu.tex_type    = TEX_CONSTANT
             gpu.tex_index   = 0
         case isotropic:
-            // GPU path does not scatter isotropic; treat as non-emitting Lambertian for display
-            gpu.mat_type    = MAT_LAMBERTIAN
+            gpu.mat_type    = MAT_ISOTROPIC
             gpu.albedo      = m.albedo
             gpu.fuzz_or_ior = 0.0
             gpu.tex_type    = TEX_CONSTANT
@@ -423,7 +478,7 @@ scene_to_gpu_quads :: proc(objects: []Object, world_to_quad_gpu: []int = nil) ->
             gpu.fuzz_or_ior = 0.0
             gpu.tex_type    = TEX_CONSTANT
         case isotropic:
-            gpu.mat_type    = MAT_LAMBERTIAN
+            gpu.mat_type    = MAT_ISOTROPIC
             gpu.albedo      = m.albedo
             gpu.fuzz_or_ior = 0.0
             gpu.tex_type    = TEX_CONSTANT

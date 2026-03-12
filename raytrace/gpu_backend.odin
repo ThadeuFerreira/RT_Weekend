@@ -20,6 +20,9 @@ package raytrace
 //   SSBO binding=1 : [4]i32 header + []GPUSphere  (static, uploaded once)
 //   SSBO binding=2 : [4]i32 header + []LinearBVHNode (static, uploaded once)
 //   SSBO binding=3 : []vec4 output accumulation (zeroed, grows each dispatch)
+//   SSBO binding=4 : [4]i32 header + []GPUQuad
+//   SSBO binding=5 : [4]i32 header + []GPUVolume
+//   SSBO binding=6 : [4]i32 header + []GPUQuad (volume boundary quads)
 
 import "core:fmt"
 import "core:math"
@@ -175,12 +178,14 @@ _upload_image_texture_2d :: proc(img: ^Texture_Image) -> (tex_id: u32, ok: bool)
 // Must be called after rl.InitWindow() (a current GL context is required).
 // Returns (nil, false) on any failure — caller falls back to the CPU path.
 gpu_backend_init :: proc(
-    cam:        ^Camera,
-    image_list: []^Texture_Image,
-    spheres:    []GPUSphere,
-    quads:      []GPUQuad,
-    lin_bvh:    []LinearBVHNode,
-    samples:    int,
+    cam:          ^Camera,
+    image_list:   []^Texture_Image,
+    spheres:      []GPUSphere,
+    quads:        []GPUQuad,
+    lin_bvh:      []LinearBVHNode,
+    volumes:      []GPUVolume,
+    volume_quads: []GPUQuad,
+    samples:      int,
 ) -> (^GPUBackend, bool) {
 
     // Load all OpenGL 4.6 function pointers.  Safe to call multiple times;
@@ -258,11 +263,13 @@ gpu_backend_init :: proc(
         }
     }
 
-    // Allocate UBO + SSBOs (camera, spheres, quads, BVH, output).
+    // Allocate UBO + SSBOs (camera, spheres, quads, BVH, volumes, volume_quads, output).
     gl.GenBuffers(1, &b.ubo_camera)
     gl.GenBuffers(1, &b.ssbo_spheres)
     gl.GenBuffers(1, &b.ssbo_quads)
     gl.GenBuffers(1, &b.ssbo_bvh)
+    gl.GenBuffers(1, &b.ssbo_volumes)
+    gl.GenBuffers(1, &b.ssbo_volume_quads)
     gl.GenBuffers(1, &b.ssbo_output)
 
     // ── UBO: camera parameters ────────────────────────────────────────────
@@ -309,6 +316,28 @@ gpu_backend_init :: proc(
         gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, size_of([4]i32), bvh_body_size, raw_data(lin_bvh))
     }
 
+    // ── SSBO: volume array ────────────────────────────────────────────────
+    vol_header    := [4]i32{i32(len(volumes)), 0, 0, 0}
+    vol_body_size := len(volumes) * size_of(GPUVolume)
+    vol_total     := size_of([4]i32) + max(vol_body_size, 1)
+    gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, b.ssbo_volumes)
+    gl.BufferData(gl.SHADER_STORAGE_BUFFER, vol_total, nil, gl.STATIC_DRAW)
+    gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, 0, size_of([4]i32), &vol_header)
+    if vol_body_size > 0 {
+        gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, size_of([4]i32), vol_body_size, raw_data(volumes))
+    }
+
+    // ── SSBO: volume boundary quads ───────────────────────────────────────
+    vq_header    := [4]i32{i32(len(volume_quads)), 0, 0, 0}
+    vq_body_size := len(volume_quads) * size_of(GPUQuad)
+    vq_total      := size_of([4]i32) + max(vq_body_size, 1)
+    gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, b.ssbo_volume_quads)
+    gl.BufferData(gl.SHADER_STORAGE_BUFFER, vq_total, nil, gl.STATIC_DRAW)
+    gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, 0, size_of([4]i32), &vq_header)
+    if vq_body_size > 0 {
+        gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, size_of([4]i32), vq_body_size, raw_data(volume_quads))
+    }
+
     // ── SSBO: output accumulation buffer ─────────────────────────────────
     // vec4 (16 bytes) per pixel, initialised to zero.
     // Each dispatch accumulates one sample: pixels[i] += vec4(colour, 0).
@@ -323,8 +352,8 @@ gpu_backend_init :: proc(
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 
     when VERBOSE_OUTPUT {
-        fmt.printf("[GPU] Buffers ready — %d spheres, %d quads, %d BVH nodes, %dx%d px\n",
-            len(spheres), len(quads), len(lin_bvh), cam.image_width, cam.image_height)
+        fmt.printf("[GPU] Buffers ready — %d spheres, %d quads, %d volumes, %d BVH nodes, %dx%d px\n",
+            len(spheres), len(quads), len(volumes), len(lin_bvh), cam.image_width, cam.image_height)
     }
     return b, true
 }
@@ -361,6 +390,8 @@ gpu_backend_dispatch :: proc(b: ^GPUBackend) {
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  2, b.ssbo_bvh)
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  3, b.ssbo_output)
     gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  4, b.ssbo_quads)
+    gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  5, b.ssbo_volumes)
+    gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER,  6, b.ssbo_volume_quads)
     for i in 0 ..< b.num_image_texs {
         if b.image_texs[i] != 0 {
             gl.ActiveTexture(gl.TEXTURE0 + u32(4 + i))
@@ -444,6 +475,8 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
     gl.DeleteBuffers(1, &b.ssbo_spheres)
     gl.DeleteBuffers(1, &b.ssbo_quads)
     gl.DeleteBuffers(1, &b.ssbo_bvh)
+    gl.DeleteBuffers(1, &b.ssbo_volumes)
+    gl.DeleteBuffers(1, &b.ssbo_volume_quads)
     gl.DeleteBuffers(1, &b.ssbo_output)
     for i in 0 ..< b.num_image_texs {
         if b.image_texs[i] != 0 {
@@ -458,8 +491,8 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
 // ── OpenGL backend vtable registration ───────────────────────────────────────
 
 @(private)
-_ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, total: int, image_list: []^Texture_Image) -> (rawptr, bool) {
-    b, ok := gpu_backend_init(cam, image_list, spheres, quads, bvh, total)
+_ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, volumes: []GPUVolume, volume_quads: []GPUQuad, total: int, image_list: []^Texture_Image) -> (rawptr, bool) {
+    b, ok := gpu_backend_init(cam, image_list, spheres, quads, bvh, volumes, volume_quads, total)
     return b, ok
 }
 @(private) _ogl_dispatch    :: proc(s: rawptr) { gpu_backend_dispatch((^GPUBackend)(s)) }
