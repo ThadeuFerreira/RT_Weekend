@@ -39,9 +39,7 @@ cmd_action_file_new :: proc(app: ^App) {
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
-    for v in app.e_volumes {
-        append(&app.r_world, rt.build_volume_from_scene_volume(v))
-    }
+    app_append_volumes_to_world(app, &app.r_world)
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -355,24 +353,16 @@ apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
             ev.selected_idx   = -1
             app_push_log(app, strings.clone("Undo: add volume"))
         } else {
-            insert_idx := a.idx
-            if insert_idx > len(app.e_volumes) { insert_idx = len(app.e_volumes) }
-			append(&app.e_volumes, a.volume)
-			for i in 0..<len(app.e_volumes) - 1 - insert_idx {
-				pos := len(app.e_volumes) - 1 - i
-				app.e_volumes[pos], app.e_volumes[pos - 1] = app.e_volumes[pos - 1], app.e_volumes[pos]
-			}
+            insert_idx := clamp(a.idx, 0, len(app.e_volumes))
+            inject_at(&app.e_volumes, insert_idx, a.volume)
             ev.selection_kind = .Volume
             ev.selected_idx   = insert_idx
             app_push_log(app, strings.clone("Redo: add volume"))
         }
     case DeleteVolumeAction:
         if is_undo {
-			append(&app.e_volumes, a.volume)
-			for i in 0..<len(app.e_volumes) - 1 - a.idx {
-				pos := len(app.e_volumes) - 1 - i
-				app.e_volumes[pos], app.e_volumes[pos - 1] = app.e_volumes[pos - 1], app.e_volumes[pos]
-			}
+            insert_idx := clamp(a.idx, 0, len(app.e_volumes))
+            inject_at(&app.e_volumes, insert_idx, a.volume)
             ev.selection_kind = .Volume
             ev.selected_idx   = a.idx
             app_push_log(app, strings.clone("Undo: delete volume"))

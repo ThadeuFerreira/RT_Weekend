@@ -210,8 +210,8 @@ volume_world_aabb :: proc(v: core.SceneVolume) -> rl.BoundingBox {
 	return rl.BoundingBox{min = min_v, max = max_v}
 }
 
-// PickClosestVolume returns the index and hit distance of the closest volume hit by the ray, or (-1, 1e30).
-PickClosestVolume :: proc(ray: rl.Ray, volumes: []core.SceneVolume) -> (idx: int, t: f32) {
+// pick_closest_volume returns the index and hit distance of the closest volume hit by the ray, or (-1, 1e30).
+pick_closest_volume :: proc(ray: rl.Ray, volumes: []core.SceneVolume) -> (idx: int, t: f32) {
 	idx = -1
 	t = 1e30
 	dir := rl.Vector3Normalize(ray.direction)

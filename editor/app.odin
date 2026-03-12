@@ -164,6 +164,13 @@ app_ensure_image_cached :: proc(app: ^App, path: string) -> bool {
     return true
 }
 
+// app_append_volumes_to_world appends all volumes in app.e_volumes to world as ConstantMedium objects.
+app_append_volumes_to_world :: proc(app: ^App, world: ^[dynamic]rt.Object) {
+    for v in app.e_volumes {
+        append(world, rt.build_volume_from_scene_volume(v))
+    }
+}
+
 // app_restart_render replaces the current world with new_world and starts a fresh render.
 // If a render is in progress, the restart is dropped so the main thread is not blocked
 // (finish_render would join workers and freeze the UI). Request restart again after the
@@ -208,9 +215,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, scene_objects)
     AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
-    for v in app.e_volumes {
-        append(&app.r_world, rt.build_volume_from_scene_volume(v))
-    }
+    app_append_volumes_to_world(app, &app.r_world)
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -589,9 +594,7 @@ run_app :: proc(
     ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
     app.r_world = app_build_world_from_scene(&app, app.e_edit_view.export_scratch[:])
     AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
-    for v in app.e_volumes {
-        append(&app.r_world, rt.build_volume_from_scene_volume(v))
-    }
+    app_append_volumes_to_world(&app, &app.r_world)
     app.e_object_props  = ObjectPropsPanelState{prop_drag_idx = -1}
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)

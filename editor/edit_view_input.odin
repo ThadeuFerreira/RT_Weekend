@@ -746,7 +746,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 		update_orbit_camera(ev)
 		if ray, ok := compute_viewport_ray(ev.cam3d, ev.tex_w, ev.tex_h, mouse, rects.vp_rect, false); ok {
 			pick_kind, pick_idx, t_geom := PickClosestObject(ev.scene_mgr, ray)
-			vol_idx, t_vol := PickClosestVolume(ray, app.e_volumes[:])
+			vol_idx, t_vol := pick_closest_volume(ray, app.e_volumes[:])
 			if vol_idx >= 0 && (pick_idx < 0 || t_vol < t_geom) {
 				ev.selection_kind = .Volume
 				ev.selected_idx   = vol_idx
@@ -801,7 +801,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 					ui_log_drag_start(app, "CamBody")
 				case:
 					pick_kind, pick_idx, t_geom := PickClosestObject(ev.scene_mgr, ray)
-					vol_idx, t_vol := PickClosestVolume(ray, app.e_volumes[:])
+					vol_idx, t_vol := pick_closest_volume(ray, app.e_volumes[:])
 					switch {
 					case vol_idx >= 0 && (pick_idx < 0 || t_vol < t_geom):
 						ev.selection_kind  = .Volume
@@ -845,7 +845,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 				}
 			} else {
 				pick_kind, pick_idx, t_geom := PickClosestObject(ev.scene_mgr, ray)
-				vol_idx, t_vol := PickClosestVolume(ray, app.e_volumes[:])
+				vol_idx, t_vol := pick_closest_volume(ray, app.e_volumes[:])
 				switch {
 				case vol_idx >= 0 && (pick_idx < 0 || t_vol < t_geom):
 					ev.selection_kind  = .Volume

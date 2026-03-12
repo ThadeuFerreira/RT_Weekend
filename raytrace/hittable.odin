@@ -480,7 +480,7 @@ build_bvh_sah :: proc(objects: []Object, allocator := context.allocator) -> ^BVH
 
 // collect_quads_from_bvh appends all Quad leaves from the BVH tree to out.
 // Used by the GPU path to export volume boundary geometry (6 quads per ConstantMedium).
-collect_quads_from_bvh :: proc(node: ^BVHNode, out: ^[dynamic]Quad, allocator := context.allocator) {
+collect_quads_from_bvh :: proc(node: ^BVHNode, out: ^[dynamic]Quad) {
 	if node == nil { return }
 	if node.is_leaf {
 		if q, ok := node.object.(Quad); ok {
@@ -488,8 +488,8 @@ collect_quads_from_bvh :: proc(node: ^BVHNode, out: ^[dynamic]Quad, allocator :=
 		}
 		return
 	}
-	collect_quads_from_bvh(node.left, out, allocator)
-	collect_quads_from_bvh(node.right, out, allocator)
+	collect_quads_from_bvh(node.left, out)
+	collect_quads_from_bvh(node.right, out)
 }
 
 // boundary_hit_interval returns (t_entry, t_exit, ok) for a ray through a closed boundary (e.g. box).
@@ -509,7 +509,9 @@ boundary_hit_interval :: proc(bvh: ^BVHNode, r: ray, ray_t: Interval) -> (t_entr
 	if bvh_hit(bvh, r, Interval{t_entry + eps, math.inf_f32(1)}, &rec2, &closest2, nil) {
 		t_exit = rec2.t
 	} else {
-		// Ray origin inside volume: first hit is exit.
+		// Ray origin is inside the volume: the single hit above is the exit face.
+		// Re-interpret: t_exit = that exit hit, t_entry = start of the ray segment (clamped).
+		// The caller guards t_entry >= t_exit so a zero-length segment is skipped safely.
 		t_exit = t_entry
 		t_entry = math.max(ray_t.min, 0.001)
 	}
