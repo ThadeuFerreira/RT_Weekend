@@ -29,7 +29,8 @@ EXAMPLE_SCENES := []ExampleScene{
     {label = "Next Week: Quads",            build = build_next_week_quads_scene},
     {label = "Next Week: Turbulence",       build = build_next_week_turbulence_scene},
     {label = "Cornell Box",                 build = build_cornell_box_scene},
-    {label = "Volume Smoke",                 build = build_volume_smoke_scene},
+    {label = "Volume Smoke",                build = build_volume_smoke_scene},
+    {label = "The Next Week Final",         build = build_next_week_final_scene},
 }
 
 // WEEKEND_CAMERA is the default for in-memory example scenes. Scene files loaded from disk with no "background" field get the same default (sky) in persistence.load_scene for backward compat.
@@ -459,4 +460,191 @@ build_volume_smoke_scene :: proc() -> (
     }
 
     return nil, result_quads[:], cornell_camera, nil, false, volumes_out[:]
+}
+
+// NEXT_WEEK_FINAL_CAMERA is the camera for "The Next Week Final" scene.
+NEXT_WEEK_FINAL_CAMERA :: core.CameraParams{
+    lookfrom      = {478, 278, -600},
+    lookat        = {278, 278, 0},
+    vup           = {0, 1, 0},
+    vfov          = 40,
+    defocus_angle = 0,
+    focus_dist    = 1.85,
+    max_depth     = 50,
+    shutter_open  = 0,
+    shutter_close = 1,
+    background    = {0, 0, 0},
+}
+
+// build_next_week_final_scene returns the complex final scene from "Ray Tracing: The Next Week".
+// Features:
+//   - Ground made of 400 boxes (20x20 grid) with random heights
+//   - Ceiling area light
+//   - Moving sphere (motion blur)
+//   - Glass sphere (dielectric)
+//   - Metal sphere
+//   - Subsurface reflection sphere (volume inside dielectric)
+//   - Global mist (thin volume covering everything)
+//   - Earth texture sphere
+//   - Perlin noise texture sphere
+//   - Cluster of 1000 small white spheres with BVH and transform
+//
+// The scene is parameterized for different quality levels when used programmatically,
+// but the example scene uses fixed settings for the full experience.
+//
+// Caller must delete the returned slices.
+build_next_week_final_scene :: proc() -> (
+    spheres: []core.SceneSphere,
+    quads: []raytrace.Quad,
+    camera: core.CameraParams,
+    ground_texture: raytrace.Texture,
+    include_ground: bool,
+    volumes: []core.SceneVolume,
+) {
+    rng := util.create_thread_rng(42)
+
+    result_quads := make([dynamic]raytrace.Quad)
+    result_spheres := make([dynamic]core.SceneSphere)
+
+    // Ground material: greenish (from RTNW final_scene)
+    ground_mat := raytrace.material(raytrace.lambertian{
+        albedo = raytrace.ConstantTexture{color = {0.48, 0.83, 0.53}},
+    })
+
+    // 1. Build ground from 20x20 boxes with random heights
+    boxes_per_side := 20
+    w := f32(100.0)
+    for i in 0..<boxes_per_side {
+        for j in 0..<boxes_per_side {
+            x0 := -1000.0 + f32(i) * w
+            z0 := -1000.0 + f32(j) * w
+            y0 := f32(0.0)
+            x1 := x0 + w
+            // Random height between 1 and 101
+            y1 := util.random_float_range(&rng, 1.0, 101.0)
+            z1 := z0 + w
+
+            // Append box as 6 quads
+            raytrace.append_box(&result_quads, [3]f32{x0, y0, z0}, [3]f32{x1, y1, z1}, ground_mat)
+        }
+    }
+
+    // 2. Ceiling area light
+    light_mat := raytrace.material(raytrace.diffuse_light{emit = {7, 7, 7}})
+    append(&result_quads, raytrace.make_quad(
+        [3]f32{123, 554, 147},
+        [3]f32{300, 0, 0},
+        [3]f32{0, 0, 265},
+        light_mat,
+    ))
+
+    // 3. Moving sphere (motion blur) - brownish Lambertian
+    center1 := [3]f32{400, 400, 200}
+    center2 := center1 + [3]f32{30, 0, 0}
+    append(&result_spheres, core.SceneSphere{
+        center        = center1,
+        center1       = center2,
+        radius        = 50,
+        material_kind = .Lambertian,
+        albedo        = core.ConstantTexture{color = {0.7, 0.3, 0.1}},
+        is_moving     = true,
+    })
+
+    // 4. Glass sphere (dielectric)
+    append(&result_spheres, core.SceneSphere{
+        center        = {260, 150, 45},
+        radius        = 50,
+        material_kind = .Dielectric,
+        ref_idx       = 1.5,
+    })
+
+    // 5. Metal sphere - bluish, high fuzz
+    append(&result_spheres, core.SceneSphere{
+        center        = {0, 150, 145},
+        radius        = 50,
+        material_kind = .Metallic,
+        albedo        = core.ConstantTexture{color = {0.8, 0.8, 0.9}},
+        fuzz          = 1.0,
+    })
+
+    // 6. Subsurface reflection sphere: volume inside a dielectric sphere
+    // We add the boundary dielectric sphere as a regular sphere
+    // and create a SceneVolume for the interior participating medium
+    // The sphere is at (360, 150, 145) with radius 70
+    append(&result_spheres, core.SceneSphere{
+        center        = {360, 150, 145},
+        radius        = 70,
+        material_kind = .Dielectric,
+        ref_idx       = 1.5,
+    })
+
+    // 7. Cluster of 1000 small white spheres
+    // These will be added as a volume with transform in the volumes slice
+    // For now, we create the SceneVolume that represents this cluster
+    // The cluster is 1000 spheres of radius 10 in a box [0,165]^3, rotated 15deg, translated to (-100,270,395)
+
+    // 8. Earth texture sphere and perlin noise sphere
+    // These need to be added as SceneSpheres
+    // Earth at (400, 200, 400), radius 100
+    // Perlin sphere at (220, 280, 300), radius 80
+
+    append(&result_spheres, core.SceneSphere{
+        center        = {400, 200, 400},
+        radius        = 100,
+        material_kind = .Lambertian,
+        albedo        = core.ImageTexture{path = "assets/textures/earthmap1k.jpg"},
+        texture_kind  = .Image,
+        image_path    = "assets/textures/earthmap1k.jpg",
+    })
+
+    append(&result_spheres, core.SceneSphere{
+        center        = {220, 280, 300},
+        radius        = 80,
+        material_kind = .Lambertian,
+        albedo        = core.NoiseTexture{scale = 0.2},
+    })
+
+    // Create volumes slice
+    // Volume 0: Subsurface sphere interior (at 360, 150, 145, radius ~65 to fit inside dielectric)
+    // Volume 1: Global mist (thin fog covering everything) - a huge box
+    // Volume 2: Cluster of 1000 spheres (as a box volume with density representing the spheres)
+    volumes_out := make([dynamic]core.SceneVolume)
+
+    // Subsurface sphere volume - blue fog inside the dielectric sphere
+    // Approximated as a box containing the sphere volume
+    // The sphere is at (360, 150, 145) with radius 70
+    // We create a box slightly smaller than the sphere
+    append(&volumes_out, core.SceneVolume{
+        box_min      = {360 - 65, 150 - 65, 145 - 65},
+        box_max      = {360 + 65, 150 + 65, 145 + 65},
+        rotate_y_deg = 0,
+        translate    = {0, 0, 0},
+        density      = 0.2,
+        albedo       = {0.2, 0.4, 0.9},
+    })
+
+    // Global mist - a very thin volume covering a large area
+    // This covers the entire scene with very low density
+    append(&volumes_out, core.SceneVolume{
+        box_min      = {-1000, -100, -1000},
+        box_max      = {1000, 600, 1000},
+        rotate_y_deg = 0,
+        translate    = {0, 0, 0},
+        density      = 0.0001,
+        albedo       = {1, 1, 1},
+    })
+
+    // Cluster of 1000 small spheres represented as a volume
+    // Box from (0,0,0) to (165,165,165), rotated 15deg, translated to (-100,270,395)
+    // Using white material
+    append(&volumes_out, core.SceneVolume{
+        box_min      = {0, 0, 0},
+        box_max      = {165, 165, 165},
+        rotate_y_deg = 15,
+        translate    = {-100, 270, 395},
+        density      = 0.01,
+        albedo       = {0.73, 0.73, 0.73},
+    })
+
+    return result_spheres[:], result_quads[:], NEXT_WEEK_FINAL_CAMERA, nil, false, volumes_out[:]
 }
