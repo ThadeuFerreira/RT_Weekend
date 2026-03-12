@@ -25,6 +25,9 @@ run: debug
 run_gpu: debug
 	./build/debug -gpu
 
+run_release_gpu: release
+	./build/release -gpu
+
 run_tsan: debug-tsan
 	./build/debug-tsan -gpu
 

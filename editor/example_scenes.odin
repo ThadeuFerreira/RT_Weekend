@@ -427,24 +427,24 @@ build_volume_smoke_scene :: proc() -> (
         light_mat,
     ))
 
+    result_volumes := make([dynamic]core.SceneVolume)
     // Owned slice: caller must delete(volumes). Ensures both volumes are valid and scale is correct.
-    volumes_out := make([]core.SceneVolume, 2)
-    volumes_out[0] = core.SceneVolume{
+    append(&result_volumes, core.SceneVolume{
         box_min      = {0, 0, 0},
         box_max      = {165, 330, 165},
         rotate_y_deg = 15,
         translate    = {265, 0, 295},
         density      = 0.01,
         albedo       = {0, 0, 0},
-    }
-    volumes_out[1] = core.SceneVolume{
+    })
+    append(&result_volumes, core.SceneVolume{
         box_min      = {0, 0, 0},
         box_max      = {165, 165, 165},
         rotate_y_deg = -18,
         translate    = {130, 0, 65},
         density      = 0.01,
         albedo       = {1, 1, 1},
-    }
+    })
 
     cornell_camera := core.CameraParams{
         lookfrom      = {278, 278, -800},
@@ -459,7 +459,7 @@ build_volume_smoke_scene :: proc() -> (
         background    = {0, 0, 0},
     }
 
-    return nil, result_quads[:], cornell_camera, nil, false, volumes_out[:]
+    return nil, result_quads[:], cornell_camera, nil, false, result_volumes[:]
 }
 
 // NEXT_WEEK_FINAL_CAMERA is the camera for "The Next Week Final" scene.

@@ -125,8 +125,6 @@ file_import_from_path :: proc(app: ^App, path: string) {
     rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
     LoadFromWorld(ev.scene_mgr, world[:])
     align_editor_camera_to_render(ev, app.c_camera_params, true)
-    ev.selection_kind = .None
-    ev.selected_idx   = -1
 
     edit_history_free(&app.edit_history)
     app.edit_history = EditHistory{}
@@ -138,17 +136,9 @@ file_import_from_path :: proc(app: ^App, path: string) {
     app.current_scene_path = path
     app.e_scene_dirty = false
 
-    if !app.finished {
-        rt.finish_render(app.r_session)
-        app.finished = true
-    }
-    rt.free_session(app.r_session)
-    app.r_session = nil
-    rt.free_world_volumes(app.r_world)
-    delete(app.r_world)
+    teardown_previous_scene_for_load(app)
     app.r_world = world
     world = nil
-    clear(&app.e_volumes)
     if volumes != nil {
         for v in volumes { append(&app.e_volumes, v) }
         delete(volumes)

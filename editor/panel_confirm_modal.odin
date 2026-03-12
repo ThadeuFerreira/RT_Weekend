@@ -327,7 +327,7 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     spheres, quads, cam, ground_tex, include_ground, volumes := EXAMPLE_SCENES[scene_idx].build()
     defer delete(spheres)
     defer delete(quads)
-    if volumes != nil { defer delete(volumes) }
+    defer delete(volumes) 
     app_set_ground_texture(app, ground_tex)
     app.include_ground_plane = include_ground
     app_clear_image_texture_cache(app)
@@ -336,8 +336,6 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     for q in quads {
         InsertQuadAt(ev.scene_mgr, SceneManagerLen(ev.scene_mgr), q)
     }
-    ev.selection_kind = .None
-    ev.selected_idx   = -1
     app.c_camera_params = cam
     align_editor_camera_to_render(ev, app.c_camera_params, true)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
@@ -346,14 +344,11 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     edit_history_free(&app.edit_history)
     app.edit_history = EditHistory{}
     app.e_scene_dirty = false
-    rt.free_session(app.r_session)
-    app.r_session = nil
+
+    teardown_previous_scene_for_load(app)
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    rt.free_world_volumes(app.r_world)
-    delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
-    clear(&app.e_volumes)
     if volumes != nil {
         for v in volumes { append(&app.e_volumes, v) }
     }

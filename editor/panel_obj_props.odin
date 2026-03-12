@@ -70,10 +70,10 @@ noise_preview_unload :: proc(np: ^NoisePreview) {
 // For sphere: data in app.e_edit_view.objects[selected_idx]. For camera: app.c_camera_params.
 // Drag indices: sphere 0–10 (xyz, radius, motion dX dY dZ, rgb, mat_param); camera 0–11 (from xyz, at xyz, vfov, defocus, focus, max_depth, shutter).
 // Drag index 11 = Noise/Marble scale. Volume props: 100 + i*4 + 0 = density, +1..+3 = albedo R,G,B.
-// When a volume is selected: 200+0..2 = translate X,Y,Z; 3 = rotate_y_deg; 4 = density; 5,6,7 = albedo R,G,B; 8 = scale (uniform).
+// When a volume is selected: 200+0..2 = translate X,Y,Z; 3 = rotate_y_deg; 4 = density; 5,6,7 = albedo R,G,B.
 OP_VOLUME_DRAG_BASE         :: 100
 OP_VOLUME_SELECTED_DRAG_BASE :: 200
-OP_VOLUME_SELECTED_DRAG_COUNT :: 9
+OP_VOLUME_SELECTED_DRAG_COUNT :: 8
 ObjectPropsPanelState :: struct {
 	prop_drag_idx:       int,
 	prop_drag_start_x:   f32,
@@ -364,12 +364,6 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 		box_rot := rl.Rectangle{x0, cy, OP_FW, OP_FH}
 		op_drag_field(app, "", v.rotate_y_deg, box_rot, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 3, mouse)
 		cy += OP_FH + 8
-		volume_scale_val := (v.box_max[0] - v.box_min[0] + v.box_max[1] - v.box_min[1] + v.box_max[2] - v.box_min[2]) / 3.0
-		op_section_label(app, "Scale", lx, cy)
-		cy += 18
-		box_scale := rl.Rectangle{x0, cy, OP_FW, OP_FH}
-		op_drag_field(app, "", volume_scale_val, box_scale, st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 8, mouse)
-		cy += OP_FH + 8
 		op_section_label(app, "Density", lx, cy)
 		cy += 18
 		box_d := rl.Rectangle{x0, cy, OP_FW, OP_FH}
@@ -659,7 +653,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
 		idx := ev.selected_idx
 		v := &app.e_volumes[idx]
-		if st.prop_drag_idx >= OP_VOLUME_SELECTED_DRAG_BASE && st.prop_drag_idx <= OP_VOLUME_SELECTED_DRAG_BASE + 8 {
+		if st.prop_drag_idx >= OP_VOLUME_SELECTED_DRAG_BASE && st.prop_drag_idx <= OP_VOLUME_SELECTED_DRAG_BASE + 7 {
 			if !lmb {
 				edit_history_push(&app.edit_history, ModifyVolumeAction{
 					idx = idx, before = st.drag_before_volume, after = app.e_volumes[idx],
@@ -684,23 +678,15 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				case 5: v.albedo[0] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
 				case 6: v.albedo[1] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
 				case 7: v.albedo[2] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
-				case 8:
-					new_scale := st.prop_drag_start_val + delta * 0.02
-					if new_scale < 0.01 { new_scale = 0.01 }
-					center := (v.box_min + v.box_max) * 0.5
-					half := (v.box_max - v.box_min) * 0.5
-					old_scale := (half[0] + half[1] + half[2]) / 3.0
-					if old_scale < 1e-6 { old_scale = 1e-6 }
-					factor := new_scale / old_scale
-					v.box_min[0] = center[0] - half[0] * factor
-					v.box_min[1] = center[1] - half[1] * factor
-					v.box_min[2] = center[2] - half[2] * factor
-					v.box_max[0] = center[0] + half[0] * factor
-					v.box_max[1] = center[1] + half[1] * factor
-					v.box_max[2] = center[2] + half[2] * factor
 				}
 				rl.SetMouseCursor(.RESIZE_EW)
 			}
+			return
+		}
+		// Clear stale drag from removed volume "scale" control (index 8) on release
+		if st.prop_drag_idx == OP_VOLUME_SELECTED_DRAG_BASE + 8 && !lmb {
+			st.prop_drag_idx = -1
+			rl.SetMouseCursor(.DEFAULT)
 			return
 		}
 		if lmb_pressed {
@@ -713,9 +699,6 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			cy += OP_FH + 8 + 18
 			box_rot := rl.Rectangle{x0, cy, OP_FW, OP_FH}
 			cy += OP_FH + 8 + 18
-			volume_scale_val := (v.box_max[0] - v.box_min[0] + v.box_max[1] - v.box_min[1] + v.box_max[2] - v.box_min[2]) / 3.0
-			box_scale := rl.Rectangle{x0, cy, OP_FW, OP_FH}
-			cy += OP_FH + 8 + 18
 			box_d := rl.Rectangle{x0, cy, OP_FW, OP_FH}
 			cy += OP_FH + 8 + 18
 			box_r := rl.Rectangle{x0, cy, OP_FW, OP_FH}
@@ -725,7 +708,6 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 			if op_try_start_drag(box_ty, OP_VOLUME_SELECTED_DRAG_BASE + 1, v.translate[1], st, mouse, true) { st.drag_before_volume = v^; return }
 			if op_try_start_drag(box_tz, OP_VOLUME_SELECTED_DRAG_BASE + 2, v.translate[2], st, mouse, true) { st.drag_before_volume = v^; return }
 			if op_try_start_drag(box_rot, OP_VOLUME_SELECTED_DRAG_BASE + 3, v.rotate_y_deg, st, mouse, true) { st.drag_before_volume = v^; return }
-			if op_try_start_drag(box_scale, OP_VOLUME_SELECTED_DRAG_BASE + 8, volume_scale_val, st, mouse, true) { st.drag_before_volume = v^; return }
 			if op_try_start_drag(box_d, OP_VOLUME_SELECTED_DRAG_BASE + 4, v.density, st, mouse, true) { st.drag_before_volume = v^; return }
 			if op_try_start_drag(box_r, OP_VOLUME_SELECTED_DRAG_BASE + 5, v.albedo[0], st, mouse, true) { st.drag_before_volume = v^; return }
 			if op_try_start_drag(box_g, OP_VOLUME_SELECTED_DRAG_BASE + 6, v.albedo[1], st, mouse, true) { st.drag_before_volume = v^; return }

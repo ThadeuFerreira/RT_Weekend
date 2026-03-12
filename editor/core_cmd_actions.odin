@@ -11,14 +11,58 @@ import "RT_Weekend:util"
 
 // ── File actions ────────────────────────────────────────────────────────────
 
+// reset_editor_transient_state clears all drag/selection state so a held button or
+// stale scale-drag cannot carry into a newly loaded scene (e.g. smoke volumes).
+// Call on New, Import, and Load Example before replacing scene content.
+reset_editor_transient_state :: proc(app: ^App) {
+    ev := &app.e_edit_view
+    ev.ctx_menu_open    = false
+    ev.ctx_menu_hit_idx = -1
+    ev.selection_kind   = .None
+    ev.selected_idx    = -1
+    ev.prop_drag_idx    = -1
+    ev.drag_obj_active  = false
+    ev.nudge_active     = false
+    ev.cam_prop_drag_idx = -1
+    ev.cam_drag_active  = false
+    ev.cam_rot_drag_axis = -1
+    ev.rmb_held         = false
+    ev.bg_drag_idx      = -1
+    ev.add_dropdown_open = false
+    app.e_object_props.prop_drag_idx = -1
+}
+
+// teardown_previous_scene_for_load aggressively frees the current world and all
+// editor state that references it, so no stale data can affect the next scene.
+// Call before building or assigning the new scene. Allocates a fresh e_volumes;
+// caller fills it (or leaves it empty). After this, app.r_world is deleted and
+// must be reassigned before any use.
+teardown_previous_scene_for_load :: proc(app: ^App) {
+    reset_editor_transient_state(app)
+    if app.r_session != nil {
+        rt.finish_render(app.r_session)
+        rt.free_session(app.r_session)
+        app.r_session = nil
+    }
+    rt.free_world_volumes(app.r_world)
+    delete(app.r_world)
+    ev := &app.e_edit_view
+    if ev.viz_bvh_root != nil {
+        rt.free_bvh(ev.viz_bvh_root)
+        ev.viz_bvh_root = nil
+    }
+    ev.viz_bvh_dirty = true
+    ev.viewport_sphere_cache_dirty = true
+    delete(app.e_volumes)
+    app.e_volumes = make([dynamic]core.SceneVolume)
+}
+
 cmd_action_file_new :: proc(app: ^App) {
     if !app.finished { return }
+    teardown_previous_scene_for_load(app)
     app.include_ground_plane = true
     app_set_ground_texture(app, nil)
     app_clear_image_texture_cache(app)
-
-    rt.free_session(app.r_session)
-    app.r_session = nil
 
     ev := &app.e_edit_view
     initial := [3]core.SceneSphere{
@@ -28,15 +72,11 @@ cmd_action_file_new :: proc(app: ^App) {
     }
     LoadFromSceneSpheres(ev.scene_mgr, initial[:])
     align_editor_camera_to_render(ev, app.c_camera_params, true)
-    ev.selection_kind = .None
-    ev.selected_idx   = -1
 
     delete(app.current_scene_path)
     app.current_scene_path = ""
 
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    rt.free_world_volumes(app.r_world)
-    delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
     app_append_volumes_to_world(app, &app.r_world)
