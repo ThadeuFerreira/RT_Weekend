@@ -336,8 +336,12 @@ float rand(inout uint seed) {
 }
 
 // rand2() returns two independent uniform floats.
+// Evaluation order must be fixed: multiple rand(seed) in one expression
+// would have unspecified order in GLSL and cause non-deterministic rendering.
 vec2 rand2(inout uint seed) {
-    return vec2(rand(seed), rand(seed));
+    float a = rand(seed);
+    float b = rand(seed);
+    return vec2(a, b);
 }
 
 // rand_unit_vec3 returns a random unit vector (uniform on the sphere).
@@ -345,7 +349,10 @@ vec2 rand2(inout uint seed) {
 // reject if outside the unit sphere, then normalize.
 vec3 rand_unit_vec3(inout uint seed) {
     for (int i = 0; i < 16; i++) {
-        vec3 p = vec3(rand(seed), rand(seed), rand(seed)) * 2.0 - 1.0;
+        float x = rand(seed);
+        float y = rand(seed);
+        float z = rand(seed);
+        vec3 p = vec3(x, y, z) * 2.0 - 1.0;
         float lsq = dot(p, p);
         if (lsq <= 1.0 && lsq > 1e-8) return p / sqrt(lsq);
     }
@@ -564,6 +571,7 @@ bool volume_boundary_interval(int vol_idx, Ray r, float t_min, float t_max, out 
     int start = vol.quad_start;
     if (start < 0 || start + 6 > volume_quad_count) return false;
     float hits[6];
+    for (int i = 0; i < 6; i++) hits[i] = 0.0;
     int n = 0;
     for (int i = 0; i < 6 && n < 6; i++) {
         Quad q = volume_quads[start + i];
