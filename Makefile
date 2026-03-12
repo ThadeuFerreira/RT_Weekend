@@ -1,8 +1,12 @@
-.PHONY: debug release run run_gpu test test-release test-all
+.PHONY: debug debug-tsan release run run_gpu test test-release test-all
 
 debug:
 	mkdir -p build
 	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -out:build/debug
+
+debug-tsan:
+	mkdir -p build
+	odin build . -collection:RT_Weekend=. -debug -sanitize:thread -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -out:build/debug-tsan
 
 release:
 	mkdir -p build
@@ -20,6 +24,9 @@ run: debug
 
 run_gpu: debug
 	./build/debug -gpu
+
+run_tsan: debug-tsan
+	./build/debug-tsan -gpu
 
 test: debug
 	chmod +x tests/run_tests.sh && ./tests/run_tests.sh debug

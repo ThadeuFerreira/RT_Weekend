@@ -53,6 +53,10 @@ layout(std140, binding = 0) uniform CameraBlock {
     vec4 background;        // .rgb miss color (flat background)
 };
 
+// Global seed for deterministic debugging; combined with pixel/sample indices
+// when seeding the RNG. Host sets this via u_global_seed (defaults to 0).
+uniform uint u_global_seed;
+
 // =============================================================
 // Binding 1 — Sphere array (SSBO, std430)
 // Matches GPUSphere in raytrace/gpu_types.odin.
@@ -373,6 +377,15 @@ vec3 ray_at(Ray r, float t) {
     return r.origin + t * r.dir;
 }
 
+// Finite helpers for NaN/Inf detection.
+bool is_finite_float(float x) {
+    return !isnan(x) && !isinf(x);
+}
+
+bool is_finite_vec3(vec3 v) {
+    return is_finite_float(v.x) && is_finite_float(v.y) && is_finite_float(v.z);
+}
+
 // Returns the sphere center at ray time t.
 // For static spheres (_pad[0] == 0), returns the t=0 position.
 // For moving spheres, interpolates: origin + t * dir (dir = velocity = center1 - center0).
@@ -607,7 +620,9 @@ bool hit_volume(int vol_idx, Ray r, float t_min, float t_max, float closest, ino
     float segment_length = t_exit - t_entry;
     float u = rand(seed);
     if (u >= 1.0 - 1e-7) return false;
-    float hit_distance = -log(1.0 - u) / vol.density;
+    float density = max(vol.density, 1e-6);
+    float one_minus_u = max(1.0 - u, 1e-7);
+    float hit_distance = -log(one_minus_u) / density;
     if (hit_distance >= segment_length) return false;
     float t_scatter = t_entry + hit_distance;
     if (t_scatter >= closest) return false;
@@ -724,7 +739,7 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, inout uint seed, out HitReco
         } else if (node.left_idx == LEAF_VOLUME) {
             // ── Volume leaf ── right_or_obj_idx = -(volume_index + 1)
             int vol_idx = -(node.right_or_obj_idx + 1);
-            if (vol_idx >= 0 && volume_count > 0) {
+            if (vol_idx >= 0 && vol_idx < volume_count && volume_count > 0) {
                 HitRecord rec;
                 if (hit_volume(vol_idx, r, t_min, t_max, closest, seed, rec)) {
                     closest     = rec.t;
@@ -953,10 +968,10 @@ void main() {
 
     int pixel_idx = pixel.y * width + pixel.x;
 
-    // ── Seed the RNG uniquely per (pixel, sample) ──────────
-    uint pixel_index = uint(pixel_idx);
+    // ── Seed the RNG uniquely per (pixel, sample, global seed) ──────────
+    uint pixel_index  = uint(pixel_idx);
     uint sample_index = uint(current_sample);
-    uint seed = pcg_hash(pixel_index ^ (sample_index * 2654435761u));
+    uint seed = pcg_hash(pixel_index ^ (sample_index * 2654435761u) ^ u_global_seed);
     // Warm up the RNG by discarding a few values.
     pcg(seed); pcg(seed);
 
@@ -986,6 +1001,10 @@ void main() {
 
     // ── Trace the path ──────────────────────────────────────
     vec3 colour = path_trace(primary, seed);
+    if (!is_finite_vec3(colour)) {
+        // Clamp invalid colours to black to prevent NaN/Inf from poisoning accumulation.
+        colour = vec3(0.0);
+    }
 
     // ── Accumulate into output buffer ───────────────────────
     // Each dispatch call adds one sample to the buffer.

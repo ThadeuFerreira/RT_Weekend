@@ -29,6 +29,7 @@ import "core:math"
 import "base:runtime"
 import "core:strings"
 import "core:time"
+import "RT_Weekend:util"
 import gl "vendor:OpenGL"
 
 // ── GL proc loader (Linux) ───────────────────────────────────────────────────
@@ -188,6 +189,9 @@ gpu_backend_init :: proc(
     samples:      int,
 ) -> (^GPUBackend, bool) {
 
+    init_scope := util.trace_scope_begin("Gpu.Init", "render")
+    defer util.trace_scope_end(init_scope)
+
     // Load all OpenGL 4.6 function pointers.  Safe to call multiple times;
     // subsequent calls are fast no-ops because pointers are already set.
     when ODIN_OS == .Linux || ODIN_OS == .Windows || ODIN_OS == .Darwin {
@@ -261,6 +265,14 @@ gpu_backend_init :: proc(
                 gl.Uniform1i(loc, i32(4 + i))
             }
         }
+    }
+
+    // Set deterministic global seed for the GPU RNG. This can be extended later to
+    // take a CLI or config value; 0 keeps behaviour identical to previous versions.
+    gl.UseProgram(b.program)
+    seed_loc := gl.GetUniformLocation(b.program, "u_global_seed")
+    if seed_loc >= 0 {
+        gl.Uniform1ui(seed_loc, 0)
     }
 
     // Allocate UBO + SSBOs (camera, spheres, quads, BVH, volumes, volume_quads, output).
@@ -352,8 +364,18 @@ gpu_backend_init :: proc(
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 
     when VERBOSE_OUTPUT {
-        fmt.printf("[GPU] Buffers ready — %d spheres, %d quads, %d volumes, %d BVH nodes, %dx%d px\n",
-            len(spheres), len(quads), len(volumes), len(lin_bvh), cam.image_width, cam.image_height)
+        scene_bytes   := len(spheres) * size_of(GPUSphere) +
+                         len(quads) * size_of(GPUQuad) +
+                         len(lin_bvh) * size_of(LinearBVHNode) +
+                         len(volumes) * size_of(GPUVolume) +
+                         len(volume_quads) * size_of(GPUQuad)
+        output_bytes  := output_total
+        scene_mb      := f64(scene_bytes) / (1024.0 * 1024.0)
+        output_mb     := f64(output_bytes) / (1024.0 * 1024.0)
+        total_mb      := scene_mb + output_mb
+        fmt.printf("[GPU] Buffers ready — %d spheres, %d quads, %d volumes, %d BVH nodes, %dx%d px (scene=%.2f MB, output=%.2f MB, total~%.2f MB)\n",
+            len(spheres), len(quads), len(volumes), len(lin_bvh), cam.image_width, cam.image_height,
+            scene_mb, output_mb, total_mb)
     }
     return b, true
 }
@@ -442,11 +464,21 @@ gpu_backend_readback :: proc(b: ^GPUBackend, out: [][4]u8) {
 
     inv := f32(1.0) / f32(max(b.current_sample, 1))
 
+    // Optional debug: count non-finite pixels after accumulation (pre-gamma).
+    // This complements the GLSL-side clamp in raytrace.comp and can be used
+    // with VERBOSE_OUTPUT to spot numerical issues in volumetric paths.
+    non_finite_count := 0
+
     for i in 0..<pixel_count {
         // Divide by sample count to get the running average.
         r := tmp[i][0] * inv
         g := tmp[i][1] * inv
         bv := tmp[i][2] * inv
+
+        if !(r == r && g == g && bv == bv) {
+            non_finite_count += 1
+            r, g, bv = 0, 0, 0
+        }
 
         // Gamma correction (γ = 2.0): sqrt maps linear light to display gamma.
         // Mirrors linear_to_gamma in vector3.odin.
@@ -459,6 +491,12 @@ gpu_backend_readback :: proc(b: ^GPUBackend, out: [][4]u8) {
             u8(g  * 255.999),
             u8(bv * 255.999),
             255,
+        }
+    }
+
+    when VERBOSE_OUTPUT {
+        if non_finite_count > 0 {
+            fmt.printf("[GPU] Readback: %d pixels with non-finite colour\n", non_finite_count)
         }
     }
 }
