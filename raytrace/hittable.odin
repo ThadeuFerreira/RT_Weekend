@@ -11,6 +11,10 @@ USE_SAH_BVH :: #config(USE_SAH_BVH, true)
 // Number of bins for binned SAH construction.
 N_BINS :: 12
 
+is_finite_f32 :: proc(x: f32) -> bool {
+    return x == x && x != math.inf_f32(1) && x != math.inf_f32(-1)
+}
+
 hit_record :: struct {
     p : [3]f32,
     normal : [3]f32,
@@ -183,24 +187,30 @@ aabb_hit_fast :: proc(box: AABB, dir: [3]f32, inv_dir: [3]f32, origin: [3]f32, r
 }
 
 object_center :: proc(obj: Object, axis: int) -> f32 {
+	center := f32(0)
 	switch o in obj {
 	case Sphere:
-		if o.is_moving { return (o.center[axis] + o.center1[axis]) * 0.5 }
-		return o.center[axis]
+		if o.is_moving {
+			center = (o.center[axis] + o.center1[axis]) * 0.5
+		} else {
+			center = o.center[axis]
+		}
 	case Quad:
-		return o.Q[axis] + (o.u[axis] + o.v[axis]) * 0.5
+		center = o.Q[axis] + (o.u[axis] + o.v[axis]) * 0.5
 	case ConstantMedium:
 		if o.boundary_bvh != nil {
 			bb := o.boundary_bvh.bbox
 			switch axis {
-			case 0: return (bb.x.min + bb.x.max) * 0.5
-			case 1: return (bb.y.min + bb.y.max) * 0.5
-			case 2: return (bb.z.min + bb.z.max) * 0.5
+			case 0: center = (bb.x.min + bb.x.max) * 0.5
+			case 1: center = (bb.y.min + bb.y.max) * 0.5
+			case 2: center = (bb.z.min + bb.z.max) * 0.5
 			}
 		}
+	}
+	if !is_finite_f32(center) {
 		return 0.0
 	}
-	return 0.0
+	return center
 }
 
 @(private)

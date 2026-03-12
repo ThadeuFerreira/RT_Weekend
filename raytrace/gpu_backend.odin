@@ -34,6 +34,8 @@ import "core:time"
 import "RT_Weekend:util"
 import gl "vendor:OpenGL"
 
+ENABLE_GL_DEBUG_CALLBACK :: #config(ENABLE_GL_DEBUG_CALLBACK, true)
+
 // ── GL proc loader (Linux) ───────────────────────────────────────────────────
 //
 // glXGetProcAddressARB resolves any GL 4.x function by name as long as a
@@ -205,9 +207,9 @@ gpu_backend_init :: proc(
 
     // Enable GL debug output when profiling is on — gives readable error messages
     // for shader compile errors, invalid operations, etc.
-    // Disabled when ODIN_TSAN=true: the GL driver (e.g. Mesa) uses internal threads
-    // that race with our gl.Enable/debug callback; TSAN reports false positives.
-    when PROFILING_ENABLED && !ODIN_TSAN {
+    // Disabled in TSAN builds because Mesa/GL driver helper threads can trigger
+    // noisy race reports during debug callback registration.
+    when PROFILING_ENABLED && ENABLE_GL_DEBUG_CALLBACK && !ODIN_TSAN {
         if gl.DebugMessageCallback != nil {
             gl.Enable(gl.DEBUG_OUTPUT)
             gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
