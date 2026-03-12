@@ -363,6 +363,8 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 					scale_xyz    = o.scale_xyz,
 				})
 			}
+		case rt.ConstantMedium:
+			// Volume geometry is not round-tripped from world; save from volumes slice when provided.
 		}
 	}
 	if volumes != nil {
