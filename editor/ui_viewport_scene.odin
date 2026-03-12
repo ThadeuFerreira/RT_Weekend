@@ -177,11 +177,18 @@ volume_world_corners :: proc(v: core.SceneVolume, corners: ^[8]rl.Vector3) {
 	min_x, min_y, min_z := v.box_min[0], v.box_min[1], v.box_min[2]
 	max_x, max_y, max_z := v.box_max[0], v.box_max[1], v.box_max[2]
 	tx, ty, tz := v.translate[0], v.translate[1], v.translate[2]
+	// Use same rotation formula as raytrace but negate the angle.
+	// This accounts for the coordinate system difference between raytrace (right-handed)
+	// and the editor viewport (Raylib left-handed).
 	rot_xz :: proc(x, z: f32, cx, sx: f32) -> (wx, wz: f32) {
 		wx = cx*x - sx*z
 		wz = sx*x + cx*z
 		return
 	}
+	// Negate the rotation angle for the editor viewport
+	neg_angle := -v.rotate_y_deg * (math.PI / 180.0)
+	cos_y = math.cos(neg_angle)
+	sin_y = math.sin(neg_angle)
 	local := [8][3]f32{
 		{min_x, min_y, min_z}, {max_x, min_y, min_z}, {max_x, max_y, min_z}, {min_x, max_y, min_z},
 		{min_x, min_y, max_z}, {max_x, min_y, max_z}, {max_x, max_y, max_z}, {min_x, max_y, max_z},

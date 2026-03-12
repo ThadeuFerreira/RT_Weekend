@@ -707,7 +707,7 @@ update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 					if new_scale < 0.01 { new_scale = 0.01 }
 					center := (v.box_min + v.box_max) * 0.5
 					half := (v.box_max - v.box_min) * 0.5
-					old_scale := (half[0] + half[1] + half[2]) / 3.0
+					old_scale := (v.box_max[0] - v.box_min[0] + v.box_max[1] - v.box_min[1] + v.box_max[2] - v.box_min[2]) / 3.0
 					if old_scale < 1e-6 { old_scale = 1e-6 }
 					factor := new_scale / old_scale
 					v.box_min[0] = center[0] - half[0] * factor

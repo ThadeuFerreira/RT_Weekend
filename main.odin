@@ -165,7 +165,7 @@ main :: proc() {
             r_world = raytrace.build_world_from_scene(scene_spheres, raytrace.ConstantTexture{color = {0.5, 0.5, 0.5}}, nil, true)
             fmt.printf("[TestRot] world has %d objects (1 TransformedObject expected for metallic blue sphere)\n", len(r_world))
             for _wi in 0..<len(r_world) {
-                switch o in r_world[_wi] {
+                #partial switch o in r_world[_wi] {
                 case raytrace.Sphere:            fmt.printf("  [%d] Sphere center=%v r=%v\n", _wi, o.center, o.radius)
                 case raytrace.Quad:              fmt.printf("  [%d] Quad\n", _wi)
                 case raytrace.TransformedObject: fmt.printf("  [%d] TransformedObject transl=%v rot=%v bbox=(%v,%v)\n", _wi, o.translation, o.rotation_deg, [3]f32{o.bbox.x.min, o.bbox.y.min, o.bbox.z.min}, [3]f32{o.bbox.x.max, o.bbox.y.max, o.bbox.z.max})
