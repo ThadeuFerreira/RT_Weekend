@@ -1,5 +1,7 @@
 package raytrace
 
+import "core:fmt"
+import "core:os"
 import "RT_Weekend:core"
 
 // ============================================================
@@ -212,7 +214,10 @@ GPUVolume :: struct #packed {
 
 // scene_to_gpu_volumes builds GPUVolume and boundary GPUQuad arrays from world.
 // Volumes are ConstantMedium objects; each volume's boundary_bvh is traversed to
-// collect 6 quads (from append_box_transformed). Caller must delete both returned slices.
+// collect boundary quads. NOTE: the GPU shader currently only supports box boundaries
+// (exactly 6 quads per volume, produced by append_box_transformed). A volume whose
+// boundary has a different quad count is skipped with a stderr warning.
+// Caller must delete both returned slices.
 scene_to_gpu_volumes :: proc(objects: []Object) -> (volumes: []GPUVolume, volume_quads: []GPUQuad) {
     count := 0
     for o in objects {
@@ -228,13 +233,24 @@ scene_to_gpu_volumes :: proc(objects: []Object) -> (volumes: []GPUVolume, volume
     for o in objects {
         vol, ok := o.(ConstantMedium)
         if !ok { continue }
+        quads_before := len(boundary_quads)
         collect_quads_from_bvh(vol.boundary_bvh, &boundary_quads)
+        quads_added := len(boundary_quads) - quads_before
+        // GPU shader only supports box boundaries (6 quads). Skip and warn otherwise.
+        if quads_added != 6 {
+            fmt.fprintf(os.stderr,
+                "[GPU] scene_to_gpu_volumes: volume %d has %d boundary quads (expected 6); skipping — only box boundaries are supported.\n",
+                idx, quads_added)
+            resize(&boundary_quads, quads_before) // revert partial quads
+            idx += 1
+            continue
+        }
         d := vol.density
         if d <= 0 { d = 0.01 }
         volumes[idx] = GPUVolume{
             density    = d,
             albedo     = vol.albedo,
-            quad_start = i32(len(boundary_quads) - 6),
+            quad_start = i32(quads_before),
         }
         idx += 1
     }

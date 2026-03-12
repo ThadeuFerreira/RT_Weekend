@@ -172,8 +172,6 @@ ensure_viewport_sphere_cache_filled :: proc(app: ^App, ev: ^EditViewState) {
 // volume_world_corners fills the 8 world-space corners of a SceneVolume (box after rotate_y + translate).
 // Order: back face z=min (0..3), front face z=max (4..7); same as box corners.
 volume_world_corners :: proc(v: core.SceneVolume, corners: ^[8]rl.Vector3) {
-	cos_y := math.cos(v.rotate_y_deg * (math.PI / 180.0))
-	sin_y := math.sin(v.rotate_y_deg * (math.PI / 180.0))
 	min_x, min_y, min_z := v.box_min[0], v.box_min[1], v.box_min[2]
 	max_x, max_y, max_z := v.box_max[0], v.box_max[1], v.box_max[2]
 	tx, ty, tz := v.translate[0], v.translate[1], v.translate[2]
@@ -185,10 +183,9 @@ volume_world_corners :: proc(v: core.SceneVolume, corners: ^[8]rl.Vector3) {
 		wz = sx*x + cx*z
 		return
 	}
-	// Negate the rotation angle for the editor viewport
 	neg_angle := -v.rotate_y_deg * (math.PI / 180.0)
-	cos_y = math.cos(neg_angle)
-	sin_y = math.sin(neg_angle)
+	cos_y := math.cos(neg_angle)
+	sin_y := math.sin(neg_angle)
 	local := [8][3]f32{
 		{min_x, min_y, min_z}, {max_x, min_y, min_z}, {max_x, max_y, min_z}, {min_x, max_y, min_z},
 		{min_x, min_y, max_z}, {max_x, min_y, max_z}, {max_x, max_y, max_z}, {min_x, max_y, max_z},
