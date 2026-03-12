@@ -5,11 +5,13 @@ import rl "vendor:raylib"
 import "RT_Weekend:core"
 import rt "RT_Weekend:raytrace"
 
-// Selection kind when picking in the viewport: none, sphere, quad, or camera (used by Edit View).
+// Selection kind when picking in the viewport: none, sphere, quad, volume, or camera (used by Edit View).
+// When Volume: selected_idx is the index into app.e_volumes.
 EditViewSelectionKind :: enum {
 	None,
 	Sphere,
 	Quad,
+	Volume,
 	Camera,
 }
 
@@ -214,6 +216,28 @@ scene_scale_recommendations :: proc(sm: ^SceneManager) -> (center: [3]f32, radiu
 	return
 }
 
+// default_volume_from_scene_scale returns box_min, box_max, and translate for a new volume
+// so the volume is a 1:1 cube scaled to the scene (not too small in large scenes, not too big in small ones).
+// When the scene has no bounds, returns a unit cube at origin.
+default_volume_from_scene_scale :: proc(sm: ^SceneManager) -> (box_min, box_max, translate: [3]f32) {
+	box_min = {-0.5, -0.5, -0.5}
+	box_max = {0.5, 0.5, 0.5}
+	translate = {0, 0, 0}
+	bmin, bmax, ok := scene_manager_bounds(sm)
+	if !ok {
+		return
+	}
+	center := (bmin + bmax) * 0.5
+	d := bmax - bmin
+	diag := math.sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2])
+	if diag < 1.0 { diag = 1.0 }
+	half := max(diag * 0.15, f32(0.5))
+	box_min = {-half, -half, -half}
+	box_max = {half, half, half}
+	translate = center
+	return
+}
+
 PickSphereInManager :: proc(sm: ^SceneManager, ray: rl.Ray) -> int {
 	if sm == nil { return -1 }
 	best_idx  := -1
@@ -342,6 +366,9 @@ LoadFromWorld :: proc(sm: ^SceneManager, world: []rt.Object) {
 			append(&sm.objects, rt.sphere_to_scene_sphere(o))
 		case rt.Quad:
 			append(&sm.objects, o)
+		case rt.ConstantMedium:
+			// Volumes are not editable in the scene manager; they remain in r_world for rendering.
+			continue
 		}
 	}
 }

@@ -163,13 +163,13 @@ ray_color :: proc(r: ray, depth: int, world: [dynamic]Object, rng: ^util.ThreadR
         defer PROFILE_SCOPE_END(scope)
 
         if bvh_root != nil {
-            hit_anything = bvh_hit(bvh_root, r, ray_t, &hr, &closest_so_far)
+            hit_anything = bvh_hit(bvh_root, r, ray_t, &hr, &closest_so_far, rng)
             if hit_anything && thread_breakdown != nil {
                 thread_breakdown.total_intersections += 1
             }
         } else {
             for o in world {
-                if hit(r, ray_t, &hr, o, &closest_so_far) {
+                if hit(r, ray_t, &hr, o, &closest_so_far, rng) {
                     hit_anything = true
                     if thread_breakdown != nil {
                         thread_breakdown.total_intersections += 1
@@ -237,13 +237,13 @@ ray_color_linear :: proc(
 
         if linear_nodes != nil && len(linear_nodes) > 0 {
             world_slice := world[:]
-            hr, hit_anything = bvh_hit_linear(linear_nodes, world_slice, r, ray_t)
+            hr, hit_anything = bvh_hit_linear(linear_nodes, world_slice, r, ray_t, rng)
             if hit_anything { closest = hr.t }
         } else if bvh_root != nil {
-            hit_anything = bvh_hit(bvh_root, r, ray_t, &hr, &closest)
+            hit_anything = bvh_hit(bvh_root, r, ray_t, &hr, &closest, rng)
         } else {
             for o in world {
-                if hit(r, ray_t, &hr, o, &closest) {
+                if hit(r, ray_t, &hr, o, &closest, rng) {
                     hit_anything = true
                 }
             }

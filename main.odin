@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import "RT_Weekend:editor"
 import "RT_Weekend:raytrace"
@@ -91,6 +92,7 @@ main :: proc() {
 
     r_camera: ^raytrace.Camera
     r_world: [dynamic]raytrace.Object
+    initial_volumes: [dynamic]core.SceneVolume = nil
     earth_img: ^raytrace.Texture_Image = nil
 
     if len(args.ScenePath) > 0 {
@@ -110,13 +112,14 @@ main :: proc() {
             }
             r_camera, r_world = raytrace.setup_earth_scene(image_width, image_height, samples_per_pixel, "assets/textures/earthmap1k.jpg", earth_img)
         } else {
-            cam, w, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
+            cam, w, vols, ok := persistence.load_scene(args.ScenePath, image_width, image_height, samples_per_pixel)
             if !ok {
                 fmt.fprintf(os.stderr, "Warning: failed to load scene %s; using default scene (3 spheres).\n", args.ScenePath)
                 r_camera, r_world = raytrace.setup_scene(image_width, image_height, samples_per_pixel, number_of_spheres)
             } else {
                 r_camera = cam
                 r_world = w
+                initial_volumes = vols
             }
         }
     } else {
@@ -138,6 +141,7 @@ main :: proc() {
         }
         // No scene file: use procedural scene (same as editor default).
         if len(args.ScenePath) == 0 {
+            raytrace.free_world_volumes(r_world)
             delete(r_world)
             free(r_camera)
             r_camera, r_world = raytrace.setup_scene(image_width, image_height, samples_per_pixel, number_of_spheres)
@@ -185,6 +189,7 @@ main :: proc() {
         }
 
         raytrace.free_session(session)
+        raytrace.free_world_volumes(r_world)
         delete(r_world)
         free(r_camera)
         if earth_img != nil {
@@ -194,7 +199,7 @@ main :: proc() {
         return
     }
 
-    editor.run_app(r_camera, r_world, thread_count, args.UseGPU, initial_editor, initial_editor_view, args.SaveConfigPath, initial_presets)
+    editor.run_app(r_camera, r_world, thread_count, args.UseGPU, initial_editor, initial_editor_view, args.SaveConfigPath, initial_presets, initial_volumes)
     if initial_editor != nil {
         delete(initial_editor.panels)
         free(initial_editor)

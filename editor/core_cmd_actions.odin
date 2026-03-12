@@ -35,9 +35,11 @@ cmd_action_file_new :: proc(app: ^App) {
     app.current_scene_path = ""
 
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    rt.free_world_volumes(app.r_world)
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
+    app_append_volumes_to_world(app, &app.r_world)
 
     app.finished     = false
     app.elapsed_secs = 0
@@ -78,7 +80,7 @@ cmd_action_file_save :: proc(app: ^App) -> bool {
     AppendQuadsToWorld(ev.scene_mgr, &world)
     defer delete(world)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-    if persistence.save_scene(app.current_scene_path, app.r_camera, world) {
+    if persistence.save_scene(app.current_scene_path, app.r_camera, world, app.e_volumes[:]) {
         app.e_scene_dirty = false
         app_push_log(app, fmt.aprintf("Saved: %s", app.current_scene_path))
         return true
@@ -331,6 +333,46 @@ apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
         } else {
             app.c_camera_params = a.after
             app_push_log(app, strings.clone("Redo: camera"))
+        }
+    case ModifyVolumeAction:
+        if a.idx >= 0 && a.idx < len(app.e_volumes) {
+            if is_undo {
+                app.e_volumes[a.idx] = a.before
+                app_push_log(app, strings.clone("Undo: volume"))
+            } else {
+                app.e_volumes[a.idx] = a.after
+                app_push_log(app, strings.clone("Redo: volume"))
+            }
+        }
+    case AddVolumeAction:
+        if is_undo {
+            if a.idx >= 0 && a.idx < len(app.e_volumes) {
+                ordered_remove(&app.e_volumes, a.idx)
+            }
+            ev.selection_kind = .None
+            ev.selected_idx   = -1
+            app_push_log(app, strings.clone("Undo: add volume"))
+        } else {
+            insert_idx := clamp(a.idx, 0, len(app.e_volumes))
+            inject_at(&app.e_volumes, insert_idx, a.volume)
+            ev.selection_kind = .Volume
+            ev.selected_idx   = insert_idx
+            app_push_log(app, strings.clone("Redo: add volume"))
+        }
+    case DeleteVolumeAction:
+        if is_undo {
+            insert_idx := clamp(a.idx, 0, len(app.e_volumes))
+            inject_at(&app.e_volumes, insert_idx, a.volume)
+            ev.selection_kind = .Volume
+            ev.selected_idx   = a.idx
+            app_push_log(app, strings.clone("Undo: delete volume"))
+        } else {
+            if a.idx >= 0 && a.idx < len(app.e_volumes) {
+                ordered_remove(&app.e_volumes, a.idx)
+            }
+            ev.selection_kind = .None
+            ev.selected_idx   = -1
+            app_push_log(app, strings.clone("Redo: delete volume"))
         }
     }
 }

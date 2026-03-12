@@ -324,9 +324,10 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
             if !file_save_as_path(app, path) { return false } // save failed, don't load
         }
     }
-    spheres, quads, cam, ground_tex, include_ground := EXAMPLE_SCENES[scene_idx].build()
+    spheres, quads, cam, ground_tex, include_ground, volumes := EXAMPLE_SCENES[scene_idx].build()
     defer delete(spheres)
     defer delete(quads)
+    if volumes != nil { defer delete(volumes) }
     app_set_ground_texture(app, ground_tex)
     app.include_ground_plane = include_ground
     app_clear_image_texture_cache(app)
@@ -348,9 +349,17 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     rt.free_session(app.r_session)
     app.r_session = nil
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    rt.free_world_volumes(app.r_world)
     delete(app.r_world)
     app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
+    clear(&app.e_volumes)
+    if volumes != nil {
+        for v in volumes { append(&app.e_volumes, v) }
+    }
+    for v in app.e_volumes {
+        append(&app.r_world, rt.build_volume_from_scene_volume(v))
+    }
     app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()

@@ -48,6 +48,9 @@ sphere_to_scene_sphere :: proc(s: Sphere) -> core.SceneSphere {
 	case diffuse_light:
 		ss.material_kind = .DiffuseLight
 		ss.albedo = core.ConstantTexture{color = m.emit}
+	case isotropic:
+		ss.material_kind = .Isotropic
+		ss.albedo = core.ConstantTexture{color = m.albedo}
 	case:
 		ss.material_kind = .Lambertian
 		ss.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
@@ -241,6 +244,14 @@ build_world_from_scene :: proc(
 				emit_col = ct2.even
 			}
 			mat = material(diffuse_light{emit = emit_col})
+		case .Isotropic:
+			albedo_col := [3]f32{0.5, 0.5, 0.5}
+			if ct, ok := s.albedo.(core.ConstantTexture); ok {
+				albedo_col = ct.color
+			} else if ct2, ok := s.albedo.(core.CheckerTexture); ok {
+				albedo_col = ct2.even
+			}
+			mat = material(isotropic{albedo = albedo_col})
 		case:
 			albedo_fallback: RTexture = ConstantTexture{color = {0.5, 0.5, 0.5}}
 			switch a in s.albedo {

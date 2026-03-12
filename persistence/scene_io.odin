@@ -49,9 +49,20 @@ SceneObject :: struct {
 	v:           [3]f32        `json:"v,omitempty"`,
 }
 
+// SceneVolumeData is the JSON-serializable form of a volume (constant-density fog/smoke box).
+SceneVolumeData :: struct {
+	box_min:       [3]f32 `json:"box_min"`,
+	box_max:       [3]f32 `json:"box_max"`,
+	rotate_y_deg:  f32    `json:"rotate_y_deg,omitempty"`,
+	translate:     [3]f32 `json:"translate,omitempty"`,
+	density:       f32    `json:"density,omitempty"`,
+	albedo:        [3]f32 `json:"albedo,omitempty"`,
+}
+
 SceneFile :: struct {
-	camera:  SceneCamera         `json:"camera"`,
+	camera:  SceneCamera          `json:"camera"`,
 	objects: [dynamic]SceneObject `json:"objects"`,
+	volumes: [dynamic]SceneVolumeData `json:"volumes,omitempty"`,
 }
 
 @(private)
@@ -90,18 +101,19 @@ _scene_resolve_image_path :: proc(scene_dir, image_path: string, allocator := co
 // When image_cache is non-nil, image_path fields in lambertian materials are loaded from disk (paths relative to
 // the scene file directory) and stored in the cache; the world is then built with ImageTextureRuntime so
 // image textures render correctly. When image_cache is nil, image_path is ignored and lambertian uses albedo only.
-// Returns (camera, world, true) on success; (nil, nil, false) on error.
+// Returns (camera, world, volumes, true) on success; (nil, nil, nil, false) on error.
+// volumes is the list of scene volume definitions (for editor round-trip); caller must delete(volumes).
 load_scene :: proc(
 	path: string,
 	image_width: int,
 	image_height: int,
 	samples_per_pixel: int,
 	image_cache: ^map[string]^rt.Texture_Image = nil,
-) -> (^rt.Camera, [dynamic]rt.Object, bool) {
+) -> (^rt.Camera, [dynamic]rt.Object, [dynamic]core.SceneVolume, bool) {
 	data, read_ok := os.read_entire_file(path)
 	if !read_ok {
 		fmt.fprintf(os.stderr, "Scene file not found or unreadable: %s\n", path)
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	defer delete(data)
 
@@ -109,7 +121,7 @@ load_scene :: proc(
 	err := json.unmarshal(data, &scene)
 	if err != nil {
 		fmt.fprintf(os.stderr, "Scene parse error: %v\n", err)
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 
 	scene_dir := filepath.dir(path)
@@ -179,6 +191,9 @@ load_scene :: proc(
 	if scene.objects != nil {
 		cap_val = len(scene.objects)
 	}
+	if scene.volumes != nil {
+		cap_val += len(scene.volumes)
+	}
 	world := make([dynamic]rt.Object, 0, cap_val)
 	if scene.objects != nil {
 		for &obj in scene.objects {
@@ -203,9 +218,25 @@ load_scene :: proc(
 			}
 		}
 		delete(scene.objects)
-	} // free array allocated by json.unmarshal
+	}
+	volumes_out := make([dynamic]core.SceneVolume)
+	if scene.volumes != nil {
+		for &v in scene.volumes {
+			sv := core.SceneVolume{
+				box_min      = v.box_min,
+				box_max      = v.box_max,
+				rotate_y_deg = v.rotate_y_deg,
+				translate   = v.translate,
+				density     = v.density != 0 ? v.density : 0.01,
+				albedo      = v.albedo,
+			}
+			append(&volumes_out, sv)
+			append(&world, rt.build_volume_from_scene_volume(sv))
+		}
+		delete(scene.volumes)
+	}
 
-	return cam, world, true
+	return cam, world, volumes_out, true
 }
 
 scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_cache: ^map[string]^rt.Texture_Image = nil) -> rt.material {
@@ -246,13 +277,14 @@ scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_c
 }
 
 // save_scene writes the current camera (pose/view) and world to a JSON scene file.
-save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Object) -> bool {
+// When volumes is non-nil, volume definitions are written so they can be reloaded (world alone cannot be round-tripped for volumes).
+save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Object, volumes: []core.SceneVolume = nil) -> bool {
 	if r_camera == nil {
 		return false
 	}
 
 	scene := SceneFile{
-		camera = SceneCamera{
+		camera  = SceneCamera{
 			lookfrom      = r_camera.lookfrom,
 			lookat        = r_camera.lookat,
 			vup           = r_camera.vup,
@@ -265,8 +297,10 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 			background    = r_camera.background,
 		},
 		objects = make([dynamic]SceneObject),
+		volumes = make([dynamic]SceneVolumeData),
 	}
 	defer delete(scene.objects)
+	defer delete(scene.volumes)
 
 	scene_dir := filepath.dir(path)
 	defer delete(scene_dir)
@@ -289,6 +323,17 @@ save_scene :: proc(path: string, r_camera: ^rt.Camera, r_world: [dynamic]rt.Obje
 				u           = o.u,
 				v           = o.v,
 				material    = material_to_scene_material(o.material, scene_dir),
+			})
+		case rt.ConstantMedium:
+			// Volume geometry is not round-tripped from world; save from volumes slice when provided.
+		}
+	}
+	if volumes != nil {
+		for v in volumes {
+			append(&scene.volumes, SceneVolumeData{
+				box_min = v.box_min, box_max = v.box_max,
+				rotate_y_deg = v.rotate_y_deg, translate = v.translate,
+				density = v.density, albedo = v.albedo,
 			})
 		}
 	}
@@ -363,6 +408,8 @@ material_to_scene_material :: proc(m: rt.material, scene_dir: string) -> SceneMa
 		return SceneMaterial{material_type = "dielectric", ref_idx = mat.ref_idx}
 	case rt.diffuse_light:
 		return SceneMaterial{material_type = "diffuse_light", albedo = mat.emit}
+	case rt.isotropic:
+		return SceneMaterial{material_type = "isotropic", albedo = mat.albedo}
 	case:
 		return SceneMaterial{material_type = "lambertian", texture_kind = "constant", albedo = [3]f32{0.5, 0.5, 0.5}}
 	}
