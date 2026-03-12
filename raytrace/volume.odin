@@ -3,6 +3,11 @@ package raytrace
 import "core:math"
 import "RT_Weekend:core"
 
+volume_object_to_world :: proc(v: core.SceneVolume) -> Mat4 {
+	rot_rad := degrees_to_radians(v.rotate_y_deg)
+	return mat4_mul(mat4_translate(v.translate), mat4_rotate_y(rot_rad))
+}
+
 // build_volume_from_scene_volume creates a ConstantMedium from a scene volume definition.
 // Builds an axis-aligned box (6 quads) in local space, applies rotate_y then translate,
 // builds a BVH over the box faces, and wraps it with the given density and albedo.
@@ -11,9 +16,7 @@ build_volume_from_scene_volume :: proc(v: core.SceneVolume, allocator := context
 	white := lambertian{albedo = ConstantTexture{color = [3]f32{0.73, 0.73, 0.73}}}
 	quads := make([dynamic]Quad, allocator)
 	defer delete(quads)
-	rot_rad := degrees_to_radians(v.rotate_y_deg)
-	tr := mat4_mul(mat4_translate(v.translate), mat4_rotate_y(rot_rad))
-	append_box_transformed(&quads, v.box_min, v.box_max, white, tr)
+	append_box_transformed(&quads, v.box_min, v.box_max, white, volume_object_to_world(v))
 	objs := make([dynamic]Object, 0, 6, allocator)
 	defer delete(objs)
 	for q in quads {

@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:os"
+import "RT_Weekend:core"
 import rt "RT_Weekend:raytrace"
 
 EPS :: f32(1e-4)
@@ -70,8 +71,32 @@ test_transform_round_trip :: proc() {
 	expect(rt.vector_length(v_world) > 0, "transformed vector must stay non-zero")
 }
 
+test_volume_transform_corners :: proc() {
+	v := core.SceneVolume{
+		box_min      = [3]f32{0, 0, 0},
+		box_max      = [3]f32{165, 330, 165},
+		rotate_y_deg = 15,
+		translate    = [3]f32{265, 0, 295},
+	}
+	m := rt.volume_object_to_world(v)
+
+	p0 := rt.mat4_transform_point(m, [3]f32{0, 0, 0})
+	expect(nearly_eq3(p0, [3]f32{265, 0, 295}), "volume transform should keep local origin at translate")
+
+	p1 := rt.mat4_transform_point(m, [3]f32{165, 330, 165})
+	c := math.cos(rt.degrees_to_radians(15))
+	s := math.sin(rt.degrees_to_radians(15))
+	expected := [3]f32{
+		265 + c*165 + s*165,
+		330,
+		295 - s*165 + c*165,
+	}
+	expect(nearly_eq3(p1, expected), "volume transform should match shared Y-rotation matrix convention")
+}
+
 main :: proc() {
 	test_aabb_hit_cases()
 	test_transform_round_trip()
+	test_volume_transform_corners()
 	fmt.println("PASS: aabb + transform tests")
 }

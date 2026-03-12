@@ -1,6 +1,5 @@
 package editor
 
-import "core:math"
 import "core:strings"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
@@ -172,24 +171,16 @@ ensure_viewport_sphere_cache_filled :: proc(app: ^App, ev: ^EditViewState) {
 // volume_world_corners fills the 8 world-space corners of a SceneVolume (box after rotate_y + translate).
 // Order: back face z=min (0..3), front face z=max (4..7); same as box corners.
 volume_world_corners :: proc(v: core.SceneVolume, corners: ^[8]rl.Vector3) {
-	cos_y := math.cos(v.rotate_y_deg * (math.PI / 180.0))
-	sin_y := math.sin(v.rotate_y_deg * (math.PI / 180.0))
 	min_x, min_y, min_z := v.box_min[0], v.box_min[1], v.box_min[2]
 	max_x, max_y, max_z := v.box_max[0], v.box_max[1], v.box_max[2]
-	tx, ty, tz := v.translate[0], v.translate[1], v.translate[2]
-	rot_xz :: proc(x, z: f32, cx, sx: f32) -> (wx, wz: f32) {
-		wx = cx*x - sx*z
-		wz = sx*x + cx*z
-		return
-	}
+	object_to_world := rt.volume_object_to_world(v)
 	local := [8][3]f32{
 		{min_x, min_y, min_z}, {max_x, min_y, min_z}, {max_x, max_y, min_z}, {min_x, max_y, min_z},
 		{min_x, min_y, max_z}, {max_x, min_y, max_z}, {max_x, max_y, max_z}, {min_x, max_y, max_z},
 	}
 	for i in 0..<8 {
-		lx, lz := local[i][0], local[i][2]
-		wx, wz := rot_xz(lx, lz, cos_y, sin_y)
-		corners[i] = rl.Vector3{tx + wx, ty + local[i][1], tz + wz}
+		world := rt.mat4_transform_point(object_to_world, local[i])
+		corners[i] = rl.Vector3{world[0], world[1], world[2]}
 	}
 }
 
@@ -315,4 +306,3 @@ draw_viewport_camera_gizmos :: proc(app: ^App, ev: ^EditViewState) {
 		draw_focal_distance_indicator(cam_pos, focus_point, rl.RED, rl.RED)
 	}
 }
-
