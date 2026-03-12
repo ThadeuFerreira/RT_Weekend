@@ -578,6 +578,48 @@ build_next_week_final_scene :: proc() -> (
         ref_idx       = 1.5,
     })
 
+    // Create volumes slice
+    // Volume 0: Subsurface sphere interior (at 360, 150, 145, radius ~65 to fit inside dielectric)
+    // Volume 1: Global mist (thin fog covering everything) - a huge box
+    // Volume 2: Cluster of 1000 spheres (as a box volume with density representing the spheres)
+    volumes_out := make([dynamic]core.SceneVolume)
+
+    // Subsurface sphere volume - blue fog inside the dielectric sphere
+    // Approximated as a box containing the sphere volume
+    // The sphere is at (360, 150, 145) with radius 70
+    // We create a box slightly smaller than the sphere
+    append(&volumes_out, core.SceneVolume{
+        box_min      = {360, 150, 145},
+        box_max      = {360, 150, 145},
+        rotate_y_deg = 0,
+        translate    = {0, 0, 0},
+        density      = 0.2,
+        albedo       = {0.2, 0.4, 0.9},
+    })
+
+    // Global mist - a very thin volume covering a large area
+    // This covers the entire scene with very low density
+    append(&volumes_out, core.SceneVolume{
+        box_min      = {-1000, -100, -1000},
+        box_max      = {1000, 600, 1000},
+        rotate_y_deg = 0,
+        translate    = {0, 0, 0},
+        density      = 0.001,
+        albedo       = {1, 1, 1},
+    })
+
+    // Cluster of 1000 small spheres represented as a volume
+    // Box from (0,0,0) to (165,165,165), rotated 15deg, translated to (-100,270,395)
+    // Using white material
+    append(&volumes_out, core.SceneVolume{
+        box_min      = {0, 0, 0},
+        box_max      = {165, 165, 165},
+        rotate_y_deg = 15,
+        translate    = {-100, 270, 395},
+        density      = 0.01,
+        albedo       = {0.73, 0.73, 0.73},
+    })
+
     // 7. Cluster of 1000 small white spheres
     // These will be added as a volume with transform in the volumes slice
     // For now, we create the SceneVolume that represents this cluster
@@ -604,47 +646,6 @@ build_next_week_final_scene :: proc() -> (
         albedo        = core.NoiseTexture{scale = 0.2},
     })
 
-    // Create volumes slice
-    // Volume 0: Subsurface sphere interior (at 360, 150, 145, radius ~65 to fit inside dielectric)
-    // Volume 1: Global mist (thin fog covering everything) - a huge box
-    // Volume 2: Cluster of 1000 spheres (as a box volume with density representing the spheres)
-    volumes_out := make([dynamic]core.SceneVolume)
-
-    // Subsurface sphere volume - blue fog inside the dielectric sphere
-    // Approximated as a box containing the sphere volume
-    // The sphere is at (360, 150, 145) with radius 70
-    // We create a box slightly smaller than the sphere
-    append(&volumes_out, core.SceneVolume{
-        box_min      = {360 - 65, 150 - 65, 145 - 65},
-        box_max      = {360 + 65, 150 + 65, 145 + 65},
-        rotate_y_deg = 0,
-        translate    = {0, 0, 0},
-        density      = 0.2,
-        albedo       = {0.2, 0.4, 0.9},
-    })
-
-    // Global mist - a very thin volume covering a large area
-    // This covers the entire scene with very low density
-    append(&volumes_out, core.SceneVolume{
-        box_min      = {-1000, -100, -1000},
-        box_max      = {1000, 600, 1000},
-        rotate_y_deg = 0,
-        translate    = {0, 0, 0},
-        density      = 0.0001,
-        albedo       = {1, 1, 1},
-    })
-
-    // Cluster of 1000 small spheres represented as a volume
-    // Box from (0,0,0) to (165,165,165), rotated 15deg, translated to (-100,270,395)
-    // Using white material
-    append(&volumes_out, core.SceneVolume{
-        box_min      = {0, 0, 0},
-        box_max      = {165, 165, 165},
-        rotate_y_deg = 15,
-        translate    = {-100, 270, 395},
-        density      = 0.01,
-        albedo       = {0.73, 0.73, 0.73},
-    })
 
     return result_spheres[:], result_quads[:], NEXT_WEEK_FINAL_CAMERA, nil, false, volumes_out[:]
 }
