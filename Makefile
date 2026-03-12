@@ -6,7 +6,7 @@ debug:
 
 debug-tsan:
 	mkdir -p build
-	odin build . -collection:RT_Weekend=. -debug -sanitize:thread -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -out:build/debug-tsan
+	odin build . -collection:RT_Weekend=. -debug -sanitize:thread -define:ODIN_TSAN=true -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -out:build/debug-tsan
 
 release:
 	mkdir -p build

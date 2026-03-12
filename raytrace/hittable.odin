@@ -376,6 +376,7 @@ _build_bvh_sah :: proc(objects: []Object, indices: []int, allocator := context.a
             for i in 0..<n {
                 c := object_center(objects[i], axis)
                 bi := int((c - cmin) / extent * N_BINS)
+                if bi < 0 { bi = 0 }
                 if bi >= N_BINS { bi = N_BINS - 1 }
                 bins[bi].count += 1
                 bins[bi].bbox   = aabb_union(bins[bi].bbox, object_bounding_box(objects[i]))

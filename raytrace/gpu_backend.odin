@@ -24,6 +24,8 @@ package raytrace
 //   SSBO binding=5 : [4]i32 header + []GPUVolume
 //   SSBO binding=6 : [4]i32 header + []GPUQuad (volume boundary quads)
 
+ODIN_TSAN :: #config(ODIN_TSAN, false)  // true when building with make debug-tsan (-sanitize:thread)
+
 import "core:fmt"
 import "core:math"
 import "base:runtime"
@@ -203,7 +205,9 @@ gpu_backend_init :: proc(
 
     // Enable GL debug output when profiling is on — gives readable error messages
     // for shader compile errors, invalid operations, etc.
-    when PROFILING_ENABLED {
+    // Disabled when ODIN_TSAN=true: the GL driver (e.g. Mesa) uses internal threads
+    // that race with our gl.Enable/debug callback; TSAN reports false positives.
+    when PROFILING_ENABLED && !ODIN_TSAN {
         if gl.DebugMessageCallback != nil {
             gl.Enable(gl.DEBUG_OUTPUT)
             gl.Enable(gl.DEBUG_OUTPUT_SYNCHRONOUS)
