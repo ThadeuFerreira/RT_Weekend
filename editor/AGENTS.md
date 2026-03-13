@@ -59,12 +59,13 @@ Old configs using the legacy IDs load correctly via `_panel_id_translate` in `ap
 
 ## How to add a new panel
 
+Panels are declared once in `PANEL_REGISTRY` (`panel_registry.odin`). `run_app`, `register_all_commands`, and `get_menus_dynamic` all drive off that table automatically.
+
 1. Create `panel_<name>.odin` with `draw_<name>_content` and optionally `update_<name>_content` procs.
 2. Define `PANEL_ID_<NAME> :: "<name>"` in `app.odin`.
 3. Optionally add `<Name>PanelState` to `App` struct (field prefix `e_`).
-4. Call `make_panel(PanelDesc{...})` in `run_app()` and `app_add_panel(&app, ...)`.
-5. Add a `CMD_VIEW_<NAME>` constant to `core_commands.odin` and register `cmd_action_view_<name>` / `cmd_checked_view_<name>` in `register_all_commands` (core_cmd_actions.odin).
-6. Add the menu entry in `get_menus_dynamic` (ui_menu_bar.odin).
+4. Define `CMD_VIEW_<NAME>` in `core_commands.odin`; add `cmd_action_view_<name>` / `cmd_checked_view_<name>` stubs in `core_cmd_actions.odin`.
+5. Add one `PanelDescriptor` entry to `PANEL_REGISTRY` in `panel_registry.odin` — that's it.
 
 **Edit View split (shared / state / UI):**
 
