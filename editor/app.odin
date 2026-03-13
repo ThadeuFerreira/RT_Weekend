@@ -22,6 +22,7 @@ PANEL_ID_CAMERA         :: "camera"
 PANEL_ID_DETAILS        :: "details"
 PANEL_ID_CAMERA_PREVIEW :: "camera_preview"
 PANEL_ID_TEXTURE_VIEW   :: "texture_view"
+PANEL_ID_CONTENT_BROWSER :: "content_browser"
 PANEL_ID_OUTLINER       :: "outliner"
 
 FloatingPanel :: struct {
@@ -273,6 +274,7 @@ App :: struct {
     e_details:      DetailsPanelState,
     e_outliner:     OutlinerPanelState,
     e_texture_view: TextureViewPanelState,
+    e_content_browser: ContentBrowserState,
 
     // Camera Preview: rasterized view from render camera (app.c_camera_params)
     preview_port_tex: rl.RenderTexture2D,
@@ -631,12 +633,14 @@ run_app :: proc(
     app_append_volumes_to_world(&app, &app.r_world)
     app.e_details  = DetailsPanelState{prop_drag_idx = -1}
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
+    app.e_content_browser = ContentBrowserState{selected_idx = -1, scan_requested = true}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer {
         if app.e_texture_view.valid { rl.UnloadTexture(app.e_texture_view.preview_tex) }
         delete(app.e_texture_view.last_sig)
     }
+    defer content_browser_free_state(&app.e_content_browser)
     defer delete(app.e_edit_view.export_scratch)
     defer {
         for i in 0..<len(app.e_edit_view.viewport_sphere_cache) {
@@ -764,6 +768,17 @@ run_app :: proc(
         detachable   = true,
         draw_content = draw_texture_view_content,
     }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id             = PANEL_ID_CONTENT_BROWSER,
+        title          = "Content Browser",
+        rect           = rl.Rectangle{1100, 670, 360, 340},
+        min_size       = rl.Vector2{260, 220},
+        visible        = true,
+        closeable      = true,
+        detachable     = true,
+        draw_content   = draw_content_browser_content,
+        update_content = update_content_browser_content,
+    }))
 
     if initial_editor_layout != nil {
         apply_editor_layout(&app, initial_editor_layout)
@@ -858,6 +873,12 @@ run_app :: proc(
                 }
                 if rl.IsKeyPressed(.T) {
                     if tv := app_find_panel(&app, PANEL_ID_TEXTURE_VIEW); tv != nil { tv.visible = true }
+                }
+                if rl.IsKeyPressed(.B) {
+                    if cb := app_find_panel(&app, PANEL_ID_CONTENT_BROWSER); cb != nil {
+                        cb.visible = true
+                        app.e_content_browser.scan_requested = true
+                    }
                 }
             }
 

@@ -140,6 +140,12 @@ cmd_action_view_camera :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA) }
 cmd_action_view_props  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_DETAILS) }
 cmd_action_view_preview:: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA_PREVIEW) }
 cmd_action_view_texture:: proc(app: ^App) { toggle_panel(app, PANEL_ID_TEXTURE_VIEW) }
+cmd_action_view_content_browser :: proc(app: ^App) {
+    toggle_panel(app, PANEL_ID_CONTENT_BROWSER)
+    if panel_visible(app, PANEL_ID_CONTENT_BROWSER) {
+        app.e_content_browser.scan_requested = true
+    }
+}
 cmd_action_view_outliner :: proc(app: ^App) { toggle_panel(app, PANEL_ID_OUTLINER) }
 
 cmd_checked_view_render :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_RENDER) }
@@ -151,6 +157,7 @@ cmd_checked_view_camera :: proc(app: ^App) -> bool { return panel_visible(app, P
 cmd_checked_view_props  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_DETAILS) }
 cmd_checked_view_preview:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA_PREVIEW) }
 cmd_checked_view_texture:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_TEXTURE_VIEW) }
+cmd_checked_view_content_browser :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONTENT_BROWSER) }
 cmd_checked_view_outliner :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_OUTLINER) }
 
 // ── View preset actions ──────────────────────────────────────────────────────
@@ -560,6 +567,7 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PROPS,    label = "Details",        action = cmd_action_view_props,    checked_proc = cmd_checked_view_props})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PREVIEW,  label = "Camera Preview", action = cmd_action_view_preview,  checked_proc = cmd_checked_view_preview})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_TEXTURE,  label = "Texture View",   action = cmd_action_view_texture,  checked_proc = cmd_checked_view_texture})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_CONTENT_BROWSER, label = "Content Browser", action = cmd_action_view_content_browser, checked_proc = cmd_checked_view_content_browser})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_OUTLINER, label = "World Outliner", action = cmd_action_view_outliner, checked_proc = cmd_checked_view_outliner})
 
     // View — presets

@@ -16,6 +16,7 @@ CMD_VIEW_CAMERA      :: "view.panel.camera"
 CMD_VIEW_PROPS       :: "view.panel.details"
 CMD_VIEW_PREVIEW     :: "view.panel.camera_preview"
 CMD_VIEW_TEXTURE     :: "view.panel.texture"
+CMD_VIEW_CONTENT_BROWSER :: "view.panel.content_browser"
 CMD_VIEW_OUTLINER    :: "view.panel.outliner"
 
 CMD_VIEW_PRESET_DEFAULT :: "view.preset.default"

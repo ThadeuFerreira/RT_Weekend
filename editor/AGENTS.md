@@ -16,7 +16,7 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 ## Purpose
 
 - **App & run loop** — `App`, `run_app` in **app.odin**; panel registration, render start/finish, config save on exit.
-- **Panels** — Render Preview, Stats, Console, System Info, Viewport, Camera, Details, Camera Preview, World Outliner; each has `draw_content` (and optionally `update_content`). IDs: `PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_CONSOLE`, `PANEL_ID_VIEWPORT`, `PANEL_ID_DETAILS`, `PANEL_ID_CAMERA_PREVIEW`, `PANEL_ID_OUTLINER`, etc.
+- **Panels** — Render Preview, Stats, Console, System Info, Viewport, Camera, Details, Camera Preview, Texture View, Content Browser, World Outliner; each has `draw_content` (and optionally `update_content`). IDs: `PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_CONSOLE`, `PANEL_ID_VIEWPORT`, `PANEL_ID_DETAILS`, `PANEL_ID_CAMERA_PREVIEW`, `PANEL_ID_TEXTURE_VIEW`, `PANEL_ID_CONTENT_BROWSER`, `PANEL_ID_OUTLINER`, etc.
 - **Menus** — **ui_menu_bar.odin**: `MenuBarState`, `menu_bar_update`, `menu_bar_draw`; commands bound via **core_commands.odin** / **core_cmd_actions.odin**.
 - **Layout** — **ui_layout.odin**: `DockLayout`, dock nodes, splits, `layout_update_and_draw`, `layout_build_default`. **ui_layout_presets.odin**: `layout_build_render_focus`, `layout_build_edit_focus`, `layout_save_named_preset`, `layout_apply_named_preset`.
 - **Widgets** — **ui_chrome.odin**: `PanelStyle`, `update_panel`, `draw_panel_chrome`, `upload_render_texture`. **ui_components.odin**: reusable Button, Toggle, Dropdown (structs + draw/hit procs); styles: `DEFAULT_BUTTON_STYLE`, `BUTTON_STYLE_DANGER`, `BUTTON_STYLE_SUCCESS`, `BUTTON_STYLE_NEUTRAL`, `DEFAULT_TOGGLE_STYLE`, `TOGGLE_STYLE_ON_RED`; compose toolbars and panels from these.
@@ -41,6 +41,7 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 | `panel_camera.odin` | Camera (includes **shutter open/close** for motion blur). |
 | `panel_camera_preview.odin` | Camera Preview (was: Preview Port) — uses `get_render_aspect`, shared scene drawing (no interactions). |
 | `panel_details.odin` | Details (was: Object Properties) (camera: shutter; sphere: **MOTION** section with **dX/dY/dZ** = center1 − center, undo/dirty on edit). |
+| `panel_content_browser.odin` | Content Browser — scans `assets/textures` and `scenes`, supports filter/search, texture assignment, scene open, and texture preview. |
 | `panel_outliner.odin` | World Outliner — scrollable list of all scene objects (spheres, quads, volumes); click to select. |
 | `panel_file_modal.odin` | File modal (Preset Name; Import/Save As only with FILE_MODAL_FALLBACK). `file_import_from_path`, `file_save_as_path`. |
 | `panel_confirm_modal.odin` | Save Changes? (exit/import when dirty); Load Example confirmation. |

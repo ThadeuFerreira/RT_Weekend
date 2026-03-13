@@ -51,6 +51,7 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
         MenuEntryDyn{label = "Details",        cmd_id = CMD_VIEW_PROPS,    checked = cmd_is_checked(app, CMD_VIEW_PROPS)},
         MenuEntryDyn{label = "Camera Preview", cmd_id = CMD_VIEW_PREVIEW,  checked = cmd_is_checked(app, CMD_VIEW_PREVIEW)},
         MenuEntryDyn{label = "Texture View",   cmd_id = CMD_VIEW_TEXTURE,  checked = cmd_is_checked(app, CMD_VIEW_TEXTURE)},
+        MenuEntryDyn{label = "Content Browser", cmd_id = CMD_VIEW_CONTENT_BROWSER, checked = cmd_is_checked(app, CMD_VIEW_CONTENT_BROWSER)},
         MenuEntryDyn{label = "World Outliner", cmd_id = CMD_VIEW_OUTLINER, checked = cmd_is_checked(app, CMD_VIEW_OUTLINER)},
         MenuEntryDyn{separator = true},
         MenuEntryDyn{label = "Default Layout",        cmd_id = CMD_VIEW_PRESET_DEFAULT},
