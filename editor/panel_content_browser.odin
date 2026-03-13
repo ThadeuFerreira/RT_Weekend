@@ -17,9 +17,11 @@ ContentBrowserAssetKind :: enum {
 }
 
 ContentBrowserAsset :: struct {
-    kind: ContentBrowserAssetKind,
-    name: string,
-    path: string,
+    kind:      ContentBrowserAssetKind,
+    name:      string,
+    path:      string,
+    name_lower: string,
+    path_lower: string,
 }
 
 ContentBrowserState :: struct {
@@ -29,6 +31,7 @@ ContentBrowserState :: struct {
     filter_input:   [CONTENT_BROWSER_FILTER_MAX]u8,
     filter_len:     int,
     filter_active:  bool,
+    filter_lower:   string,
     scanned:        bool,
     scan_requested: bool,
 
@@ -44,6 +47,8 @@ content_browser_free_assets :: proc(st: ^ContentBrowserState) {
     for asset in st.assets {
         delete(asset.name)
         delete(asset.path)
+        delete(asset.name_lower)
+        delete(asset.path_lower)
     }
     delete(st.assets)
     st.assets = nil
@@ -66,6 +71,8 @@ content_browser_free_state :: proc(st: ^ContentBrowserState) {
     if st == nil { return }
     content_browser_clear_preview(st)
     content_browser_free_assets(st)
+    delete(st.filter_lower)
+    st.filter_lower = ""
 }
 
 content_browser_filter_string :: proc(st: ^ContentBrowserState) -> string {
@@ -73,24 +80,23 @@ content_browser_filter_string :: proc(st: ^ContentBrowserState) -> string {
     return string(st.filter_input[:st.filter_len])
 }
 
-content_browser_matches_filter :: proc(asset: ContentBrowserAsset, filter: string) -> bool {
-    if len(filter) == 0 { return true }
-    filter_lower := strings.to_lower(filter)
-    defer delete(filter_lower)
-    name_lower := strings.to_lower(asset.name)
-    defer delete(name_lower)
-    if strings.contains(name_lower, filter_lower) { return true }
-    path_lower := strings.to_lower(asset.path)
-    defer delete(path_lower)
-    return strings.contains(path_lower, filter_lower)
+content_browser_matches_filter :: proc(asset: ContentBrowserAsset, filter_lower: string) -> bool {
+    if len(filter_lower) == 0 { return true }
+    return strings.contains(asset.name_lower, filter_lower) || strings.contains(asset.path_lower, filter_lower)
 }
 
 content_browser_append_asset :: proc(st: ^ContentBrowserState, kind: ContentBrowserAssetKind, root: string, fi: os.File_Info) {
     rel_path := strings.concatenate({root, filepath.SEPARATOR_STRING, fi.name})
+    name_lower := strings.to_lower(fi.name)
+    path_lower := strings.to_lower(rel_path)
+    defer delete(name_lower)
+    defer delete(path_lower)
     append(&st.assets, ContentBrowserAsset{
-        kind = kind,
-        name = strings.clone(fi.name),
-        path = rel_path,
+        kind       = kind,
+        name       = strings.clone(fi.name),
+        path       = rel_path,
+        name_lower = strings.clone(name_lower),
+        path_lower = strings.clone(path_lower),
     })
 }
 
@@ -250,26 +256,9 @@ content_browser_layout :: proc(content: rl.Rectangle) -> (filter_rect, refresh_r
     return
 }
 
-content_browser_draw_button :: proc(app: ^App, rect: rl.Rectangle, label: cstring, enabled: bool, hovered: bool) {
-    bg := rl.Color{56, 60, 74, 255}
-    fg := CONTENT_TEXT_COLOR
-    if !enabled {
-        bg = rl.Color{38, 40, 48, 255}
-        fg = rl.Color{120, 126, 140, 180}
-    } else if hovered {
-        bg = rl.Color{72, 78, 98, 255}
-    }
-    rl.DrawRectangleRec(rect, bg)
-    rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)
-    draw_ui_text(app, label, i32(rect.x) + 8, i32(rect.y) + 4, 10, fg)
-}
-
 draw_content_browser_content :: proc(app: ^App, content: rl.Rectangle) {
     if app == nil { return }
     st := &app.e_content_browser
-    if st.scan_requested || !st.scanned {
-        content_browser_scan_assets(app)
-    }
 
     filter_rect, refresh_rect, list_rect, preview_rect, primary_btn, secondary_btn := content_browser_layout(content)
     mouse := rl.GetMousePosition()
@@ -284,11 +273,11 @@ draw_content_browser_content :: proc(app: ^App, content: rl.Rectangle) {
     } else {
         draw_ui_text(app, "Filter assets...", i32(filter_rect.x) + 6, i32(filter_rect.y) + 4, 10, rl.Color{130, 138, 152, 180})
     }
-    content_browser_draw_button(app, refresh_rect, "Refresh", true, rl.CheckCollisionPointRec(mouse, refresh_rect))
+    _ = draw_button(app, Button{rect = refresh_rect, label = "Refresh", style = BUTTON_STYLE_NEUTRAL, enabled = true}, mouse)
 
     visible_count := 0
     for asset in st.assets {
-        if content_browser_matches_filter(asset, filter_text) { visible_count += 1 }
+        if content_browser_matches_filter(asset, st.filter_lower) { visible_count += 1 }
     }
     total_h := f32(visible_count) * CONTENT_BROWSER_ROW_H
     st.scroll_y = clamp(st.scroll_y, 0, max(total_h - list_rect.height, 0))
@@ -299,7 +288,7 @@ draw_content_browser_content :: proc(app: ^App, content: rl.Rectangle) {
 
     row := 0
     for asset, asset_idx in st.assets {
-        if !content_browser_matches_filter(asset, filter_text) { continue }
+        if !content_browser_matches_filter(asset, st.filter_lower) { continue }
         ry := list_rect.y + f32(row) * CONTENT_BROWSER_ROW_H - st.scroll_y
         row += 1
         if ry + CONTENT_BROWSER_ROW_H < list_rect.y || ry > list_rect.y + list_rect.height { continue }
@@ -366,8 +355,8 @@ draw_content_browser_content :: proc(app: ^App, content: rl.Rectangle) {
 
     primary_enabled := asset != nil && asset.kind == .Texture
     secondary_enabled := asset != nil && asset.kind == .Scene
-    content_browser_draw_button(app, primary_btn, "Assign Texture", primary_enabled, primary_enabled && rl.CheckCollisionPointRec(mouse, primary_btn))
-    content_browser_draw_button(app, secondary_btn, "Open Scene", secondary_enabled, secondary_enabled && rl.CheckCollisionPointRec(mouse, secondary_btn))
+    _ = draw_button(app, Button{rect = primary_btn, label = "Assign Texture", style = DEFAULT_BUTTON_STYLE, enabled = primary_enabled}, mouse)
+    _ = draw_button(app, Button{rect = secondary_btn, label = "Open Scene", style = BUTTON_STYLE_NEUTRAL, enabled = secondary_enabled}, mouse)
 }
 
 update_content_browser_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
@@ -376,6 +365,14 @@ update_content_browser_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.
     st := &app.e_content_browser
     if st.scan_requested || !st.scanned {
         content_browser_scan_assets(app)
+    }
+
+    filter_text := content_browser_filter_string(st)
+    filter_lower_new := strings.to_lower(filter_text)
+    defer delete(filter_lower_new)
+    if filter_lower_new != st.filter_lower {
+        delete(st.filter_lower)
+        st.filter_lower = strings.clone(filter_lower_new)
     }
 
     filter_rect, refresh_rect, list_rect, _, primary_btn, secondary_btn := content_browser_layout(rect)
@@ -403,10 +400,9 @@ update_content_browser_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.
     if rl.CheckCollisionPointRec(mouse, list_rect) {
         wheel := rl.GetMouseWheelMove()
         if wheel != 0 {
-            filter_text := content_browser_filter_string(st)
             visible_count := 0
             for asset in st.assets {
-                if content_browser_matches_filter(asset, filter_text) { visible_count += 1 }
+                if content_browser_matches_filter(asset, st.filter_lower) { visible_count += 1 }
             }
             max_scroll := max(f32(visible_count) * CONTENT_BROWSER_ROW_H - list_rect.height, 0)
             st.scroll_y = clamp(st.scroll_y - wheel * CONTENT_BROWSER_ROW_H * 3, 0, max_scroll)
@@ -444,17 +440,13 @@ update_content_browser_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.
     }
 
     if rl.CheckCollisionPointRec(mouse, list_rect) {
-        filter_text := content_browser_filter_string(st)
         local_y := mouse.y - list_rect.y + st.scroll_y
         row_hit := int(local_y / CONTENT_BROWSER_ROW_H)
         row := 0
         for asset, asset_idx in st.assets {
-            if !content_browser_matches_filter(asset, filter_text) { continue }
+            if !content_browser_matches_filter(asset, st.filter_lower) { continue }
             if row == row_hit {
                 st.selected_idx = asset_idx
-                if asset.kind == .Texture {
-                    _ = content_browser_assign_texture(app, asset.path)
-                }
                 return
             }
             row += 1
