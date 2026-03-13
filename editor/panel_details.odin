@@ -9,7 +9,7 @@ import "RT_Weekend:core"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:util"
 
-// Layout constants for the Object Properties panel.
+// Layout constants for the Details panel.
 // Separate from PROP_* in edit_view_panel.odin to fit a narrower panel.
 OP_LW  :: f32(12)                          // label width  (1–2 chars at fs=11)
 OP_GAP :: f32(2)                           // gap between label and field box
@@ -66,7 +66,7 @@ noise_preview_unload :: proc(np: ^NoisePreview) {
 	}
 }
 
-// ObjectPropsPanelState holds per-frame drag state for the Object Properties panel.
+// DetailsPanelState holds per-frame drag state for the Details panel.
 // For sphere: data in app.e_edit_view.objects[selected_idx]. For camera: app.c_camera_params.
 // Drag indices: sphere 0–10 (xyz, radius, motion dX dY dZ, rgb, mat_param); camera 0–11 (from xyz, at xyz, vfov, defocus, focus, max_depth, shutter).
 // Drag index 11 = Noise/Marble scale. Volume props: 100 + i*4 + 0 = density, +1..+3 = albedo R,G,B.
@@ -74,7 +74,7 @@ noise_preview_unload :: proc(np: ^NoisePreview) {
 OP_VOLUME_DRAG_BASE         :: 100
 OP_VOLUME_SELECTED_DRAG_BASE :: 200
 OP_VOLUME_SELECTED_DRAG_COUNT :: 9
-ObjectPropsPanelState :: struct {
+DetailsPanelState :: struct {
 	prop_drag_idx:       int,
 	prop_drag_start_x:   f32,
 	prop_drag_start_val: f32,
@@ -224,7 +224,7 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind, al
 	return lo
 }
 
-// Camera layout in Object Properties: same 12 fields as camera panel (incl. shutter open/close), using OP_* for consistency.
+// Camera layout in Details: same 12 fields as camera panel (incl. shutter open/close), using OP_* for consistency.
 OP_CAM_ROW :: f32(20)
 op_camera_field_rects :: proc(content: rl.Rectangle) -> [12]rl.Rectangle {
 	x0 := content.x + 8
@@ -289,7 +289,7 @@ op_mat_button :: proc(app: ^App, label: cstring, rect: rl.Rectangle, active: boo
 // Returns true when the mouse is inside the box.
 op_try_start_drag :: proc(
 	box: rl.Rectangle, idx: int, val: f32,
-	st: ^ObjectPropsPanelState, mouse: rl.Vector2, lmb_pressed: bool,
+	st: ^DetailsPanelState, mouse: rl.Vector2, lmb_pressed: bool,
 ) -> bool {
 	if !rl.CheckCollisionPointRec(mouse, box) { return false }
 	if lmb_pressed {
@@ -303,15 +303,15 @@ op_try_start_drag :: proc(
 
 // ── draw 
 
-draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
+draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 	ev    := &app.e_edit_view
-	st    := &app.e_object_props
+	st    := &app.e_details
 	mouse := rl.GetMousePosition()
 
 	if ev.selection_kind == .None {
 		draw_ui_text(app, "No object select",
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Click a sphere or the camera in the Edit View.",
+		draw_ui_text(app, "Click a sphere or the camera in the Viewport.",
 			i32(content.x) + 10, i32(content.y) + 40, 11, rl.Color{140, 150, 165, 200})
 		// Volumes section when scene has volumes (density / albedo editable)
 		if len(app.e_volumes) > 0 {
@@ -598,9 +598,9 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 
 // ── update 
 
-update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
+update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
 	ev := &app.e_edit_view
-	st := &app.e_object_props
+	st := &app.e_details
 
 	if ev.selection_kind == .None {
 		if st.prop_drag_idx >= 0 {

@@ -86,7 +86,7 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 	if ev.selection_kind == .Volume {
 		draw_ui_text(app, "Volume selected",
 			i32(rect.x) + 8, i32(rect.y) + 10, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Edit in Object Properties panel",
+		draw_ui_text(app, "Edit in Details panel",
 			i32(rect.x) + 8, i32(rect.y) + 30, 11, rl.Color{140, 150, 165, 200})
 		return
 	}
@@ -113,7 +113,7 @@ draw_edit_properties :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, o
 			}
 			rl.DrawRectangleRec(swatch, swatch_col)
 			rl.DrawRectangleLinesEx(swatch, 1, BORDER_COLOR)
-			draw_ui_text(app, "Edit material in Object Properties panel",
+			draw_ui_text(app, "Edit material in Details panel",
 				i32(rect.x) + 8, i32(rect.y) + 72, 10, rl.Color{120, 130, 148, 180})
 		} else {
 			draw_ui_text(app, "Quad selected",

@@ -50,10 +50,13 @@ odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILIN
 - `-n`: number of small random spheres (default 10)
 - `-c`: thread count (defaults to physical CPU cores)
 
-The program opens a **Raylib window** with three floating panels:
+The program opens a **Raylib window** with floating panels:
 - **Render Preview** — live RT image updating as tiles complete
 - **Stats** — tile progress, thread count, elapsed time
-- **Log** — startup and completion messages
+- **Console** — startup and completion messages
+- **Viewport** — interactive 3D edit view
+- **Details** — selected object properties
+- **World Outliner** — scene object list
 
 Drag panels by their title bar; resize from the bottom-right grip.
 
@@ -75,7 +78,7 @@ The GPU compute-shader backend is **Linux-only**: it uses `glXGetProcAddressARB`
 ### UI assets (SDF font and shader)
 - **`assets/fonts/Inter-Regular.ttf`** — Inter (OFL-licensed, Arial-like) used for UI text when SDF font loading succeeds. Sourced from [rsms/inter](https://github.com/rsms/inter).
 - **`assets/shaders/sdf.fs`** — Raylib SDF fragment shader (GLSL 330) for signed-distance-field text rendering.
-- **`assets/shaders/raytrace.comp`** — GLSL 430 compute shader for the GPU path. Required when using GPU rendering (Linux only). If missing or the binary is run from a non-root working directory, the GPU path fails and the app falls back to CPU (check the Log panel).
+- **`assets/shaders/raytrace.comp`** — GLSL 430 compute shader for the GPU path. Required when using GPU rendering (Linux only). If missing or the binary is run from a non-root working directory, the GPU path fails and the app falls back to CPU (check the Console panel).
 
 **Feature flag:** SDF/custom font loading is **off by default** (`USE_SDF_FONT = false`). With it disabled, the UI uses Raylib’s default font only. To enable SDF and custom font loading, build with `-define:USE_SDF_FONT=true`.
 
@@ -110,7 +113,7 @@ Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is
 3. Each frame: uploads partial pixel buffer to GPU, polls progress, calls `finish_render()` when all tiles are done
 4. Draws panels, menu bar, and layout via `editor/ui_chrome.odin` and panel-specific modules
 
-**`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_LOG`, `PANEL_ID_EDIT_VIEW`, `PANEL_ID_CAMERA`, `PANEL_ID_OBJECT_PROPS`, `PANEL_ID_PREVIEW_PORT`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
+**`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_CONSOLE`, `PANEL_ID_VIEWPORT`, `PANEL_ID_CAMERA`, `PANEL_ID_DETAILS`, `PANEL_ID_CAMERA_PREVIEW`, `PANEL_ID_OUTLINER`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
 
 **File dialogs and unsaved state:** Open/Save use **native OS dialogs** (no C/C++ libs) via `util.open_file_dialog`, `util.save_file_dialog`, and `util.dialog_default_dir`. When no scene file is open, the default directory is **`<cwd>/scenes`**; the `scenes/` folder exists in the repo (see `.gitignore`: `scenes/*` ignored, `!scenes/.gitkeep` keeps the folder). If the native dialog is unavailable, build with `-define:FILE_MODAL_FALLBACK=true` to fall back to the text path modal. **Save Changes?** appears when exiting or importing with unsaved changes; options are Save (overwrite), Save As (pick path), Cancel, Continue (discard). The editor only proceeds (exit/import) after a successful save or when the user chooses Continue/Cancel. **Load Example** always shows a confirmation; “Save & Load” is enabled only when the scene is dirty and uses Save As when there is no current path. Unsaved state is tracked in `e_scene_dirty`; any edit (including undo/redo) and all camera/material changes call `mark_scene_dirty`. `file_import_from_path` resets edit history; `cmd_action_file_save` and `file_save_as_path` return `bool` so callers can avoid proceeding on save failure.
 
@@ -150,8 +153,8 @@ Union-based dispatch over `Lambertian`, `Metallic`, and `Dielectric`. Each imple
 `Sphere` and `Quad` primitives (quad = planar rectangle via Q + αu + βv; helpers `xy_rect`, `xz_rect`, `yz_rect` for walls/floors/ceilings). BVH nodes are also `Hittable` variants (recursive union tree). Spheres support **motion blur** via `center` → `center1` over the shutter interval when `is_moving` is true.
 
 ### Motion blur (editor + core + persistence)
-- **Camera shutter** — `core.CameraParams` and `rt.Camera` have `shutter_open` and `shutter_close` (normalized 0..1). The Camera panel and Object Properties (camera selected) expose drag fields; values are copied via `apply_scene_camera` / `copy_camera_to_scene_params`. `get_ray` samples ray time with `util.random_float_range(rng, shutter_open, shutter_close)` so the shutter window affects motion blur.
-- **Per-sphere movement** — In Object Properties, when a sphere is selected, a **MOTION** section shows **dX/dY/dZ** (offset = `center1 − center`). Editing updates `center1` and sets `is_moving` when the offset is non-zero. Undo/dirty and scene export use existing `ModifySphereAction` and `SetSceneSphere`.
+- **Camera shutter** — `core.CameraParams` and `rt.Camera` have `shutter_open` and `shutter_close` (normalized 0..1). The Camera panel and Details (camera selected) expose drag fields; values are copied via `apply_scene_camera` / `copy_camera_to_scene_params`. `get_ray` samples ray time with `util.random_float_range(rng, shutter_open, shutter_close)` so the shutter window affects motion blur.
+- **Per-sphere movement** — In Details, when a sphere is selected, a **MOTION** section shows **dX/dY/dZ** (offset = `center1 − center`). Editing updates `center1` and sets `is_moving` when the offset is non-zero. Undo/dirty and scene export use existing `ModifySphereAction` and `SetSceneSphere`.
 - **Persistence** — Scene JSON saves/loads `shutter_open`, `shutter_close` on the camera and `center1`, `is_moving` on spheres. Older files without these fields load with default shutter [0,1] and static spheres.
 
 ### Profiling (`raytrace/profiling.odin`)

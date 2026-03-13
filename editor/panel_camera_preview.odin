@@ -2,11 +2,11 @@ package editor
 
 import rl "vendor:raylib"
 
-// draw_preview_port_content renders a rasterized 3D preview from the render camera
+// draw_camera_preview_content renders a rasterized 3D preview from the render camera
 // (app.c_camera_params) and scene (via scene manager) into the panel content area.
 // The preview uses the same aspect ratio as the ray-traced render (4:3 or 16:9) and letterboxes
 // within the panel so the framing matches the final output. Uses shared scene drawing (no interactions).
-draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
+draw_camera_preview_content :: proc(app: ^App, content: rl.Rectangle) {
 	if content.width <= 0 || content.height <= 0 { return }
 	aspect := get_render_aspect(app)
 	content_aspect := content.width / content.height
@@ -45,7 +45,7 @@ draw_preview_port_content :: proc(app: ^App, content: rl.Rectangle) {
 		projection = .PERSPECTIVE,
 	}
 
-	// Use same textured scene drawing as Edit View (shared cache); no selection highlight.
+	// Use same textured scene drawing as Viewport (shared cache); no selection highlight.
 	ev := &app.e_edit_view
 	ensure_viewport_sphere_cache_filled(app, ev)
 	rl.BeginTextureMode(app.preview_port_tex)

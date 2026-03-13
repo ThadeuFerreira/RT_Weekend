@@ -156,7 +156,7 @@ restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     delete(app.pixel_staging)
     app.pixel_staging = make([]rl.Color, width * height)
 
-    // Create new camera with new settings and apply current camera params (Edit View / Camera panel state).
+    // Create new camera with new settings and apply current camera params (Viewport / Camera panel state).
     old_cam := app.r_camera
     app.r_camera = rt.make_camera(width, height, samples)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)

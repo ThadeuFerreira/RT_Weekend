@@ -141,21 +141,22 @@ layout_build_default :: proc(app: ^App, layout: ^DockLayout) {
     layout_init(layout)
 
     p_render := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_RENDER))
-    p_edit   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_EDIT_VIEW))
-    p_stats  := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_STATS))
-    p_sys    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_SYSTEM_INFO))
-    p_log    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_LOG))
-    p_cam    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA))
-    p_props  := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_OBJECT_PROPS))
-    p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_PREVIEW_PORT))
+    p_edit    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_VIEWPORT))
+    p_stats   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_STATS))
+    p_sys     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_SYSTEM_INFO))
+    p_log     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CONSOLE))
+    p_cam     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA))
+    p_props   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_DETAILS))
+    p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA_PREVIEW))
     p_texture := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_TEXTURE_VIEW))
+    p_content := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CONTENT_BROWSER))
 
     center_leaf  := layout_add_leaf(layout, []int{p_render, p_edit}, 0)
     upper_right  := layout_add_leaf(layout, []int{p_stats, p_sys}, 0)
-    lower_right  := layout_add_leaf(layout, []int{p_log, p_cam, p_props, p_texture}, 0)
+    lower_right  := layout_add_leaf(layout, []int{p_log, p_cam, p_props, p_texture, p_content}, 0)
     preview_leaf := layout_add_leaf(layout, []int{p_preview}, 0)
 
-    // Right column: top = stats/sys, middle = log/camera/props, bottom = Preview Port
+    // Right column: top = stats/sys, middle = console/camera/details, bottom = Camera Preview
     right_bottom := layout_add_split(layout, .DOCK_SPLIT_HORIZONTAL, lower_right, preview_leaf, 0.72)
     right_split  := layout_add_split(layout, .DOCK_SPLIT_HORIZONTAL, upper_right, right_bottom, 0.45)
     root         := layout_add_split(layout, .DOCK_SPLIT_VERTICAL, center_leaf, right_split, 0.72)
@@ -262,7 +263,7 @@ layout_leaf_panel_by_id :: proc(app: ^App, layout: ^DockLayout, node: ^DockNode,
 
 layout_draw_center_split_view :: proc(app: ^App, layout: ^DockLayout, node: ^DockNode, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
     render_panel := layout_leaf_panel_by_id(app, layout, node, PANEL_ID_RENDER)
-    edit_panel   := layout_leaf_panel_by_id(app, layout, node, PANEL_ID_EDIT_VIEW)
+    edit_panel   := layout_leaf_panel_by_id(app, layout, node, PANEL_ID_VIEWPORT)
     if render_panel == nil || edit_panel == nil { return }
 
     gap := CENTER_SPLIT_GAP

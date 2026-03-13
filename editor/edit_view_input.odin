@@ -1,5 +1,5 @@
 // edit_view_input.odin — Edit View input handling: phase enum, rects, and per-phase handlers.
-// update_edit_view_content delegates to get_edit_view_input_phase + switch and these handlers.
+// update_viewport_content delegates to get_edit_view_input_phase + switch and these handlers.
 
 package editor
 

@@ -4,7 +4,7 @@ import "core:fmt"
 
 import rl "vendor:raylib"
 
-draw_log_content :: proc(app: ^App, content: rl.Rectangle) {
+draw_console_content :: proc(app: ^App, content: rl.Rectangle) {
     x    := i32(content.x) + 8
     y    := i32(content.y) + 6
     fs   := i32(12)

@@ -327,7 +327,7 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     spheres, quads, cam, ground_tex, include_ground, volumes := EXAMPLE_SCENES[scene_idx].build()
     defer delete(spheres)
     defer delete(quads)
-    if volumes != nil { defer delete(volumes) }
+    defer delete(volumes)
     app_set_ground_texture(app, ground_tex)
     app.include_ground_plane = include_ground
     app_clear_image_texture_cache(app)

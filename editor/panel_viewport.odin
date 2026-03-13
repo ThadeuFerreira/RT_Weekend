@@ -201,7 +201,7 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 
 // ── Panel draw ─────────────────────────────────────────────────────────────
 
-draw_edit_view_content :: proc(app: ^App, content: rl.Rectangle) {
+draw_viewport_content :: proc(app: ^App, content: rl.Rectangle) {
 	ev    := &app.e_edit_view
 	mouse := rl.GetMousePosition()
 
@@ -400,7 +400,7 @@ pick_rotation_ring :: proc(mouse, vp_offset: rl.Vector2, cam_pos: rl.Vector3, ca
 
 // ── Panel update ───────────────────────────────────────────────────────────
 
-update_edit_view_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
+update_viewport_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
 	ev     := &app.e_edit_view
 	content := rect
 

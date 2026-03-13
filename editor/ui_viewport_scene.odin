@@ -118,7 +118,7 @@ viewport_texture_from_albedo :: proc(app: ^App, albedo: core.Texture) -> (tex: r
 // ensure_viewport_sphere_cache_filled invalidates cache if dirty, sizes it to match scene,
 // and fills any cache miss with mesh+texture. Call before BeginTextureMode (creating
 // mesh/model inside render target can prevent the texture from showing).
-// Shared by Edit View and Preview Port so both display textured spheres the same way.
+// Shared by Viewport and Camera Preview so both display textured spheres the same way.
 ensure_viewport_sphere_cache_filled :: proc(app: ^App, ev: ^EditViewState) {
 	sm := ev.scene_mgr
 	if sm == nil { return }
@@ -252,7 +252,7 @@ draw_volume_cube_wireframe :: proc(v: core.SceneVolume, selected: bool = false) 
 
 // draw_viewport_scene_objects draws all scene objects (spheres with cache or solid, quads).
 // Call inside BeginMode3D. Uses ev.viewport_sphere_cache; pass selection_kind/selected_idx
-// for Edit View (highlight), or .None/-1 for Preview (no highlight). Shared by both panels.
+// for Viewport (highlight), or .None/-1 for Camera Preview (no highlight). Shared by both panels.
 draw_viewport_scene_objects :: proc(
 	app: ^App,
 	ev: ^EditViewState,

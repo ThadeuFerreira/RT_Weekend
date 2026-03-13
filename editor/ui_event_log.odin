@@ -4,7 +4,7 @@
 //   1. Chrome trace (util.trace_instant / trace_scope_begin/end) — visible in chrome://tracing
 //      and Perfetto when a benchmark capture is active. Records both instant events (mouse
 //      clicks, drag transitions, lifecycle) and duration scopes (handler functions).
-//   2. App log panel (app_push_log) — shows infrequent action events in the Log panel when
+//   2. App log panel (app_push_log) — shows infrequent action events in the Console panel when
 //      app.ui_event_log_enabled is true. Enabled at runtime; does not produce output by default
 //      to avoid flooding the panel during normal use.
 //   3. stderr (fmt.eprintfln) — per-frame hover notifications when app.ui_event_log_enabled
@@ -20,9 +20,9 @@
 //
 // Logging conventions:
 //   Chrome cat   ui.mouse     — hover, click, drag transitions
-//   Chrome cat   ui.handler   — Edit View input handler scopes
+//   Chrome cat   ui.handler   — Viewport input handler scopes
 //   Chrome cat   ui.lifecycle — component create/destroy
-//   Log panel    "[ui] ..."   — prefixed for grep-ability
+//   Console panel "[ui] ..."  — prefixed for grep-ability
 
 package editor
 
