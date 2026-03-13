@@ -155,7 +155,7 @@ layout_build_default :: proc(app: ^App, layout: ^DockLayout) {
     lower_right  := layout_add_leaf(layout, []int{p_log, p_cam, p_props, p_texture}, 0)
     preview_leaf := layout_add_leaf(layout, []int{p_preview}, 0)
 
-    // Right column: top = stats/sys, middle = log/camera/props, bottom = Preview Port
+    // Right column: top = stats/sys, middle = console/camera/details, bottom = Camera Preview
     right_bottom := layout_add_split(layout, .DOCK_SPLIT_HORIZONTAL, lower_right, preview_leaf, 0.72)
     right_split  := layout_add_split(layout, .DOCK_SPLIT_HORIZONTAL, upper_right, right_bottom, 0.45)
     root         := layout_add_split(layout, .DOCK_SPLIT_VERTICAL, center_leaf, right_split, 0.72)

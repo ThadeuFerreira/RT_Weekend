@@ -181,7 +181,7 @@ draw_panel_chrome :: proc(panel: FloatingPanel, split_view_on: bool) -> rl.Recta
         }
     }
 
-    // Split-view toggle for Render Preview and Edit View.
+    // Split-view toggle for Render Preview and Viewport.
     if panel_has_split_toggle(panel) {
         toggle_rect  := panel_split_toggle_rect(panel)
         toggle_hover := rl.CheckCollisionPointRec(mouse, toggle_rect)

@@ -174,7 +174,7 @@ draw_texture_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	if !has_tex {
 		draw_ui_text(app, "No texture",
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Select a sphere in Edit View to preview its material.",
+		draw_ui_text(app, "Select a sphere in the Viewport to preview its material.",
 			i32(content.x) + 10, i32(content.y) + 42, 10, rl.Color{140, 150, 165, 200})
 		return
 	}

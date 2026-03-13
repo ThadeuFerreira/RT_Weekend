@@ -45,7 +45,7 @@ draw_camera_preview_content :: proc(app: ^App, content: rl.Rectangle) {
 		projection = .PERSPECTIVE,
 	}
 
-	// Use same textured scene drawing as Edit View (shared cache); no selection highlight.
+	// Use same textured scene drawing as Viewport (shared cache); no selection highlight.
 	ev := &app.e_edit_view
 	ensure_viewport_sphere_cache_filled(app, ev)
 	rl.BeginTextureMode(app.preview_port_tex)

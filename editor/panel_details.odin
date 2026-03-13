@@ -9,7 +9,7 @@ import "RT_Weekend:core"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:util"
 
-// Layout constants for the Object Properties panel.
+// Layout constants for the Details panel.
 // Separate from PROP_* in edit_view_panel.odin to fit a narrower panel.
 OP_LW  :: f32(12)                          // label width  (1–2 chars at fs=11)
 OP_GAP :: f32(2)                           // gap between label and field box
@@ -224,7 +224,7 @@ op_compute_layout :: proc(content: rl.Rectangle, mat_kind: core.MaterialKind, al
 	return lo
 }
 
-// Camera layout in Object Properties: same 12 fields as camera panel (incl. shutter open/close), using OP_* for consistency.
+// Camera layout in Details: same 12 fields as camera panel (incl. shutter open/close), using OP_* for consistency.
 OP_CAM_ROW :: f32(20)
 op_camera_field_rects :: proc(content: rl.Rectangle) -> [12]rl.Rectangle {
 	x0 := content.x + 8
@@ -311,7 +311,7 @@ draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 	if ev.selection_kind == .None {
 		draw_ui_text(app, "No object select",
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Click a sphere or the camera in the Edit View.",
+		draw_ui_text(app, "Click a sphere or the camera in the Viewport.",
 			i32(content.x) + 10, i32(content.y) + 40, 11, rl.Color{140, 150, 165, 200})
 		// Volumes section when scene has volumes (density / albedo editable)
 		if len(app.e_volumes) > 0 {

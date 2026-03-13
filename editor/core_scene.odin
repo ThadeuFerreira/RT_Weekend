@@ -5,7 +5,7 @@ import rl "vendor:raylib"
 import "RT_Weekend:core"
 import rt "RT_Weekend:raytrace"
 
-// Selection kind when picking in the viewport: none, sphere, quad, volume, or camera (used by Edit View).
+// Selection kind when picking in the viewport: none, sphere, quad, volume, or camera (used by Viewport).
 // When Volume: selected_idx is the index into app.e_volumes.
 EditViewSelectionKind :: enum {
 	None,

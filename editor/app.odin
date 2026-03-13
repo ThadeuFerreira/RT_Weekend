@@ -274,7 +274,7 @@ App :: struct {
     e_outliner:     OutlinerPanelState,
     e_texture_view: TextureViewPanelState,
 
-    // Preview Port: rasterized view from render camera (app.c_camera_params)
+    // Camera Preview: rasterized view from render camera (app.c_camera_params)
     preview_port_tex: rl.RenderTexture2D,
     preview_port_w:   i32,
     preview_port_h:   i32,
@@ -288,7 +288,7 @@ App :: struct {
     keyboard: KeyboardState,
 
     // UI event logging: when true (and UI_EVENT_LOG_ENABLED is set at build time), click/drag/hover
-    // events are written to the Log panel and stderr. Chrome trace output is controlled separately
+    // events are written to the Console panel and stderr. Chrome trace output is controlled separately
     // by TRACE_CAPTURE_ENABLED + the benchmark capture toggle in the Render menu.
     // Default: false — enable via View menu or set directly in code for a debug session.
     ui_event_log_enabled: bool,
@@ -332,7 +332,7 @@ App :: struct {
 g_app: ^App = nil
 
 // mark_scene_dirty sets the scene as having unsaved changes. Call after any edit (add/delete/modify sphere or camera).
-// Also invalidates the Edit View cached BVH (viz_bvh_dirty) and viewport sphere cache so the 3D viewport
+// Also invalidates the Viewport cached BVH (viz_bvh_dirty) and viewport sphere cache so the 3D viewport
 // shows up-to-date geometry and material/color after any change.
 mark_scene_dirty :: proc(app: ^App) {
     if app != nil {

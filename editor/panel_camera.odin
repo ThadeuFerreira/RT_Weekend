@@ -101,7 +101,7 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_camera_panel_drag_field(app, "G", c_params.background[1], fields[13], e_cam.drag_idx == 13, mouse)
 	draw_camera_panel_drag_field(app, "B", c_params.background[2], fields[14], e_cam.drag_idx == 14, mouse)
 
-	draw_ui_text(app, "Edits apply to next render. Use Edit View Render to use orbit camera.", i32(x0), i32(y0 + 8*row + 4), 10, rl.Color{120, 130, 148, 180})
+	draw_ui_text(app, "Edits apply to next render. Use Viewport Render to use orbit camera.", i32(x0), i32(y0 + 8*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
