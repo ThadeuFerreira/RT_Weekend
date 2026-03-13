@@ -8,24 +8,24 @@ PRESET_NAME_RENDER  :: "Rendering Focus"
 PRESET_NAME_EDIT    :: "Editing Focus"
 
 // layout_build_render_focus sets a layout optimized for viewing the render output.
-// The render panel takes the full center; stats, log, camera in right column.
+// The render panel takes the full center; stats, console, camera in right column.
 layout_build_render_focus :: proc(app: ^App, layout: ^DockLayout) {
     if app == nil || layout == nil { return }
     layout_init(layout)
 
-    p_render := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_RENDER))
-    p_stats  := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_STATS))
-    p_log    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_LOG))
-    p_cam    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA))
-    p_props  := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_OBJECT_PROPS))
-    p_sys    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_SYSTEM_INFO))
-    p_edit   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_EDIT_VIEW))
-    p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_PREVIEW_PORT))
+    p_render  := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_RENDER))
+    p_stats   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_STATS))
+    p_log     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CONSOLE))
+    p_cam     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA))
+    p_props   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_DETAILS))
+    p_sys     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_SYSTEM_INFO))
+    p_edit    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_VIEWPORT))
+    p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA_PREVIEW))
     p_texture := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_TEXTURE_VIEW))
 
     // Mark non-essential panels as hidden in this layout
-    if ep := app_find_panel(app, PANEL_ID_EDIT_VIEW); ep != nil { ep.visible = false }
-    if pp := app_find_panel(app, PANEL_ID_PREVIEW_PORT); pp != nil { pp.visible = false }
+    if ep := app_find_panel(app, PANEL_ID_VIEWPORT); ep != nil { ep.visible = false }
+    if pp := app_find_panel(app, PANEL_ID_CAMERA_PREVIEW); pp != nil { pp.visible = false }
 
     center_leaf := layout_add_leaf(layout, []int{p_render, p_edit}, 0)
     right_top   := layout_add_leaf(layout, []int{p_stats, p_sys}, 0)
@@ -41,19 +41,19 @@ layout_build_render_focus :: proc(app: ^App, layout: ^DockLayout) {
 }
 
 // layout_build_edit_focus sets a layout optimized for scene editing.
-// Render is hidden by default; edit view takes center; props panel visible.
+// Render is hidden by default; viewport takes center; details panel visible.
 layout_build_edit_focus :: proc(app: ^App, layout: ^DockLayout) {
     if app == nil || layout == nil { return }
     layout_init(layout)
 
     p_render  := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_RENDER))
-    p_edit    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_EDIT_VIEW))
+    p_edit    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_VIEWPORT))
     p_stats   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_STATS))
-    p_log     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_LOG))
+    p_log     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CONSOLE))
     p_cam     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA))
-    p_props   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_OBJECT_PROPS))
+    p_props   := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_DETAILS))
     p_sys     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_SYSTEM_INFO))
-    p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_PREVIEW_PORT))
+    p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA_PREVIEW))
     p_texture := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_TEXTURE_VIEW))
 
     // Render panel hidden in edit focus

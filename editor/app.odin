@@ -13,15 +13,16 @@ import "RT_Weekend:util"
 
 LOG_RING_SIZE :: 64
 
-PANEL_ID_RENDER      :: "render_preview"
-PANEL_ID_STATS       :: "stats"
-PANEL_ID_LOG         :: "log"
-PANEL_ID_SYSTEM_INFO :: "system_info"
-PANEL_ID_EDIT_VIEW   :: "edit_view"
-PANEL_ID_CAMERA        :: "camera"
-PANEL_ID_OBJECT_PROPS  :: "object_props"
-PANEL_ID_PREVIEW_PORT  :: "preview_port"
-PANEL_ID_TEXTURE_VIEW :: "texture_view"
+PANEL_ID_RENDER         :: "render_preview"
+PANEL_ID_STATS          :: "stats"
+PANEL_ID_CONSOLE        :: "console"
+PANEL_ID_SYSTEM_INFO    :: "system_info"
+PANEL_ID_VIEWPORT       :: "viewport"
+PANEL_ID_CAMERA         :: "camera"
+PANEL_ID_DETAILS        :: "details"
+PANEL_ID_CAMERA_PREVIEW :: "camera_preview"
+PANEL_ID_TEXTURE_VIEW   :: "texture_view"
+PANEL_ID_OUTLINER       :: "outliner"
 
 FloatingPanel :: struct {
     id:                 string,
@@ -269,7 +270,8 @@ App :: struct {
     e_edit_view:    EditViewState,
     e_camera_panel: CameraPanelState,
     e_menu_bar:     MenuBarState,
-    e_object_props: ObjectPropsPanelState,
+    e_details:      DetailsPanelState,
+    e_outliner:     OutlinerPanelState,
     e_texture_view: TextureViewPanelState,
 
     // Preview Port: rasterized view from render camera (app.c_camera_params)
@@ -392,6 +394,19 @@ app_push_log :: proc(app: ^App, msg: string) {
     app.log_count += 1
 }
 
+// _panel_id_translate translates old panel ID strings (from saved configs before the rename) to new names.
+// Returns the new name if an alias exists, otherwise returns the original id unchanged.
+@(private="file")
+_panel_id_translate :: proc(id: string) -> string {
+    switch id {
+    case "edit_view":    return PANEL_ID_VIEWPORT
+    case "object_props": return PANEL_ID_DETAILS
+    case "log":          return PANEL_ID_CONSOLE
+    case "preview_port": return PANEL_ID_CAMERA_PREVIEW
+    }
+    return id
+}
+
 // apply_editor_layout sets each panel's rect, visible, maximized, and saved_rect from the loaded layout.
 apply_editor_layout :: proc(app: ^App, layout: ^persistence.EditorLayout) {
     if app == nil || layout == nil { return }
@@ -399,11 +414,30 @@ apply_editor_layout :: proc(app: ^App, layout: ^persistence.EditorLayout) {
         return rl.Rectangle{x = r.x, y = r.y, width = r.width, height = r.height}
     }
     for p in app.panels {
-        if state, ok := layout.panels[p.id]; ok {
+        // Try the current ID first, then try the translated ID (for old saved configs).
+        lookup_id := p.id
+        if state, ok := layout.panels[lookup_id]; ok {
             p.rect       = panel_rect(state.rect)
             p.visible    = state.visible
             p.maximized  = state.maximized
             p.saved_rect = panel_rect(state.saved_rect)
+            continue
+        }
+        // Check if this panel was previously saved under a legacy ID
+        old_id := ""
+        switch p.id {
+        case PANEL_ID_VIEWPORT:       old_id = "edit_view"
+        case PANEL_ID_DETAILS:        old_id = "object_props"
+        case PANEL_ID_CONSOLE:        old_id = "log"
+        case PANEL_ID_CAMERA_PREVIEW: old_id = "preview_port"
+        }
+        if len(old_id) > 0 {
+            if state, ok := layout.panels[old_id]; ok {
+                p.rect       = panel_rect(state.rect)
+                p.visible    = state.visible
+                p.maximized  = state.maximized
+                p.saved_rect = panel_rect(state.saved_rect)
+            }
         }
     }
 }
@@ -595,7 +629,7 @@ run_app :: proc(
     app.r_world = app_build_world_from_scene(&app, app.e_edit_view.export_scratch[:])
     AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
     app_append_volumes_to_world(&app, &app.r_world)
-    app.e_object_props  = ObjectPropsPanelState{prop_drag_idx = -1}
+    app.e_details  = DetailsPanelState{prop_drag_idx = -1}
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
@@ -646,15 +680,15 @@ run_app :: proc(
         update_content = update_stats_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
-        id                 = PANEL_ID_LOG,
-        title              = "Log",
+        id                 = PANEL_ID_CONSOLE,
+        title              = "Console",
         rect               = rl.Rectangle{840, 240, 430, 470},
         min_size           = rl.Vector2{180, 100},
         visible            = true,
         closeable          = true,
         detachable         = true,
         dim_when_maximized = true,
-        draw_content       = draw_log_content,
+        draw_content       = draw_console_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
         id           = PANEL_ID_SYSTEM_INFO,
@@ -667,15 +701,15 @@ run_app :: proc(
         draw_content = draw_system_info_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_EDIT_VIEW,
-        title          = "Edit View",
+        id             = PANEL_ID_VIEWPORT,
+        title          = "Viewport",
         rect           = rl.Rectangle{10, 850, 820, 700},
         min_size       = rl.Vector2{300, 250},
         visible        = true,
         closeable      = true,
         detachable     = true,
-        draw_content   = draw_edit_view_content,
-        update_content = update_edit_view_content,
+        draw_content   = draw_viewport_content,
+        update_content = update_viewport_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
         id             = PANEL_ID_CAMERA,
@@ -689,25 +723,36 @@ run_app :: proc(
         update_content = update_camera_panel_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_OBJECT_PROPS,
-        title          = "Object Properties",
+        id             = PANEL_ID_DETAILS,
+        title          = "Details",
         rect           = rl.Rectangle{1100, 30, 260, 340},
         min_size       = rl.Vector2{240, 240},
         visible        = true,
         closeable      = true,
         detachable     = true,
-        draw_content   = draw_object_props_content,
-        update_content = update_object_props_content,
+        draw_content   = draw_details_content,
+        update_content = update_details_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
-        id           = PANEL_ID_PREVIEW_PORT,
-        title        = "Preview Port",
+        id           = PANEL_ID_CAMERA_PREVIEW,
+        title        = "Camera Preview",
         rect         = rl.Rectangle{840, 920, 250, 180},
         min_size     = rl.Vector2{160, 120},
         visible      = true,
         closeable    = true,
         detachable   = true,
-        draw_content = draw_preview_port_content,
+        draw_content = draw_camera_preview_content,
+    }))
+    app_add_panel(&app, make_panel(PanelDesc{
+        id             = PANEL_ID_OUTLINER,
+        title          = "World Outliner",
+        rect           = rl.Rectangle{840, 700, 260, 300},
+        min_size       = rl.Vector2{180, 150},
+        visible        = true,
+        closeable      = true,
+        detachable     = true,
+        draw_content   = draw_outliner_content,
+        update_content = update_outliner_content,
     }))
     app_add_panel(&app, make_panel(PanelDesc{
         id           = PANEL_ID_TEXTURE_VIEW,
@@ -797,19 +842,19 @@ run_app :: proc(
             if !ctrl_held {
                 if rl.IsKeyPressed(.F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
                 if rl.IsKeyPressed(.L) {
-                    if log := app_find_panel(&app, PANEL_ID_LOG); log != nil { log.visible = true }
+                    if log := app_find_panel(&app, PANEL_ID_CONSOLE); log != nil { log.visible = true }
                 }
                 if rl.IsKeyPressed(.S) {
                     if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil { si.visible = true }
                 }
                 if rl.IsKeyPressed(.E) {
-                    if ev := app_find_panel(&app, PANEL_ID_EDIT_VIEW); ev != nil { ev.visible = true }
+                    if ev := app_find_panel(&app, PANEL_ID_VIEWPORT); ev != nil { ev.visible = true }
                 }
                 if rl.IsKeyPressed(.C) {
                     if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil { cam.visible = true }
                 }
                 if rl.IsKeyPressed(.O) {
-                    if op := app_find_panel(&app, PANEL_ID_OBJECT_PROPS); op != nil { op.visible = true }
+                    if op := app_find_panel(&app, PANEL_ID_DETAILS); op != nil { op.visible = true }
                 }
                 if rl.IsKeyPressed(.T) {
                     if tv := app_find_panel(&app, PANEL_ID_TEXTURE_VIEW); tv != nil { tv.visible = true }

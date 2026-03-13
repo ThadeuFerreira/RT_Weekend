@@ -128,7 +128,7 @@ clamp_panel_to_screen :: proc(panel: ^FloatingPanel, screen_w, screen_h: f32) {
 }
 
 panel_has_split_toggle :: proc(panel: FloatingPanel) -> bool {
-    return panel.id == PANEL_ID_RENDER || panel.id == PANEL_ID_EDIT_VIEW
+    return panel.id == PANEL_ID_RENDER || panel.id == PANEL_ID_VIEWPORT
 }
 
 panel_split_toggle_rect :: proc(panel: FloatingPanel) -> rl.Rectangle {

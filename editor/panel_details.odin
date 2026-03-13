@@ -66,7 +66,7 @@ noise_preview_unload :: proc(np: ^NoisePreview) {
 	}
 }
 
-// ObjectPropsPanelState holds per-frame drag state for the Object Properties panel.
+// DetailsPanelState holds per-frame drag state for the Details panel.
 // For sphere: data in app.e_edit_view.objects[selected_idx]. For camera: app.c_camera_params.
 // Drag indices: sphere 0–10 (xyz, radius, motion dX dY dZ, rgb, mat_param); camera 0–11 (from xyz, at xyz, vfov, defocus, focus, max_depth, shutter).
 // Drag index 11 = Noise/Marble scale. Volume props: 100 + i*4 + 0 = density, +1..+3 = albedo R,G,B.
@@ -74,7 +74,7 @@ noise_preview_unload :: proc(np: ^NoisePreview) {
 OP_VOLUME_DRAG_BASE         :: 100
 OP_VOLUME_SELECTED_DRAG_BASE :: 200
 OP_VOLUME_SELECTED_DRAG_COUNT :: 9
-ObjectPropsPanelState :: struct {
+DetailsPanelState :: struct {
 	prop_drag_idx:       int,
 	prop_drag_start_x:   f32,
 	prop_drag_start_val: f32,
@@ -289,7 +289,7 @@ op_mat_button :: proc(app: ^App, label: cstring, rect: rl.Rectangle, active: boo
 // Returns true when the mouse is inside the box.
 op_try_start_drag :: proc(
 	box: rl.Rectangle, idx: int, val: f32,
-	st: ^ObjectPropsPanelState, mouse: rl.Vector2, lmb_pressed: bool,
+	st: ^DetailsPanelState, mouse: rl.Vector2, lmb_pressed: bool,
 ) -> bool {
 	if !rl.CheckCollisionPointRec(mouse, box) { return false }
 	if lmb_pressed {
@@ -303,9 +303,9 @@ op_try_start_drag :: proc(
 
 // ── draw 
 
-draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
+draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 	ev    := &app.e_edit_view
-	st    := &app.e_object_props
+	st    := &app.e_details
 	mouse := rl.GetMousePosition()
 
 	if ev.selection_kind == .None {
@@ -598,9 +598,9 @@ draw_object_props_content :: proc(app: ^App, content: rl.Rectangle) {
 
 // ── update 
 
-update_object_props_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
+update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
 	ev := &app.e_edit_view
-	st := &app.e_object_props
+	st := &app.e_details
 
 	if ev.selection_kind == .None {
 		if st.prop_drag_idx >= 0 {
