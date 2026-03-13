@@ -94,6 +94,9 @@ _scene_resolve_image_path :: proc(scene_dir, image_path: string, allocator := co
 			return strings.clone(image_path, allocator)
 		}
 	}
+	if os.exists(image_path) {
+		return strings.clone(image_path, allocator)
+	}
 	return strings.concatenate({scene_dir, filepath.SEPARATOR_STRING, image_path}, allocator)
 }
 

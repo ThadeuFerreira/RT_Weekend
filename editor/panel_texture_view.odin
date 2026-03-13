@@ -6,6 +6,7 @@ package editor
 
 import "core:fmt"
 import "core:math"
+import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
@@ -33,6 +34,9 @@ texture_view_resolve_image_path :: proc(app: ^App, image_path: string) -> string
 		if image_path[0] == '/' {
 			return strings.clone(image_path)
 		}
+	}
+	if os.exists(image_path) {
+		return strings.clone(image_path)
 	}
 	scene_dir := "."
 	if len(app.current_scene_path) > 0 {

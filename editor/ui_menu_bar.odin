@@ -50,9 +50,9 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
     }
     append(&view_entries,
         MenuEntryDyn{separator = true},
-        MenuEntryDyn{label = "Default Layout",        cmd_id = CMD_VIEW_PRESET_DEFAULT},
+        MenuEntryDyn{label = "Default Layout",         cmd_id = CMD_VIEW_PRESET_DEFAULT},
         MenuEntryDyn{label = "Rendering Focus Layout", cmd_id = CMD_VIEW_PRESET_RENDER},
-        MenuEntryDyn{label = "Editing Focus Layout",  cmd_id = CMD_VIEW_PRESET_EDIT},
+        MenuEntryDyn{label = "Editing Focus Layout",   cmd_id = CMD_VIEW_PRESET_EDIT},
     )
     // User-saved presets
     if len(app.layout_presets) > 0 {
