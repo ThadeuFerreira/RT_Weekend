@@ -11,7 +11,7 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 | `app.odin` | Entry point, main loop, `App` struct, `run_app` | Yes |
 | `ui_*` | Raylib display infrastructure: panel chrome, fonts, layout engine, menus, 3D viewport math, gizmos | Yes — replace these when switching UI frameworks |
 | `panel_*` | Per-panel draw + update callbacks; mix Raylib calls with editor logic, scoped per feature | Yes |
-| `core_*` | Framework-agnostic logic: commands, history, scene state. No Raylib | No — survives a UI framework swap untouched |
+| `core_*` | Framework-agnostic logic: commands, history, scene state, **outliner** (row count, row→selection, labels, scroll). No Raylib | No — survives a UI framework swap untouched |
 
 ## Purpose
 
@@ -41,7 +41,7 @@ Files are grouped by prefix to separate responsibilities. This makes the UI-fram
 | `panel_camera.odin` | Camera (includes **shutter open/close** for motion blur). |
 | `panel_camera_preview.odin` | Camera Preview (was: Preview Port) — uses `get_render_aspect`, shared scene drawing (no interactions). |
 | `panel_details.odin` | Details (was: Object Properties) (camera: shutter; sphere: **MOTION** section with **dX/dY/dZ** = center1 − center, undo/dirty on edit). |
-| `panel_outliner.odin` | World Outliner — scrollable list of all scene objects (spheres, quads, volumes); click to select. |
+| `panel_outliner.odin` | World Outliner — scrollable list of all scene objects (spheres, quads, volumes); click to select. Thin view glue: input/draw only; logic in **core_outliner.odin**. |
 | `panel_file_modal.odin` | File modal (Preset Name; Import/Save As only with FILE_MODAL_FALLBACK). `file_import_from_path`, `file_save_as_path`. |
 | `panel_confirm_modal.odin` | Save Changes? (exit/import when dirty); Load Example confirmation. |
 
