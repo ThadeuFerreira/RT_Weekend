@@ -90,7 +90,10 @@ cmd_execute :: proc(app: ^App, id: string) {
     cmd := cmd_find(&app.commands, id)
     if cmd == nil || cmd.action == nil { return }
     if cmd.enabled_proc != nil && !cmd.enabled_proc(app) { return }
+    prev_cmd_id := app.active_command_id
+    app.active_command_id = id
     cmd.action(app)
+    app.active_command_id = prev_cmd_id
 }
 
 // cmd_is_enabled returns true when the command is enabled (enabled_proc nil = true).
@@ -105,5 +108,9 @@ cmd_is_enabled :: proc(app: ^App, id: string) -> bool {
 cmd_is_checked :: proc(app: ^App, id: string) -> bool {
     cmd := cmd_find(&app.commands, id)
     if cmd == nil || cmd.checked_proc == nil { return false }
-    return cmd.checked_proc(app)
+    prev_cmd_id := app.active_command_id
+    app.active_command_id = id
+    checked := cmd.checked_proc(app)
+    app.active_command_id = prev_cmd_id
+    return checked
 }

@@ -41,22 +41,18 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
 
     // Build View entries as a dynamic slice so user presets can be appended.
     view_entries := make([dynamic]MenuEntryDyn, context.temp_allocator)
+    for panel_desc in PANEL_REGISTRY {
+        append(&view_entries, MenuEntryDyn{
+            label   = string(panel_desc.title),
+            cmd_id  = panel_desc.view_cmd_id,
+            checked = cmd_is_checked(app, panel_desc.view_cmd_id),
+        })
+    }
     append(&view_entries,
-        MenuEntryDyn{label = "Render Preview", cmd_id = CMD_VIEW_RENDER,  checked = cmd_is_checked(app, CMD_VIEW_RENDER)},
-        MenuEntryDyn{label = "Stats",          cmd_id = CMD_VIEW_STATS,   checked = cmd_is_checked(app, CMD_VIEW_STATS)},
-        MenuEntryDyn{label = "Console",         cmd_id = CMD_VIEW_LOG,      checked = cmd_is_checked(app, CMD_VIEW_LOG)},
-        MenuEntryDyn{label = "System Info",    cmd_id = CMD_VIEW_SYSINFO,  checked = cmd_is_checked(app, CMD_VIEW_SYSINFO)},
-        MenuEntryDyn{label = "Viewport",       cmd_id = CMD_VIEW_EDIT,     checked = cmd_is_checked(app, CMD_VIEW_EDIT)},
-        MenuEntryDyn{label = "Camera",         cmd_id = CMD_VIEW_CAMERA,   checked = cmd_is_checked(app, CMD_VIEW_CAMERA)},
-        MenuEntryDyn{label = "Details",        cmd_id = CMD_VIEW_PROPS,    checked = cmd_is_checked(app, CMD_VIEW_PROPS)},
-        MenuEntryDyn{label = "Camera Preview", cmd_id = CMD_VIEW_PREVIEW,  checked = cmd_is_checked(app, CMD_VIEW_PREVIEW)},
-        MenuEntryDyn{label = "Texture View",   cmd_id = CMD_VIEW_TEXTURE,  checked = cmd_is_checked(app, CMD_VIEW_TEXTURE)},
-        MenuEntryDyn{label = "Content Browser", cmd_id = CMD_VIEW_CONTENT_BROWSER, checked = cmd_is_checked(app, CMD_VIEW_CONTENT_BROWSER)},
-        MenuEntryDyn{label = "World Outliner", cmd_id = CMD_VIEW_OUTLINER, checked = cmd_is_checked(app, CMD_VIEW_OUTLINER)},
         MenuEntryDyn{separator = true},
-        MenuEntryDyn{label = "Default Layout",        cmd_id = CMD_VIEW_PRESET_DEFAULT},
+        MenuEntryDyn{label = "Default Layout",         cmd_id = CMD_VIEW_PRESET_DEFAULT},
         MenuEntryDyn{label = "Rendering Focus Layout", cmd_id = CMD_VIEW_PRESET_RENDER},
-        MenuEntryDyn{label = "Editing Focus Layout",  cmd_id = CMD_VIEW_PRESET_EDIT},
+        MenuEntryDyn{label = "Editing Focus Layout",   cmd_id = CMD_VIEW_PRESET_EDIT},
     )
     // User-saved presets
     if len(app.layout_presets) > 0 {

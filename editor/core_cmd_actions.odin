@@ -119,7 +119,7 @@ cmd_action_file_exit :: proc(app: ^App) {
     }
 }
 
-// ── View panel toggle actions (concrete named procs — avoids loop-closure pitfall) ─
+// ── View panel toggle actions ─
 
 toggle_panel :: proc(app: ^App, id: string) {
     p := app_find_panel(app, id)
@@ -131,34 +131,20 @@ panel_visible :: proc(app: ^App, id: string) -> bool {
     return p != nil && p.visible
 }
 
-cmd_action_view_render :: proc(app: ^App) { toggle_panel(app, PANEL_ID_RENDER) }
-cmd_action_view_stats  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_STATS) }
-cmd_action_view_log    :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CONSOLE) }
-cmd_action_view_sysinfo:: proc(app: ^App) { toggle_panel(app, PANEL_ID_SYSTEM_INFO) }
-cmd_action_view_edit   :: proc(app: ^App) { toggle_panel(app, PANEL_ID_VIEWPORT) }
-cmd_action_view_camera :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA) }
-cmd_action_view_props  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_DETAILS) }
-cmd_action_view_preview:: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA_PREVIEW) }
-cmd_action_view_texture:: proc(app: ^App) { toggle_panel(app, PANEL_ID_TEXTURE_VIEW) }
-cmd_action_view_content_browser :: proc(app: ^App) {
-    toggle_panel(app, PANEL_ID_CONTENT_BROWSER)
-    if panel_visible(app, PANEL_ID_CONTENT_BROWSER) {
+cmd_action_view_panel :: proc(app: ^App) {
+    desc, ok := panel_registry_find_by_cmd_id(app.active_command_id)
+    if !ok { return }
+    toggle_panel(app, desc.id)
+    if desc.id == PANEL_ID_CONTENT_BROWSER && panel_visible(app, PANEL_ID_CONTENT_BROWSER) {
         app.e_content_browser.scan_requested = true
     }
 }
-cmd_action_view_outliner :: proc(app: ^App) { toggle_panel(app, PANEL_ID_OUTLINER) }
 
-cmd_checked_view_render :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_RENDER) }
-cmd_checked_view_stats  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_STATS) }
-cmd_checked_view_log    :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONSOLE) }
-cmd_checked_view_sysinfo:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_SYSTEM_INFO) }
-cmd_checked_view_edit   :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_VIEWPORT) }
-cmd_checked_view_camera :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA) }
-cmd_checked_view_props  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_DETAILS) }
-cmd_checked_view_preview:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA_PREVIEW) }
-cmd_checked_view_texture:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_TEXTURE_VIEW) }
-cmd_checked_view_content_browser :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONTENT_BROWSER) }
-cmd_checked_view_outliner :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_OUTLINER) }
+cmd_checked_view_panel :: proc(app: ^App) -> bool {
+    desc, ok := panel_registry_find_by_cmd_id(app.active_command_id)
+    if !ok { return false }
+    return panel_visible(app, desc.id)
+}
 
 // ── View preset actions ──────────────────────────────────────────────────────
 
@@ -558,17 +544,14 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
 
     // View — panels
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_RENDER,  label = "Render Preview", action = cmd_action_view_render,  checked_proc = cmd_checked_view_render})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_STATS,   label = "Stats",          action = cmd_action_view_stats,   checked_proc = cmd_checked_view_stats})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_LOG,      label = "Console",        action = cmd_action_view_log,      checked_proc = cmd_checked_view_log})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_SYSINFO,  label = "System Info",    action = cmd_action_view_sysinfo,  checked_proc = cmd_checked_view_sysinfo})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_EDIT,     label = "Viewport",       action = cmd_action_view_edit,     checked_proc = cmd_checked_view_edit})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_CAMERA,   label = "Camera",         action = cmd_action_view_camera,   checked_proc = cmd_checked_view_camera})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PROPS,    label = "Details",        action = cmd_action_view_props,    checked_proc = cmd_checked_view_props})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PREVIEW,  label = "Camera Preview", action = cmd_action_view_preview,  checked_proc = cmd_checked_view_preview})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_TEXTURE,  label = "Texture View",   action = cmd_action_view_texture,  checked_proc = cmd_checked_view_texture})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_CONTENT_BROWSER, label = "Content Browser", action = cmd_action_view_content_browser, checked_proc = cmd_checked_view_content_browser})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_OUTLINER, label = "World Outliner", action = cmd_action_view_outliner, checked_proc = cmd_checked_view_outliner})
+    for panel_desc in PANEL_REGISTRY {
+        cmd_register(cmd_reg, Command{
+            id           = panel_desc.view_cmd_id,
+            label        = string(panel_desc.title),
+            action       = cmd_action_view_panel,
+            checked_proc = cmd_checked_view_panel,
+        })
+    }
 
     // View — presets
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",         action = cmd_action_preset_default})

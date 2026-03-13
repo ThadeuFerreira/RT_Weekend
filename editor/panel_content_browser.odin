@@ -296,7 +296,6 @@ draw_content_browser_content :: proc(app: ^App, content: rl.Rectangle) {
     rl.DrawRectangleRec(list_rect, rl.Color{20, 22, 28, 255})
     rl.DrawRectangleLinesEx(list_rect, 1, BORDER_COLOR)
     rl.BeginScissorMode(i32(list_rect.x), i32(list_rect.y), i32(list_rect.width), i32(list_rect.height))
-    defer rl.EndScissorMode()
 
     row := 0
     for asset, asset_idx in st.assets {
@@ -322,6 +321,7 @@ draw_content_browser_content :: proc(app: ^App, content: rl.Rectangle) {
     if visible_count == 0 {
         draw_ui_text(app, "No assets match the current filter", i32(list_rect.x) + 8, i32(list_rect.y) + 8, 10, rl.Color{140, 150, 165, 200})
     }
+    rl.EndScissorMode()
 
     asset := content_browser_selected_asset(app)
     content_browser_ensure_preview(app)

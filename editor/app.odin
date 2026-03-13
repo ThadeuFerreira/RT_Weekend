@@ -303,6 +303,7 @@ App :: struct {
 
     // Command registry: registered once on startup
     commands: CommandRegistry,
+    active_command_id: string,
 
     // Undo/redo history for scene mutations
     edit_history: EditHistory,
@@ -665,120 +666,20 @@ run_app :: proc(
         delete(app.r_samples_input)
     }
 
-    app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_RENDER,
-        title          = "Render Preview",
-        rect           = rl.Rectangle{10, 30, 820, 700},
-        min_size       = rl.Vector2{260, 200},
-        visible        = true,
-        draw_content   = draw_render_content,
-        update_content = update_render_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_STATS,
-        title          = "Stats",
-        rect           = rl.Rectangle{840, 30, 430, 220},
-        min_size       = rl.Vector2{180, 140},
-        visible        = true,
-        draw_content   = draw_stats_content,
-        update_content = update_stats_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id                 = PANEL_ID_CONSOLE,
-        title              = "Console",
-        rect               = rl.Rectangle{840, 240, 430, 470},
-        min_size           = rl.Vector2{180, 100},
-        visible            = true,
-        closeable          = true,
-        detachable         = true,
-        dim_when_maximized = true,
-        draw_content       = draw_console_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id           = PANEL_ID_SYSTEM_INFO,
-        title        = "System Info",
-        rect         = rl.Rectangle{840, 470, 430, 220},
-        min_size     = rl.Vector2{180, 140},
-        visible      = true,
-        closeable    = true,
-        detachable   = true,
-        draw_content = draw_system_info_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_VIEWPORT,
-        title          = "Viewport",
-        rect           = rl.Rectangle{10, 850, 820, 700},
-        min_size       = rl.Vector2{300, 250},
-        visible        = true,
-        closeable      = true,
-        detachable     = true,
-        draw_content   = draw_viewport_content,
-        update_content = update_viewport_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_CAMERA,
-        title          = "Camera",
-        rect           = rl.Rectangle{840, 700, 250, 220},
-        min_size       = rl.Vector2{200, 180},
-        visible        = true,
-        closeable      = true,
-        detachable     = true,
-        draw_content   = draw_camera_panel_content,
-        update_content = update_camera_panel_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_DETAILS,
-        title          = "Details",
-        rect           = rl.Rectangle{1100, 30, 260, 340},
-        min_size       = rl.Vector2{240, 240},
-        visible        = true,
-        closeable      = true,
-        detachable     = true,
-        draw_content   = draw_details_content,
-        update_content = update_details_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id           = PANEL_ID_CAMERA_PREVIEW,
-        title        = "Camera Preview",
-        rect         = rl.Rectangle{840, 920, 250, 180},
-        min_size     = rl.Vector2{160, 120},
-        visible      = true,
-        closeable    = true,
-        detachable   = true,
-        draw_content = draw_camera_preview_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_OUTLINER,
-        title          = "World Outliner",
-        rect           = rl.Rectangle{840, 700, 260, 300},
-        min_size       = rl.Vector2{180, 150},
-        visible        = true,
-        closeable      = true,
-        detachable     = true,
-        draw_content   = draw_outliner_content,
-        update_content = update_outliner_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id           = PANEL_ID_TEXTURE_VIEW,
-        title        = "Texture View",
-        rect         = rl.Rectangle{1100, 380, 260, 280},
-        min_size     = rl.Vector2{200, 200},
-        visible      = true,
-        closeable    = true,
-        detachable   = true,
-        draw_content = draw_texture_view_content,
-    }))
-    app_add_panel(&app, make_panel(PanelDesc{
-        id             = PANEL_ID_CONTENT_BROWSER,
-        title          = "Content Browser",
-        rect           = rl.Rectangle{1100, 670, 360, 340},
-        min_size       = rl.Vector2{260, 220},
-        visible        = true,
-        closeable      = true,
-        detachable     = true,
-        draw_content   = draw_content_browser_content,
-        update_content = update_content_browser_content,
-    }))
+    for panel_desc in PANEL_REGISTRY {
+        app_add_panel(&app, make_panel(PanelDesc{
+            id                 = panel_desc.id,
+            title              = panel_desc.title,
+            rect               = panel_desc.rect,
+            min_size           = panel_desc.min_size,
+            visible            = panel_desc.visible,
+            closeable          = panel_desc.closeable,
+            detachable         = panel_desc.detachable,
+            dim_when_maximized = panel_desc.dim_when_maximized,
+            draw_content       = panel_desc.draw_content,
+            update_content     = panel_desc.update_content,
+        }))
+    }
 
     if initial_editor_layout != nil {
         apply_editor_layout(&app, initial_editor_layout)
