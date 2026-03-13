@@ -550,17 +550,15 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_FILE_SAVE_AS, label = "Save As…", shortcut = "",       action = cmd_action_file_save_as})
     cmd_register(cmd_reg, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
 
-    // View — panels
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_RENDER,  label = "Render Preview", action = cmd_action_view_render,  checked_proc = cmd_checked_view_render})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_STATS,   label = "Stats",          action = cmd_action_view_stats,   checked_proc = cmd_checked_view_stats})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_LOG,      label = "Console",        action = cmd_action_view_log,      checked_proc = cmd_checked_view_log})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_SYSINFO,  label = "System Info",    action = cmd_action_view_sysinfo,  checked_proc = cmd_checked_view_sysinfo})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_EDIT,     label = "Viewport",       action = cmd_action_view_edit,     checked_proc = cmd_checked_view_edit})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_CAMERA,   label = "Camera",         action = cmd_action_view_camera,   checked_proc = cmd_checked_view_camera})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PROPS,    label = "Details",        action = cmd_action_view_props,    checked_proc = cmd_checked_view_props})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PREVIEW,  label = "Camera Preview", action = cmd_action_view_preview,  checked_proc = cmd_checked_view_preview})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_TEXTURE,  label = "Texture View",   action = cmd_action_view_texture,  checked_proc = cmd_checked_view_texture})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_OUTLINER, label = "World Outliner", action = cmd_action_view_outliner, checked_proc = cmd_checked_view_outliner})
+    // View — panels (driven by PANEL_REGISTRY)
+    for desc in PANEL_REGISTRY {
+        cmd_register(cmd_reg, Command{
+            id           = desc.cmd_id,
+            label        = string(desc.cmd_label),
+            action       = desc.cmd_action,
+            checked_proc = desc.cmd_checked,
+        })
+    }
 
     // View — presets
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",         action = cmd_action_preset_default})
