@@ -5,8 +5,7 @@ import rl "vendor:raylib"
 OUTLINER_ROW_H :: f32(22)
 
 OutlinerPanelState :: struct {
-	scroll_y:  f32,
-	row_table: [dynamic]OutlinerRowEntry,
+	scroll_y: f32,
 }
 
 draw_outliner_content :: proc(app: ^App, content: rl.Rectangle) {
@@ -21,14 +20,12 @@ draw_outliner_content :: proc(app: ^App, content: rl.Rectangle) {
 	visible_h  := content.height
 	st.scroll_y = outliner_scroll_clamped(st.scroll_y, total_h, visible_h)
 
-	outliner_fill_row_table(sm, vol_count, &st.row_table)
-
 	rl.BeginScissorMode(i32(content.x), i32(content.y), i32(content.width), i32(content.height))
 	defer rl.EndScissorMode()
 
-	for row in 0 ..< total_rows {
-		entry := st.row_table[row]
-		kind, idx := entry.kind, entry.idx
+	for row in 0..<total_rows {
+		kind, idx, ok := outliner_row_to_selection(sm, vol_count, row)
+		if !ok { continue }
 		ry := content.y + f32(row) * OUTLINER_ROW_H - st.scroll_y
 		visible := ry + OUTLINER_ROW_H >= content.y && ry <= content.y + content.height
 		if !visible { continue }
@@ -53,15 +50,13 @@ update_outliner_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2
 	st := &app.e_outliner
 	sm := ev.scene_mgr
 	vol_count := len(app.e_volumes)
-	total_rows := outliner_total_rows(sm, vol_count)
-	total_h    := f32(total_rows) * OUTLINER_ROW_H
-	visible_h  := rect.height
+	total_h   := f32(outliner_total_rows(sm, vol_count)) * OUTLINER_ROW_H
 
 	// Scroll: handle wheel in update so input is not tied to draw order.
 	if rl.CheckCollisionPointRec(mouse, rect) {
 		wheel := rl.GetMouseWheelMove()
 		if wheel != 0 {
-			st.scroll_y = outliner_scroll_after_wheel(st.scroll_y, f32(wheel), total_h, visible_h, OUTLINER_ROW_H)
+			st.scroll_y = outliner_scroll_after_wheel(st.scroll_y, f32(wheel), total_h, rect.height, OUTLINER_ROW_H)
 		}
 	}
 

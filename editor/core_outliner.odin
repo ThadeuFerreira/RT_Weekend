@@ -12,43 +12,8 @@ outliner_total_rows :: proc(sm: ^SceneManager, volume_count: int) -> int {
 	return SceneManagerLen(sm) + volume_count
 }
 
-// OutlinerRowEntry is one precomputed row for the outliner list (used to avoid O(N²) per-draw work).
-OutlinerRowEntry :: struct {
-	kind: EditViewSelectionKind,
-	idx:  int,
-}
-
-// outliner_fill_row_table fills table with row→(kind, idx) for all rows in one O(N) pass.
-// Resizes table to total_rows. Call once before the draw loop and index by row.
-outliner_fill_row_table :: proc(sm: ^SceneManager, volume_count: int, table: ^[dynamic]OutlinerRowEntry) {
-	obj_count   := SceneManagerLen(sm)
-	total_rows  := obj_count + volume_count
-	resize(table, total_rows)
-	sphere_idx  := 0
-	quad_idx    := 0
-	if sm != nil {
-		for obj, i in sm.objects {
-			#partial switch _ in obj {
-			case core.SceneSphere:
-				table[i].kind = .Sphere
-				table[i].idx  = sphere_idx
-				sphere_idx += 1
-			case rt.Quad:
-				table[i].kind = .Quad
-				table[i].idx  = quad_idx
-				quad_idx += 1
-			}
-		}
-	}
-	for r in obj_count ..< total_rows {
-		table[r].kind = .Volume
-		table[r].idx  = r - obj_count
-	}
-}
-
 // outliner_row_to_selection maps a 0-based row index to (selection kind, object index).
 // When kind is .Sphere or .Quad, idx is the sphere/quad index; when .Volume, idx is the volume index.
-// Used for one-off lookups (e.g. click); for draw loops use outliner_fill_row_table + table[row].
 outliner_row_to_selection :: proc(sm: ^SceneManager, volume_count: int, row: int) -> (kind: EditViewSelectionKind, idx: int, ok: bool) {
 	obj_count := SceneManagerLen(sm)
 	if row < 0 { return .None, -1, false }
