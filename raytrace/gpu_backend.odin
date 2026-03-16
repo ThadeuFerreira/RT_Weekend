@@ -371,16 +371,6 @@ gpu_backend_init :: proc(
     gl.BufferData(gl.SHADER_STORAGE_BUFFER, output_total, raw_data(zeroes), gl.DYNAMIC_COPY)
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 
-    // Allocate two PBOs for async SSBO→CPU readback (ping-pong).
-    // STREAM_READ: written by GPU DMA, read once by CPU.
-    b.pbo_size = pixel_count * size_of([4]f32)
-    gl.GenBuffers(2, &b.pbo[0])
-    for i in 0..<2 {
-        gl.BindBuffer(gl.COPY_WRITE_BUFFER, b.pbo[i])
-        gl.BufferData(gl.COPY_WRITE_BUFFER, b.pbo_size, nil, gl.STREAM_READ)
-    }
-    gl.BindBuffer(gl.COPY_WRITE_BUFFER, 0)
-
     when VERBOSE_OUTPUT {
         fmt.printf("[GPU] Buffers ready — %d spheres, %d quads, %d volumes, %d BVH nodes, %dx%d px\n",
             len(spheres), len(quads), len(volumes), len(lin_bvh), cam.image_width, cam.image_height)
@@ -446,29 +436,8 @@ gpu_backend_dispatch :: proc(b: ^GPUBackend) {
     }
 
     // Memory barrier: all SSBO writes in the compute shader are made visible
-    // before any subsequent buffer reads or copies.
+    // before any subsequent buffer reads (e.g. GetBufferSubData in readback).
     gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
-
-    // Asynchronously copy the accumulation SSBO into the current PBO slot.
-    // glCopyBufferSubData enqueues a DMA transfer on the GPU timeline;
-    // the CPU returns immediately.  A fence sync marks when it completes.
-    if b.pbo[0] != 0 {
-        slot := b.pbo_frame % 2
-        // Clean up any unconsumed fence for this slot (can happen if readback
-        // was skipped while the fence was already signaled).
-        if b.pbo_fence[slot] != nil {
-            gl.DeleteSync(auto_cast b.pbo_fence[slot])
-            b.pbo_fence[slot] = nil
-        }
-        gl.BindBuffer(gl.COPY_READ_BUFFER,  b.ssbo_output)
-        gl.BindBuffer(gl.COPY_WRITE_BUFFER, b.pbo[slot])
-        gl.CopyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, b.pbo_size)
-        gl.BindBuffer(gl.COPY_READ_BUFFER,  0)
-        gl.BindBuffer(gl.COPY_WRITE_BUFFER, 0)
-        b.pbo_sample_at_fill[slot] = b.current_sample
-        b.pbo_fence[slot]          = auto_cast gl.FenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
-        b.pbo_frame += 1
-    }
 }
 
 // ── gpu_backend_readback ─────────────────────────────────────────────────────
@@ -494,128 +463,36 @@ gpu_backend_readback :: proc(b: ^GPUBackend, out: [][4]u8) {
         }
     }
 
-    // Async PBO readback: check whether the fence for the previous frame's PBO
-    // slot is signaled.  ClientWaitSync with timeout=0 is non-blocking — it
-    // returns immediately with TIMEOUT_EXPIRED if the GPU is still busy.
-    //
-    // Slot assignment (after dispatch has already incremented pbo_frame):
-    //   dispatch wrote to slot (pbo_frame-1) % 2  →  we read from pbo_frame % 2
-    // On the very first frame pbo_frame==0 and the slot's fence is nil, so
-    // we return early and leave out[] unchanged (black for one frame).
-    read_slot := b.pbo_frame % 2
-    fence     := b.pbo_fence[read_slot]
+    // Read the raw float accumulation buffer from GPU memory.
+    tmp := make([][4]f32, pixel_count)
+    defer delete(tmp)
 
-    if b.pbo[0] == 0 || fence == nil {
-        // PBOs not yet initialised, or no data ready for this slot yet.
-        return
-    }
-
-    result := gl.ClientWaitSync(auto_cast fence, 0, 0)
-    if result == gl.TIMEOUT_EXPIRED || result == gl.WAIT_FAILED {
-        // GPU hasn't finished the DMA for this slot; skip this frame.
-        return
-    }
-
-    // Fence signalled: consume it and map the PBO for reading.
-    gl.DeleteSync(auto_cast fence)
-    b.pbo_fence[read_slot] = nil
-
-    gl.BindBuffer(gl.COPY_READ_BUFFER, b.pbo[read_slot])
-    ptr := gl.MapBufferRange(gl.COPY_READ_BUFFER, 0, b.pbo_size, gl.MAP_READ_BIT)
-    if ptr == nil {
-        gl.BindBuffer(gl.COPY_READ_BUFFER, 0)
-        return
-    }
-
-    raw := ([^][4]f32)(ptr)
-    inv := f32(1.0) / f32(max(b.pbo_sample_at_fill[read_slot], 1))
-
-    for i in 0..<pixel_count {
-        r  := raw[i][0] * inv
-        g  := raw[i][1] * inv
-        bv := raw[i][2] * inv
-        // Gamma correction (γ = 2.0) — mirrors linear_to_gamma in vector3.odin.
-        r  = math.sqrt(clamp(r,  0, 1))
-        g  = math.sqrt(clamp(g,  0, 1))
-        bv = math.sqrt(clamp(bv, 0, 1))
-        out[i] = [4]u8{u8(r * 255.999), u8(g * 255.999), u8(bv * 255.999), 255}
-    }
-
-    gl.UnmapBuffer(gl.COPY_READ_BUFFER)
-    gl.BindBuffer(gl.COPY_READ_BUFFER, 0)
-}
-
-// ── gpu_backend_final_readback ───────────────────────────────────────────────
-
-// gpu_backend_final_readback reads the most-recently filled PBO slot, blocking
-// until its fence signals (up to 1 s).  Unlike gpu_backend_readback, which reads
-// the *previous* slot to avoid stalling, this reads the slot that was just filled
-// by the last dispatch so the displayed image always reflects the final sample count.
-// Acceptable one-time cost at render completion or before a Continuous restart.
-gpu_backend_final_readback :: proc(b: ^GPUBackend, out: [][4]u8) {
-    if b == nil || b.pbo[0] == 0 || b.pbo_frame == 0 { return }
-    pixel_count := b.width * b.height
-    if len(out) < pixel_count { return }
-
-    // The most recently filled slot is (pbo_frame-1) % 2.
-    last_slot := (b.pbo_frame - 1) % 2
-    fence     := b.pbo_fence[last_slot]
-    if fence == nil { return }
-
-    // Block up to 1 second for the GPU DMA to complete.
-    result := gl.ClientWaitSync(auto_cast fence, gl.SYNC_FLUSH_COMMANDS_BIT, 1_000_000_000)
-    if result == gl.TIMEOUT_EXPIRED || result == gl.WAIT_FAILED { return }
-
-    gl.DeleteSync(auto_cast fence)
-    b.pbo_fence[last_slot] = nil
-
-    gl.BindBuffer(gl.COPY_READ_BUFFER, b.pbo[last_slot])
-    ptr := gl.MapBufferRange(gl.COPY_READ_BUFFER, 0, b.pbo_size, gl.MAP_READ_BIT)
-    if ptr == nil { gl.BindBuffer(gl.COPY_READ_BUFFER, 0); return }
-
-    raw := ([^][4]f32)(ptr)
-    inv := f32(1.0) / f32(max(b.pbo_sample_at_fill[last_slot], 1))
-    for i in 0..<pixel_count {
-        r  := raw[i][0] * inv
-        g  := raw[i][1] * inv
-        bv := raw[i][2] * inv
-        r  = math.sqrt(clamp(r,  0, 1))
-        g  = math.sqrt(clamp(g,  0, 1))
-        bv = math.sqrt(clamp(bv, 0, 1))
-        out[i] = [4]u8{u8(r * 255.999), u8(g * 255.999), u8(bv * 255.999), 255}
-    }
-
-    gl.UnmapBuffer(gl.COPY_READ_BUFFER)
-    gl.BindBuffer(gl.COPY_READ_BUFFER, 0)
-}
-
-// ── gpu_backend_reset ────────────────────────────────────────────────────────
-
-// gpu_backend_reset zeroes the output accumulation SSBO and resets all sample
-// and timing counters so the next dispatch begins a fresh progressive render.
-// Scene data (spheres, BVH, quads) is untouched — only the pixel accumulation
-// is cleared.  Call to restart without rebuilding the full GPU backend.
-gpu_backend_reset :: proc(b: ^GPUBackend) {
-    if b == nil { return }
-    // Zero the output accumulation SSBO on-GPU to avoid allocating a full image-sized slice.
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, b.ssbo_output)
-    gl.ClearBufferData(gl.SHADER_STORAGE_BUFFER, gl.RGBA32F, gl.RGBA, gl.FLOAT, nil)
+    gl.GetBufferSubData(gl.SHADER_STORAGE_BUFFER, 0,
+        pixel_count * size_of([4]f32), raw_data(tmp))
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
-    // Reset sample and timing counters.
-    b.current_sample      = 0
-    b.dispatch_total_ns   = 0
-    b.readback_total_ns   = 0
-    b.gpu_dispatch_total_ns = 0
-    // Reset timer query so the next dispatch can start a new Begin/End pair.
-    b.timer_query_pending = false
-    // Release any pending PBO fences — their data is stale after the SSBO reset.
-    for i in 0..<2 {
-        if b.pbo_fence[i] != nil {
-            gl.DeleteSync(auto_cast b.pbo_fence[i])
-            b.pbo_fence[i] = nil
+
+    inv := f32(1.0) / f32(max(b.current_sample, 1))
+
+    for i in 0..<pixel_count {
+        // Divide by sample count to get the running average.
+        r := tmp[i][0] * inv
+        g := tmp[i][1] * inv
+        bv := tmp[i][2] * inv
+
+        // Gamma correction (γ = 2.0): sqrt maps linear light to display gamma.
+        // Mirrors linear_to_gamma in vector3.odin.
+        r  = math.sqrt(clamp(r,  0, 1))
+        g  = math.sqrt(clamp(g,  0, 1))
+        bv = math.sqrt(clamp(bv, 0, 1))
+
+        out[i] = [4]u8{
+            u8(r  * 255.999),
+            u8(g  * 255.999),
+            u8(bv * 255.999),
+            255,
         }
     }
-    b.pbo_frame = 0
 }
 
 // ── gpu_backend_destroy ──────────────────────────────────────────────────────
@@ -638,23 +515,8 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
             gl.DeleteTextures(1, &b.image_texs[i])
         }
     }
-    b.num_image_texs = 0
-    // Delete timer query.
     if b.timer_query != 0 {
         gl.DeleteQueries(1, &b.timer_query)
-        b.timer_query = 0
-    }
-    // Delete PBO fences and buffers.
-    for i in 0..<2 {
-        if b.pbo_fence[i] != nil {
-            gl.DeleteSync(auto_cast b.pbo_fence[i])
-            b.pbo_fence[i] = nil
-        }
-    }
-    if b.pbo[0] != 0 {
-        gl.DeleteBuffers(2, &b.pbo[0])
-        b.pbo[0] = 0
-        b.pbo[1] = 0
     }
     free(b)
 }
@@ -667,10 +529,8 @@ _ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []
     return b, ok
 }
 @(private) _ogl_dispatch    :: proc(s: rawptr) { gpu_backend_dispatch((^GPUBackend)(s)) }
-@(private) _ogl_readback       :: proc(s: rawptr, out: [][4]u8) { gpu_backend_readback((^GPUBackend)(s), out) }
-@(private) _ogl_final_readback :: proc(s: rawptr, out: [][4]u8) { gpu_backend_final_readback((^GPUBackend)(s), out) }
-@(private) _ogl_destroy        :: proc(s: rawptr) { gpu_backend_destroy((^GPUBackend)(s)) }
-@(private) _ogl_reset          :: proc(s: rawptr) { gpu_backend_reset((^GPUBackend)(s)) }
+@(private) _ogl_readback    :: proc(s: rawptr, out: [][4]u8) { gpu_backend_readback((^GPUBackend)(s), out) }
+@(private) _ogl_destroy     :: proc(s: rawptr) { gpu_backend_destroy((^GPUBackend)(s)) }
 @(private) _ogl_get_samples :: proc(s: rawptr) -> (int, int) {
     b := (^GPUBackend)(s)
     return b.current_sample, b.total_samples
@@ -686,12 +546,10 @@ _ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []
 }
 
 OPENGL_RENDERER_API :: GpuRendererApi{
-    init           = _ogl_init,
-    dispatch       = _ogl_dispatch,
-    readback       = _ogl_readback,
-    final_readback = _ogl_final_readback,
-    destroy        = _ogl_destroy,
-    get_samples    = _ogl_get_samples,
-    get_timings    = _ogl_get_timings,
-    reset          = _ogl_reset,
+    init        = _ogl_init,
+    dispatch    = _ogl_dispatch,
+    readback    = _ogl_readback,
+    destroy     = _ogl_destroy,
+    get_samples = _ogl_get_samples,
+    get_timings = _ogl_get_timings,
 }
