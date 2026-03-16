@@ -394,17 +394,18 @@ app_push_log :: proc(app: ^App, msg: string) {
     app.log_count += 1
 }
 
-// _panel_id_translate translates old panel ID strings (from saved configs before the rename) to new names.
-// Returns the new name if an alias exists, otherwise returns the original id unchanged.
+// _panel_id_translate returns the legacy (pre-rename) panel ID for a current panel ID.
+// Used by apply_editor_layout to locate panels in old saved configs.
+// Returns the old ID if one exists; returns the current id unchanged when there is no alias.
 @(private="file")
-_panel_id_translate :: proc(id: string) -> string {
-    switch id {
-    case "edit_view":    return PANEL_ID_VIEWPORT
-    case "object_props": return PANEL_ID_DETAILS
-    case "log":          return PANEL_ID_CONSOLE
-    case "preview_port": return PANEL_ID_CAMERA_PREVIEW
+_panel_id_translate :: proc(current_id: string) -> string {
+    switch current_id {
+    case PANEL_ID_VIEWPORT:       return "edit_view"
+    case PANEL_ID_DETAILS:        return "object_props"
+    case PANEL_ID_CONSOLE:        return "log"
+    case PANEL_ID_CAMERA_PREVIEW: return "preview_port"
     }
-    return id
+    return current_id
 }
 
 // apply_editor_layout sets each panel's rect, visible, maximized, and saved_rect from the loaded layout.
@@ -415,23 +416,16 @@ apply_editor_layout :: proc(app: ^App, layout: ^persistence.EditorLayout) {
     }
     for p in app.panels {
         // Try the current ID first, then try the translated ID (for old saved configs).
-        lookup_id := p.id
-        if state, ok := layout.panels[lookup_id]; ok {
+        if state, ok := layout.panels[p.id]; ok {
             p.rect       = panel_rect(state.rect)
             p.visible    = state.visible
             p.maximized  = state.maximized
             p.saved_rect = panel_rect(state.saved_rect)
             continue
         }
-        // Check if this panel was previously saved under a legacy ID
-        old_id := ""
-        switch p.id {
-        case PANEL_ID_VIEWPORT:       old_id = "edit_view"
-        case PANEL_ID_DETAILS:        old_id = "object_props"
-        case PANEL_ID_CONSOLE:        old_id = "log"
-        case PANEL_ID_CAMERA_PREVIEW: old_id = "preview_port"
-        }
-        if len(old_id) > 0 {
+        // Fall back to the legacy ID (panels renamed in a previous version).
+        old_id := _panel_id_translate(p.id)
+        if old_id != p.id {
             if state, ok := layout.panels[old_id]; ok {
                 p.rect       = panel_rect(state.rect)
                 p.visible    = state.visible

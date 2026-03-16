@@ -75,10 +75,10 @@ PANEL_REGISTRY :: [?]PanelDescriptor{
         detachable         = true,
         dim_when_maximized = true,
         draw_content = draw_console_content,
-        cmd_id      = CMD_VIEW_LOG,
+        cmd_id      = CMD_VIEW_CONSOLE,
         cmd_label   = "Console",
-        cmd_action  = cmd_action_view_log,
-        cmd_checked = cmd_checked_view_log,
+        cmd_action  = cmd_action_view_console,
+        cmd_checked = cmd_checked_view_console,
     },
     {
         panel_id     = PANEL_ID_SYSTEM_INFO,

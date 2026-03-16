@@ -133,7 +133,7 @@ panel_visible :: proc(app: ^App, id: string) -> bool {
 
 cmd_action_view_render :: proc(app: ^App) { toggle_panel(app, PANEL_ID_RENDER) }
 cmd_action_view_stats  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_STATS) }
-cmd_action_view_log    :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CONSOLE) }
+cmd_action_view_console :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CONSOLE) }
 cmd_action_view_sysinfo:: proc(app: ^App) { toggle_panel(app, PANEL_ID_SYSTEM_INFO) }
 cmd_action_view_edit   :: proc(app: ^App) { toggle_panel(app, PANEL_ID_VIEWPORT) }
 cmd_action_view_camera :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA) }
@@ -144,7 +144,7 @@ cmd_action_view_outliner :: proc(app: ^App) { toggle_panel(app, PANEL_ID_OUTLINE
 
 cmd_checked_view_render :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_RENDER) }
 cmd_checked_view_stats  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_STATS) }
-cmd_checked_view_log    :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONSOLE) }
+cmd_checked_view_console :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONSOLE) }
 cmd_checked_view_sysinfo:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_SYSTEM_INFO) }
 cmd_checked_view_edit   :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_VIEWPORT) }
 cmd_checked_view_camera :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA) }
