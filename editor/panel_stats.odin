@@ -63,9 +63,10 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
     y += line_h
 
     // GPU-only controls: Continuous toggle + Restart button.
-    if session.use_gpu && session.gpu_renderer != nil {
-        gpu_rend := session.gpu_renderer
-        is_continuous := gpu_rend.mode == .Continuous
+    // Show even after SingleShot completes (gpu_renderer becomes nil after finish_render).
+    if session.use_gpu {
+        gpu_rend := session.gpu_renderer // may be nil after SingleShot completion
+        is_continuous := gpu_rend != nil && gpu_rend.mode == .Continuous
 
         // Continuous checkbox.
         cont_box := _stats_continuous_checkbox_rect(content)
@@ -221,21 +222,27 @@ update_stats_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, l
 
     // GPU-only controls: only active when a GPU render session is live.
     session := app.r_session
-    if session == nil || !session.use_gpu || session.gpu_renderer == nil { return }
-    gpu_rend := session.gpu_renderer
+    if session == nil || !session.use_gpu { return }
+    gpu_rend := session.gpu_renderer // may be nil after SingleShot completion
 
-    // Continuous mode toggle.
-    if rl.CheckCollisionPointRec(mouse, _stats_continuous_row_rect(rect)) {
+    // Continuous mode toggle (only meaningful when renderer is alive).
+    if gpu_rend != nil && rl.CheckCollisionPointRec(mouse, _stats_continuous_row_rect(rect)) {
         new_mode := rt.GpuRenderMode.Continuous if gpu_rend.mode == .SingleShot else rt.GpuRenderMode.SingleShot
         rt.gpu_renderer_set_mode(gpu_rend, new_mode)
         if g_app != nil { g_app.input_consumed = true }
         return
     }
 
-    // Restart button: zero accumulation and restart from sample 0.
+    // Restart button.
     if rl.CheckCollisionPointRec(mouse, _stats_restart_btn_rect(rect)) {
-        rt.gpu_renderer_restart(gpu_rend)
-        app.finished = false
+        if gpu_rend != nil {
+            // Renderer still alive (e.g. Continuous mode): soft reset.
+            rt.gpu_renderer_restart(gpu_rend)
+            app.finished = false
+        } else {
+            // Renderer was destroyed after SingleShot completion: trigger a full re-render.
+            cmd_execute(app, CMD_RENDER_RESTART)
+        }
         if g_app != nil { g_app.input_consumed = true }
     }
 }

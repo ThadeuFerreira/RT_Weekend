@@ -13,13 +13,14 @@ GpuRenderMode :: enum { SingleShot, Continuous }
 //   3. Declare a package-level constant MY_RENDERER_API :: GpuRendererApi{...}.
 //   4. Add a `when ODIN_OS == .Whatever` branch in create_gpu_renderer() to try it.
 GpuRendererApi :: struct {
-    init:        proc "odin" (cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, volumes: []GPUVolume, volume_quads: []GPUQuad, total: int, image_list: []^Texture_Image) -> (rawptr, bool),
-    dispatch:    proc "odin" (state: rawptr),
-    readback:    proc "odin" (state: rawptr, out: [][4]u8),
-    destroy:     proc "odin" (state: rawptr),
-    get_samples: proc "odin" (state: rawptr) -> (int, int),
-    get_timings: proc "odin" (state: rawptr) -> (i64, i64),  // dispatch_ns, readback_ns
-    reset:       proc "odin" (state: rawptr),                 // zero accumulation, restart from sample 0
+    init:           proc "odin" (cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, volumes: []GPUVolume, volume_quads: []GPUQuad, total: int, image_list: []^Texture_Image) -> (rawptr, bool),
+    dispatch:       proc "odin" (state: rawptr),
+    readback:       proc "odin" (state: rawptr, out: [][4]u8),
+    final_readback: proc "odin" (state: rawptr, out: [][4]u8), // blocking wait for most-recent slot; call once at render completion
+    destroy:        proc "odin" (state: rawptr),
+    get_samples:    proc "odin" (state: rawptr) -> (int, int),
+    get_timings:    proc "odin" (state: rawptr) -> (i64, i64),  // dispatch_ns, readback_ns
+    reset:          proc "odin" (state: rawptr),                 // zero accumulation, restart from sample 0
 }
 
 GpuRenderer :: struct {
@@ -29,9 +30,15 @@ GpuRenderer :: struct {
 }
 
 // Helper procs — callers use these, never the vtable directly.
-gpu_renderer_dispatch    :: proc(r: ^GpuRenderer) { r.api.dispatch(r.state) }
-gpu_renderer_readback    :: proc(r: ^GpuRenderer, out: [][4]u8) { r.api.readback(r.state, out) }
-gpu_renderer_destroy     :: proc(r: ^GpuRenderer) { r.api.destroy(r.state); free(r) }
+gpu_renderer_dispatch       :: proc(r: ^GpuRenderer) { r.api.dispatch(r.state) }
+gpu_renderer_readback       :: proc(r: ^GpuRenderer, out: [][4]u8) { r.api.readback(r.state, out) }
+// gpu_renderer_final_readback blocks until the most-recently filled PBO slot is ready,
+// then converts it to RGBA bytes.  Call exactly once immediately before finish_render
+// or a Continuous restart so the displayed image reflects the last completed sample.
+gpu_renderer_final_readback :: proc(r: ^GpuRenderer, out: [][4]u8) {
+    if r.api.final_readback != nil { r.api.final_readback(r.state, out) }
+}
+gpu_renderer_destroy        :: proc(r: ^GpuRenderer) { r.api.destroy(r.state); free(r) }
 gpu_renderer_get_samples :: proc(r: ^GpuRenderer) -> (cur: int, tot: int) {
     return r.api.get_samples(r.state)
 }
