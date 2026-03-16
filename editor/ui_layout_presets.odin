@@ -22,6 +22,7 @@ layout_build_render_focus :: proc(app: ^App, layout: ^DockLayout) {
     p_edit    := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_VIEWPORT))
     p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA_PREVIEW))
     p_texture := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_TEXTURE_VIEW))
+    p_content := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CONTENT_BROWSER))
 
     // Mark non-essential panels as hidden in this layout
     if ep := app_find_panel(app, PANEL_ID_VIEWPORT); ep != nil { ep.visible = false }
@@ -29,7 +30,7 @@ layout_build_render_focus :: proc(app: ^App, layout: ^DockLayout) {
 
     center_leaf := layout_add_leaf(layout, []int{p_render, p_edit}, 0)
     right_top   := layout_add_leaf(layout, []int{p_stats, p_sys}, 0)
-    right_bot   := layout_add_leaf(layout, []int{p_log, p_cam, p_props, p_preview, p_texture}, 0)
+    right_bot   := layout_add_leaf(layout, []int{p_log, p_cam, p_props, p_preview, p_texture, p_content}, 0)
 
     right_split := layout_add_split(layout, .DOCK_SPLIT_HORIZONTAL, right_top, right_bot, 0.4)
     root        := layout_add_split(layout, .DOCK_SPLIT_VERTICAL, center_leaf, right_split, 0.75)
@@ -55,12 +56,13 @@ layout_build_edit_focus :: proc(app: ^App, layout: ^DockLayout) {
     p_sys     := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_SYSTEM_INFO))
     p_preview := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CAMERA_PREVIEW))
     p_texture := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_TEXTURE_VIEW))
+    p_content := layout_add_panel(layout, layout_find_panel_index(app, PANEL_ID_CONTENT_BROWSER))
 
     // Render panel hidden in edit focus
     if rp := app_find_panel(app, PANEL_ID_RENDER); rp != nil { rp.visible = false }
 
     center_leaf := layout_add_leaf(layout, []int{p_edit, p_render}, 0)
-    right_top   := layout_add_leaf(layout, []int{p_props, p_texture, p_cam}, 0)
+    right_top   := layout_add_leaf(layout, []int{p_props, p_texture, p_content, p_cam}, 0)
     right_mid   := layout_add_leaf(layout, []int{p_stats, p_preview, p_sys}, 0)
     right_bot   := layout_add_leaf(layout, []int{p_log}, 0)
 

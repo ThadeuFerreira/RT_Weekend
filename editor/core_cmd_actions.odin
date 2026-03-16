@@ -119,7 +119,7 @@ cmd_action_file_exit :: proc(app: ^App) {
     }
 }
 
-// ── View panel toggle actions (concrete named procs — avoids loop-closure pitfall) ─
+// ── View panel toggle actions ─
 
 toggle_panel :: proc(app: ^App, id: string) {
     p := app_find_panel(app, id)
@@ -140,6 +140,12 @@ cmd_action_view_camera :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA) }
 cmd_action_view_props  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_DETAILS) }
 cmd_action_view_preview:: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA_PREVIEW) }
 cmd_action_view_texture:: proc(app: ^App) { toggle_panel(app, PANEL_ID_TEXTURE_VIEW) }
+cmd_action_view_content_browser :: proc(app: ^App) {
+    toggle_panel(app, PANEL_ID_CONTENT_BROWSER)
+    if panel_visible(app, PANEL_ID_CONTENT_BROWSER) {
+        app.e_content_browser.scan_requested = true
+    }
+}
 cmd_action_view_outliner :: proc(app: ^App) { toggle_panel(app, PANEL_ID_OUTLINER) }
 
 cmd_checked_view_render :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_RENDER) }
@@ -151,6 +157,7 @@ cmd_checked_view_camera :: proc(app: ^App) -> bool { return panel_visible(app, P
 cmd_checked_view_props  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_DETAILS) }
 cmd_checked_view_preview:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA_PREVIEW) }
 cmd_checked_view_texture:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_TEXTURE_VIEW) }
+cmd_checked_view_content_browser :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONTENT_BROWSER) }
 cmd_checked_view_outliner :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_OUTLINER) }
 
 // ── View preset actions ──────────────────────────────────────────────────────
