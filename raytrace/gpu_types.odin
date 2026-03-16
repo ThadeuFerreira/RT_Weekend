@@ -46,6 +46,10 @@ GPUBackend :: struct {
     // Timing (nanoseconds) accumulated across all dispatch/readback calls.
     dispatch_total_ns: i64,
     readback_total_ns: i64,
+    // GPU-side timer query.
+    timer_query:       u32,   // GL query object; 0 = not yet created
+    timer_query_pending: bool,  // true = a query was begun and not yet read back
+    gpu_dispatch_total_ns: i64, // accumulated GPU execution time across all dispatches
 }
 
 // ---- Step 1 ------------------------------------------------
@@ -495,4 +499,3 @@ scene_to_gpu_quads :: proc(objects: []Object, world_to_quad_gpu: []int = nil) ->
     }
     return result
 }
-
