@@ -545,6 +545,38 @@ gpu_backend_readback :: proc(b: ^GPUBackend, out: [][4]u8) {
     gl.BindBuffer(gl.COPY_READ_BUFFER, 0)
 }
 
+// ── gpu_backend_reset ────────────────────────────────────────────────────────
+
+// gpu_backend_reset zeroes the output accumulation SSBO and resets all sample
+// and timing counters so the next dispatch begins a fresh progressive render.
+// Scene data (spheres, BVH, quads) is untouched — only the pixel accumulation
+// is cleared.  Call to restart without rebuilding the full GPU backend.
+gpu_backend_reset :: proc(b: ^GPUBackend) {
+    if b == nil { return }
+    // Zero the output accumulation SSBO.
+    pixel_count := b.width * b.height
+    zeroes      := make([][4]f32, pixel_count)
+    defer delete(zeroes)
+    gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, b.ssbo_output)
+    gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, 0, pixel_count * size_of([4]f32), raw_data(zeroes))
+    gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
+    // Reset sample and timing counters.
+    b.current_sample      = 0
+    b.dispatch_total_ns   = 0
+    b.readback_total_ns   = 0
+    b.gpu_dispatch_total_ns = 0
+    // Reset timer query so the next dispatch can start a new Begin/End pair.
+    b.timer_query_pending = false
+    // Release any pending PBO fences — their data is stale after the SSBO reset.
+    for i in 0..<2 {
+        if b.pbo_fence[i] != nil {
+            gl.DeleteSync(auto_cast b.pbo_fence[i])
+            b.pbo_fence[i] = nil
+        }
+    }
+    b.pbo_frame = 0
+}
+
 // ── gpu_backend_destroy ──────────────────────────────────────────────────────
 
 // gpu_backend_destroy deletes all GL objects associated with the backend and
@@ -596,6 +628,7 @@ _ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []
 @(private) _ogl_dispatch    :: proc(s: rawptr) { gpu_backend_dispatch((^GPUBackend)(s)) }
 @(private) _ogl_readback    :: proc(s: rawptr, out: [][4]u8) { gpu_backend_readback((^GPUBackend)(s), out) }
 @(private) _ogl_destroy     :: proc(s: rawptr) { gpu_backend_destroy((^GPUBackend)(s)) }
+@(private) _ogl_reset       :: proc(s: rawptr) { gpu_backend_reset((^GPUBackend)(s)) }
 @(private) _ogl_get_samples :: proc(s: rawptr) -> (int, int) {
     b := (^GPUBackend)(s)
     return b.current_sample, b.total_samples
@@ -617,4 +650,5 @@ OPENGL_RENDERER_API :: GpuRendererApi{
     destroy     = _ogl_destroy,
     get_samples = _ogl_get_samples,
     get_timings = _ogl_get_timings,
+    reset       = _ogl_reset,
 }

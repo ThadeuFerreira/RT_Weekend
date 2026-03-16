@@ -788,13 +788,20 @@ run_app :: proc(
             }
         }
 
-        // GPU path: dispatch one more sample per frame until all samples done.
+        // GPU path: dispatch one more sample per frame.
+        // In Continuous mode, automatically reset and restart when all samples are done.
+        // In SingleShot mode (default), stop dispatching once total_samples is reached.
         if app.r_session.use_gpu {
             gpu_rend := app.r_session.gpu_renderer
-            if gpu_rend != nil && !rt.gpu_renderer_done(gpu_rend) {
-                gpu_dispatch_scope := util.trace_scope_begin("Gpu.Dispatch", "render")
-                defer util.trace_scope_end(gpu_dispatch_scope)
-                rt.gpu_renderer_dispatch(gpu_rend)
+            if gpu_rend != nil {
+                if gpu_rend.mode == .Continuous && rt.gpu_renderer_done(gpu_rend) {
+                    rt.gpu_renderer_restart(gpu_rend)
+                }
+                if !rt.gpu_renderer_done(gpu_rend) {
+                    gpu_dispatch_scope := util.trace_scope_begin("Gpu.Dispatch", "render")
+                    defer util.trace_scope_end(gpu_dispatch_scope)
+                    rt.gpu_renderer_dispatch(gpu_rend)
+                }
             }
         }
 
