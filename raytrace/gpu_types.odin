@@ -47,8 +47,8 @@ GPUBackend :: struct {
     dispatch_total_ns: i64,
     readback_total_ns: i64,
     // GPU-side timer query.
-    timer_query:       u32,   // GL query object; 0 = not yet created
-    timer_query_pending: bool,  // true = a query was begun and not yet read back
+    timer_query:          u32,  // GL query object; 0 = not yet created
+    timer_query_pending:  bool, // true = a query was begun and not yet read back
     gpu_dispatch_total_ns: i64, // accumulated GPU execution time across all dispatches
 }
 
