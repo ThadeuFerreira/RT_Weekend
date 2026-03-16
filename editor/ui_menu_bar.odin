@@ -66,31 +66,34 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
         MenuEntryDyn{label = "Save Layout As…", cmd_id = CMD_VIEW_SAVE_PRESET},
     )
 
-    file_entries := []MenuEntryDyn{
-        {label = "New",      cmd_id = CMD_FILE_NEW,     shortcut = "Ctrl+N"},
-        {label = "Import…",  cmd_id = CMD_FILE_IMPORT,  shortcut = "Ctrl+O"},
-        {separator = true},
-        {label = "Save",     cmd_id = CMD_FILE_SAVE,    shortcut = "Ctrl+S", disabled = !cmd_is_enabled(app, CMD_FILE_SAVE)},
-        {label = "Save As…", cmd_id = CMD_FILE_SAVE_AS},
-        {separator = true},
-        {label = "Exit",     cmd_id = CMD_FILE_EXIT,    shortcut = "Alt+F4"},
-    }
+    file_entries := make([dynamic]MenuEntryDyn, context.temp_allocator)
+    append(&file_entries,
+        MenuEntryDyn{label = "New",      cmd_id = CMD_FILE_NEW,     shortcut = "Ctrl+N"},
+        MenuEntryDyn{label = "Import…",  cmd_id = CMD_FILE_IMPORT,  shortcut = "Ctrl+O"},
+        MenuEntryDyn{separator = true},
+        MenuEntryDyn{label = "Save",     cmd_id = CMD_FILE_SAVE,    shortcut = "Ctrl+S", disabled = !cmd_is_enabled(app, CMD_FILE_SAVE)},
+        MenuEntryDyn{label = "Save As…", cmd_id = CMD_FILE_SAVE_AS},
+        MenuEntryDyn{separator = true},
+        MenuEntryDyn{label = "Exit",     cmd_id = CMD_FILE_EXIT,    shortcut = "Alt+F4"},
+    )
 
-    edit_entries := []MenuEntryDyn{
-        {label = "Undo",      cmd_id = CMD_UNDO,             shortcut = "Ctrl+Z", disabled = !cmd_is_enabled(app, CMD_UNDO)},
-        {label = "Redo",      cmd_id = CMD_REDO,             shortcut = "Ctrl+Y", disabled = !cmd_is_enabled(app, CMD_REDO)},
-        {separator = true},
-        {label = "Copy",      cmd_id = CMD_EDIT_COPY,        shortcut = "Ctrl+C", disabled = !cmd_is_enabled(app, CMD_EDIT_COPY)},
-        {label = "Paste",     cmd_id = CMD_EDIT_PASTE,       shortcut = "Ctrl+V", disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE)},
-        {label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE,   shortcut = "Ctrl+D", disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE)},
-    }
+    edit_entries := make([dynamic]MenuEntryDyn, context.temp_allocator)
+    append(&edit_entries,
+        MenuEntryDyn{label = "Undo",      cmd_id = CMD_UNDO,           shortcut = "Ctrl+Z", disabled = !cmd_is_enabled(app, CMD_UNDO)},
+        MenuEntryDyn{label = "Redo",      cmd_id = CMD_REDO,           shortcut = "Ctrl+Y", disabled = !cmd_is_enabled(app, CMD_REDO)},
+        MenuEntryDyn{separator = true},
+        MenuEntryDyn{label = "Copy",      cmd_id = CMD_EDIT_COPY,      shortcut = "Ctrl+C", disabled = !cmd_is_enabled(app, CMD_EDIT_COPY)},
+        MenuEntryDyn{label = "Paste",     cmd_id = CMD_EDIT_PASTE,     shortcut = "Ctrl+V", disabled = !cmd_is_enabled(app, CMD_EDIT_PASTE)},
+        MenuEntryDyn{label = "Duplicate", cmd_id = CMD_EDIT_DUPLICATE, shortcut = "Ctrl+D", disabled = !cmd_is_enabled(app, CMD_EDIT_DUPLICATE)},
+    )
 
-    render_entries := []MenuEntryDyn{
-        {label = "Restart", cmd_id = CMD_RENDER_RESTART, shortcut = "F5", disabled = !cmd_is_enabled(app, CMD_RENDER_RESTART)},
-        {separator = true},
-        {label = "Start Benchmark", cmd_id = CMD_BENCHMARK_START, disabled = !cmd_is_enabled(app, CMD_BENCHMARK_START)},
-        {label = "Stop Benchmark",  cmd_id = CMD_BENCHMARK_STOP,  disabled = !cmd_is_enabled(app, CMD_BENCHMARK_STOP)},
-    }
+    render_entries := make([dynamic]MenuEntryDyn, context.temp_allocator)
+    append(&render_entries,
+        MenuEntryDyn{label = "Restart",         cmd_id = CMD_RENDER_RESTART,  shortcut = "F5", disabled = !cmd_is_enabled(app, CMD_RENDER_RESTART)},
+        MenuEntryDyn{separator = true},
+        MenuEntryDyn{label = "Start Benchmark", cmd_id = CMD_BENCHMARK_START, disabled = !cmd_is_enabled(app, CMD_BENCHMARK_START)},
+        MenuEntryDyn{label = "Stop Benchmark",  cmd_id = CMD_BENCHMARK_STOP,  disabled = !cmd_is_enabled(app, CMD_BENCHMARK_STOP)},
+    )
 
     examples_entries := make([dynamic]MenuEntryDyn, context.temp_allocator)
     for scene, i in EXAMPLE_SCENES {
@@ -102,11 +105,11 @@ get_menus_dynamic :: proc(app: ^App) -> []MenuDyn {
     }
 
     menus := make([]MenuDyn, 5, context.temp_allocator)
-    menus[0] = MenuDyn{title = "File",     entries = file_entries}
-    menus[1] = MenuDyn{title = "Edit",     entries = edit_entries}
+    menus[0] = MenuDyn{title = "File",     entries = file_entries[:]}
+    menus[1] = MenuDyn{title = "Edit",     entries = edit_entries[:]}
     menus[2] = MenuDyn{title = "View",     entries = view_entries[:]}
     menus[3] = MenuDyn{title = "Examples", entries = examples_entries[:]}
-    menus[4] = MenuDyn{title = "Render",   entries = render_entries}
+    menus[4] = MenuDyn{title = "Render",   entries = render_entries[:]}
     return menus
 }
 
