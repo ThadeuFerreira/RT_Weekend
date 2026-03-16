@@ -1,10 +1,15 @@
 package raytrace
 
+// GpuRenderMode controls whether the GPU renderer stops after reaching
+// total_samples (SingleShot) or automatically resets and keeps accumulating
+// (Continuous).  Default is SingleShot, matching the CPU path behaviour.
+GpuRenderMode :: enum { SingleShot, Continuous }
+
 // GpuRendererApi is a vtable for a GPU rendering backend.
 //
 // To add a new backend (e.g. Metal, Vulkan, DX12):
 //   1. Define a backend-specific state struct.
-//   2. Implement the five procs below for that struct.
+//   2. Implement the procs below for that struct.
 //   3. Declare a package-level constant MY_RENDERER_API :: GpuRendererApi{...}.
 //   4. Add a `when ODIN_OS == .Whatever` branch in create_gpu_renderer() to try it.
 GpuRendererApi :: struct {
@@ -14,11 +19,13 @@ GpuRendererApi :: struct {
     destroy:     proc "odin" (state: rawptr),
     get_samples: proc "odin" (state: rawptr) -> (int, int),
     get_timings: proc "odin" (state: rawptr) -> (i64, i64),  // dispatch_ns, readback_ns
+    reset:       proc "odin" (state: rawptr),                 // zero accumulation, restart from sample 0
 }
 
 GpuRenderer :: struct {
     api:   GpuRendererApi,
     state: rawptr,
+    mode:  GpuRenderMode, // SingleShot = stop after total_samples; Continuous = loop forever
 }
 
 // Helper procs — callers use these, never the vtable directly.
@@ -35,6 +42,13 @@ gpu_renderer_get_timings :: proc(r: ^GpuRenderer) -> (disp_ns: i64, read_ns: i64
 gpu_renderer_done :: proc(r: ^GpuRenderer) -> bool {
     cur, tot := r.api.get_samples(r.state)
     return tot > 0 && cur >= tot
+}
+// gpu_renderer_set_mode changes the loop behaviour for the next dispatch cycle.
+gpu_renderer_set_mode :: proc(r: ^GpuRenderer, mode: GpuRenderMode) { r.mode = mode }
+// gpu_renderer_restart zeros the accumulation buffer and resets the sample counter
+// so the next dispatch starts a fresh render without rebuilding the scene or shaders.
+gpu_renderer_restart :: proc(r: ^GpuRenderer) {
+    if r.api.reset != nil { r.api.reset(r.state) }
 }
 
 // create_gpu_renderer is the platform-aware factory.
