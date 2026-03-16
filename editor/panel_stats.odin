@@ -151,7 +151,9 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
             if session != nil && session.use_gpu {
                 if profile.gpu_dispatch_seconds > 0 {
                     if y >= content_bottom { return }
-                    draw_ui_text(app, fmt.ctprintf("  GPU Dispatch: %.2fs", profile.gpu_dispatch_seconds), x, y, fs, CONTENT_TEXT_COLOR)
+                    draw_ui_text(app, fmt.ctprintf("  GPU Exec: %.2fs (%.0fms/sample)",
+                        profile.gpu_dispatch_seconds,
+                        profile.gpu_dispatch_seconds * 1000 / f64(max(session.r_camera.samples_per_pixel, 1))), x, y, fs, CONTENT_TEXT_COLOR)
                     y += line_h
                 }
                 if profile.gpu_readback_seconds > 0 {

@@ -165,6 +165,22 @@ _upload_image_texture_2d :: proc(img: ^Texture_Image) -> (tex_id: u32, ok: bool)
     return tex_id, true
 }
 
+@(private)
+_collect_gpu_dispatch_timing_if_ready :: proc(b: ^GPUBackend) {
+    if b == nil || b.timer_query == 0 || !b.timer_query_pending { return }
+
+    // QUERY_RESULT_AVAILABLE is non-blocking, so this can be called from UI-facing
+    // timing paths without stalling if the final dispatch has not completed yet.
+    avail: i32
+    gl.GetQueryObjectiv(b.timer_query, gl.QUERY_RESULT_AVAILABLE, &avail)
+    if avail == 0 { return }
+
+    ns: u64
+    gl.GetQueryObjectui64v(b.timer_query, gl.QUERY_RESULT, &ns)
+    b.gpu_dispatch_total_ns += i64(ns)
+    b.timer_query_pending = false
+}
+
 // ── gpu_backend_init ─────────────────────────────────────────────────────────
 
 // gpu_backend_init compiles the compute shader, creates GL buffer objects, and
@@ -271,6 +287,10 @@ gpu_backend_init :: proc(
     gl.GenBuffers(1, &b.ssbo_volumes)
     gl.GenBuffers(1, &b.ssbo_volume_quads)
     gl.GenBuffers(1, &b.ssbo_output)
+    // Allocate a timer query for GPU-side dispatch timing.
+    // GL_TIME_ELAPSED is core since OpenGL 3.3; safe to use unconditionally here
+    // because we already verified compute shader support (4.3+) above.
+    gl.GenQueries(1, &b.timer_query)
 
     // ── UBO: camera parameters ────────────────────────────────────────────
     // Uploaded once here; only current_sample changes per dispatch, so
@@ -403,7 +423,17 @@ gpu_backend_dispatch :: proc(b: ^GPUBackend) {
     // Shader discards out-of-bounds invocations (pixel >= width/height).
     groups_x := u32((b.width  + 7) / 8)
     groups_y := u32((b.height + 7) / 8)
+    // Wrap the dispatch in a TIME_ELAPSED query for accurate GPU timing.
+    // Only one query can be active at a time; skip if the previous result
+    // hasn't been consumed yet (timer_query_pending still true).
+    if b.timer_query != 0 && !b.timer_query_pending {
+        gl.BeginQuery(gl.TIME_ELAPSED, b.timer_query)
+    }
     gl.DispatchCompute(groups_x, groups_y, 1)
+    if b.timer_query != 0 && !b.timer_query_pending {
+        gl.EndQuery(gl.TIME_ELAPSED)
+        b.timer_query_pending = true
+    }
 
     // Memory barrier: all SSBO writes in the compute shader are made visible
     // before any subsequent buffer reads (e.g. GetBufferSubData in readback).
@@ -423,6 +453,8 @@ gpu_backend_readback :: proc(b: ^GPUBackend, out: [][4]u8) {
     if b == nil { return }
     pixel_count := b.width * b.height
     if len(out) < pixel_count { return }
+
+    _collect_gpu_dispatch_timing_if_ready(b)
 
     when PROFILING_ENABLED {
         _t0 := time.now()
@@ -481,10 +513,11 @@ gpu_backend_destroy :: proc(b: ^GPUBackend) {
     for i in 0 ..< b.num_image_texs {
         if b.image_texs[i] != 0 {
             gl.DeleteTextures(1, &b.image_texs[i])
-            b.image_texs[i] = 0
         }
     }
-    b.num_image_texs = 0
+    if b.timer_query != 0 {
+        gl.DeleteQueries(1, &b.timer_query)
+    }
     free(b)
 }
 
@@ -504,7 +537,12 @@ _ogl_init :: proc(cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []
 }
 @(private) _ogl_get_timings :: proc(s: rawptr) -> (i64, i64) {
     b := (^GPUBackend)(s)
-    return b.dispatch_total_ns, b.readback_total_ns
+    _collect_gpu_dispatch_timing_if_ready(b)
+    // Return accumulated GPU-side dispatch time (timer query) instead of
+    // CPU wall-clock dispatch_total_ns, which measured GL setup overhead only.
+    disp := b.gpu_dispatch_total_ns
+    if disp == 0 { disp = b.dispatch_total_ns } // fallback if queries unavailable
+    return disp, b.readback_total_ns
 }
 
 OPENGL_RENDERER_API :: GpuRendererApi{
