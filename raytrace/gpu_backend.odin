@@ -553,12 +553,9 @@ gpu_backend_readback :: proc(b: ^GPUBackend, out: [][4]u8) {
 // is cleared.  Call to restart without rebuilding the full GPU backend.
 gpu_backend_reset :: proc(b: ^GPUBackend) {
     if b == nil { return }
-    // Zero the output accumulation SSBO.
-    pixel_count := b.width * b.height
-    zeroes      := make([][4]f32, pixel_count)
-    defer delete(zeroes)
+    // Zero the output accumulation SSBO on-GPU to avoid allocating a full image-sized slice.
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, b.ssbo_output)
-    gl.BufferSubData(gl.SHADER_STORAGE_BUFFER, 0, pixel_count * size_of([4]f32), raw_data(zeroes))
+    gl.ClearBufferData(gl.SHADER_STORAGE_BUFFER, gl.RGBA32F, gl.RGBA, gl.FLOAT, nil)
     gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
     // Reset sample and timing counters.
     b.current_sample      = 0

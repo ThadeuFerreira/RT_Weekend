@@ -81,9 +81,7 @@ draw_stats_content :: proc(app: ^App, content: rl.Rectangle) {
 
         // Restart button.
         restart_rect := _stats_restart_btn_rect(content)
-        mouse := rl.GetMousePosition()
-        btn_color := rl.CheckCollisionPointRec(mouse, restart_rect) ? rl.Color{70, 80, 110, 220} : rl.Color{45, 50, 70, 200}
-        rl.DrawRectangleRec(restart_rect, btn_color)
+        rl.DrawRectangleRec(restart_rect, rl.Color{45, 50, 70, 200})
         rl.DrawRectangleLinesEx(restart_rect, 1, BORDER_COLOR)
         draw_ui_text(app, "Restart", i32(restart_rect.x) + 5, i32(restart_rect.y) + 2, 11, CONTENT_TEXT_COLOR)
 
@@ -237,8 +235,7 @@ update_stats_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, l
     // Restart button: zero accumulation and restart from sample 0.
     if rl.CheckCollisionPointRec(mouse, _stats_restart_btn_rect(rect)) {
         rt.gpu_renderer_restart(gpu_rend)
-        app.finished     = false
-        app.render_start = app.render_start // keep elapsed clock running
+        app.finished = false
         if g_app != nil { g_app.input_consumed = true }
     }
 }
