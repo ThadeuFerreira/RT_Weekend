@@ -251,6 +251,8 @@ App :: struct {
 
     // User's chosen render path (GPU vs CPU). Persists across scene changes and re-renders until toggled.
     prefer_gpu:    bool,
+    // Whether the render preview should upload intermediate framebuffer results while rendering.
+    show_intermediate_render: bool,
 
     // Render settings inputs (editable in render panel)
     r_height_input:     string,  // e.g., "600" (vertical resolution)
@@ -561,6 +563,7 @@ run_app :: proc(
         ui_font             = ui_font,
         ui_font_shader      = ui_shader,
         include_ground_plane = true,
+        show_intermediate_render = true,
         r_height_input      = fmt.aprintf("%d", r_camera.image_height),
         r_samples_input     = fmt.aprintf("%d", r_camera.samples_per_pixel),
         r_aspect_ratio      = 1, // default to 16:9
@@ -801,7 +804,7 @@ run_app :: proc(
         }
 
         // ── Render texture upload ─────────────────────────────────────────
-        if frame % 4 == 0 {
+        if app.show_intermediate_render && frame % 4 == 0 {
             if app.r_session.use_gpu {
                 // Only readback while the renderer is alive (nil after finish_render).
                 if app.r_session.gpu_renderer != nil {

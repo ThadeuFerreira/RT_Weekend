@@ -33,6 +33,9 @@ RENDER_ASPECT_LABEL_W :: f32(55)  // Width for "Aspect:" label
 RENDER_SAMPLES_X :: f32(280)    // Samples input: RENDER_ASPECT_X + 145
 RENDER_SAMPLES_LABEL_W :: f32(60) // Width for "Samples:" label
 RENDER_INFO_X :: f32(405)       // Info text: RENDER_SAMPLES_X + 125
+RENDER_PROGRESS_TOGGLE_X :: f32(10)
+RENDER_PROGRESS_TOGGLE_Y :: f32(RENDER_ROW_H + 6)
+RENDER_PROGRESS_TOGGLE_W :: f32(120)
 
 // Resolution bounds (16k max, 720p min)
 MIN_RENDER_HEIGHT :: 720
@@ -62,7 +65,16 @@ calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool)
 
 // render_settings_height returns the height of the settings area above the render preview.
 render_settings_height :: proc() -> f32 {
-    return RENDER_ROW_H + 8 // input row + padding
+    return RENDER_ROW_H * 2 + 10 // input row + progress-toggle row + padding
+}
+
+render_progress_toggle_rect :: proc(content: rl.Rectangle) -> rl.Rectangle {
+    return rl.Rectangle{
+        content.x + RENDER_PADDING_X + RENDER_PROGRESS_TOGGLE_X,
+        content.y + RENDER_PROGRESS_TOGGLE_Y,
+        RENDER_PROGRESS_TOGGLE_W,
+        22,
+    }
 }
 
 // draw_input_field draws a text input field with label.
@@ -224,6 +236,13 @@ draw_render_content :: proc(app: ^App, content: rl.Rectangle) {
         draw_ui_text(app, fmt.ctprintf("= %dx%d", width, height), i32(base_x + RENDER_INFO_X), i32(input_y + 4), 12, rl.Color{140, 150, 165, 255})
     }
 
+    draw_toggle(app, Toggle{
+        rect  = render_progress_toggle_rect(content),
+        label = "Show Progress",
+        value = app.show_intermediate_render,
+        style = DEFAULT_TOGGLE_STYLE,
+    }, rl.GetMousePosition())
+
     // Render preview area (below settings)
     preview_rect := rl.Rectangle{
         content.x,
@@ -285,6 +304,12 @@ update_render_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, 
         app.r_aspect_ratio = (app.r_aspect_ratio + 1) % 2
         app.r_render_pending = true
         if g_app != nil { g_app.input_consumed = true }
+    }
+
+    if lmb_pressed && rl.CheckCollisionPointRec(mouse, render_progress_toggle_rect(rect)) {
+        app.show_intermediate_render = !app.show_intermediate_render
+        if g_app != nil { g_app.input_consumed = true }
+        return
     }
 
     // Handle text input when an input is active
