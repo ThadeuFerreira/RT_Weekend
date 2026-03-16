@@ -788,7 +788,9 @@ run_app :: proc(
             }
         }
 
-        // GPU path: dispatch one more sample per frame until all samples done.
+        // GPU path: dispatch one more sample per frame.
+        // In SingleShot mode (default), stop dispatching once total_samples is reached.
+        // Continuous mode restart is handled in the completion block below.
         if app.r_session.use_gpu {
             gpu_rend := app.r_session.gpu_renderer
             if gpu_rend != nil && !rt.gpu_renderer_done(gpu_rend) {
@@ -813,18 +815,28 @@ run_app :: proc(
         }
 
         if !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
+            continuous_restart := false
             if app.r_session.use_gpu {
-                // Do a final readback before finish_render destroys the renderer.
+                gpu_rend := app.r_session.gpu_renderer
+                // Use final_readback to ensure the last sample is displayed (not N-1).
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
-                rt.gpu_renderer_readback(app.r_session.gpu_renderer, out_bytes)
+                rt.gpu_renderer_final_readback(gpu_rend, out_bytes)
                 rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+
+                if gpu_rend.mode == .Continuous {
+                    // Restart accumulation without tearing down the backend.
+                    rt.gpu_renderer_restart(gpu_rend)
+                    continuous_restart = true
+                }
             }
-            rt.finish_render(app.r_session)
-            app.finished = true
-            if !app.r_session.use_gpu {
-                upload_render_texture(&app)
+            if !continuous_restart {
+                rt.finish_render(app.r_session)
+                app.finished = true
+                if !app.r_session.use_gpu {
+                    upload_render_texture(&app)
+                }
+                app_push_log(&app, fmt.aprintf("Done! (%.2fs)", app.elapsed_secs))
             }
-            app_push_log(&app, fmt.aprintf("Done! (%.2fs)", app.elapsed_secs))
         }
 
         // ── Draw phase ────────────────────────────────────────────────────

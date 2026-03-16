@@ -46,6 +46,18 @@ GPUBackend :: struct {
     // Timing (nanoseconds) accumulated across all dispatch/readback calls.
     dispatch_total_ns: i64,
     readback_total_ns: i64,
+    // GPU-side timer query.
+    timer_query:          u32,  // GL query object; 0 = not yet created
+    timer_query_pending:  bool, // true = a query was begun and not yet read back
+    gpu_dispatch_total_ns: i64, // accumulated GPU execution time across all dispatches
+    // Async readback via double-PBO ping-pong.
+    // dispatch writes SSBO → pbo[pbo_frame%2] then inserts a fence.
+    // readback checks the fence for the *other* slot (1-frame lag) and maps it.
+    pbo:                [2]u32,    // two GL buffer objects
+    pbo_fence:          [2]rawptr, // GLsync handles; nil = slot unused
+    pbo_size:           int,       // bytes per PBO (width * height * 16)
+    pbo_sample_at_fill: [2]int,    // current_sample when each slot was filled
+    pbo_frame:          int,       // incremented each dispatch; slot = pbo_frame % 2
 }
 
 // ---- Step 1 ------------------------------------------------
@@ -495,4 +507,3 @@ scene_to_gpu_quads :: proc(objects: []Object, world_to_quad_gpu: []int = nil) ->
     }
     return result
 }
-
