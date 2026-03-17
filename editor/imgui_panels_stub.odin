@@ -8,7 +8,6 @@ package editor
 
 import "core:fmt"
 import "core:strings"
-import "RT_Weekend:core"
 import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
 import rl "vendor:raylib"
