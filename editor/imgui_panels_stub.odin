@@ -145,7 +145,6 @@ imgui_draw_stats_panel :: proc(app: ^App) {
         } else {
             progress := rt.get_render_progress(app.r_session)
             imgui.ProgressBar(progress, imgui.Vec2{-1, 0})
-            imgui.Text("%.1f%%", f64(progress) * 100)
             imgui.Separator()
             mode := "GPU" if app.r_session.use_gpu else "CPU"
             imgui.Text("Mode:     %s", mode)
@@ -166,8 +165,11 @@ imgui_draw_stats_panel :: proc(app: ^App) {
 imgui_draw_console_panel :: proc(app: ^App) {
     if !app.e_panel_vis.console { return }
     if imgui.Begin("Console", &app.e_panel_vis.console) {
-        for i in 0..<min(app.log_count, LOG_RING_SIZE) {
-            idx := (app.log_count - 1 - i + LOG_RING_SIZE) % LOG_RING_SIZE
+        // Oldest-first so newest entries appear at the bottom (standard console convention)
+        count := min(app.log_count, LOG_RING_SIZE)
+        start := (app.log_count - count) % LOG_RING_SIZE
+        for i in 0..<count {
+            idx := (start + i) % LOG_RING_SIZE
             line := app.log_lines[idx]
             if len(line) > 0 {
                 imgui.TextUnformatted(strings.clone_to_cstring(line, context.temp_allocator))
@@ -183,13 +185,13 @@ imgui_draw_console_panel :: proc(app: ^App) {
 imgui_draw_system_info_panel :: proc(app: ^App) {
     if !app.e_panel_vis.system_info { return }
     if imgui.Begin("System Info", &app.e_panel_vis.system_info) {
-        system_info := util.get_system_info()
-        imgui.Text("Odin:      %v", system_info.OdinVersion)
-        imgui.Text("OS:        %v", system_info.OS.Name)
-        imgui.Text("CPU:       %v", system_info.CPU.Name)
-        imgui.Text("CPU cores: %vc/%vt", system_info.CPU.Cores, system_info.CPU.LogicalCores)
-        imgui.Text("RAM:       %#.1M", system_info.RAM.Total)
-        for gpu in system_info.GPUs {
+        // Use cached system info (queried once at startup; never changes at runtime)
+        imgui.Text("Odin:      %v", app.system_info.OdinVersion)
+        imgui.Text("OS:        %v", app.system_info.OS.Name)
+        imgui.Text("CPU:       %v", app.system_info.CPU.Name)
+        imgui.Text("CPU cores: %vc/%vt", app.system_info.CPU.Cores, app.system_info.CPU.LogicalCores)
+        imgui.Text("RAM:       %#.1M", app.system_info.RAM.Total)
+        for gpu in app.system_info.GPUs {
             imgui.Separator()
             imgui.Text("GPU:       %v", gpu.Model)
             imgui.Text("Vendor:    %v", gpu.Vendor)
@@ -253,6 +255,9 @@ imgui_draw_texture_view_panel :: proc(app: ^App) {
 
                 img, buf_to_free, ok := texture_view_build_image(app, tex)
                 if ok {
+                    // Capture dimensions before unload; rl.UnloadImage zeroes data pointer only,
+                    // but reading after is fragile (implementation-dependent)
+                    w, h := img.width, img.height
                     app.e_texture_view.preview_tex = rl.LoadTextureFromImage(img)
                     if buf_to_free != nil {
                         delete(buf_to_free)
@@ -260,8 +265,8 @@ imgui_draw_texture_view_panel :: proc(app: ^App) {
                         rl.UnloadImage(img)
                     }
                     if rl.IsTextureValid(app.e_texture_view.preview_tex) {
-                        app.e_texture_view.preview_w = img.width
-                        app.e_texture_view.preview_h = img.height
+                        app.e_texture_view.preview_w = w
+                        app.e_texture_view.preview_h = h
                         app.e_texture_view.valid = true
                     } else {
                         rl.UnloadTexture(app.e_texture_view.preview_tex)
@@ -287,8 +292,8 @@ imgui_draw_content_browser_panel :: proc(app: ^App) {
         if st.scan_requested || !st.scanned {
             content_browser_scan_assets(app)
         }
-        _content_browser_sync_filter_lower(st)
 
+        // Only sync filter when InputText returns true (text changed), avoiding per-frame alloc
         if imgui.InputText("Filter", cstring(&st.filter_input[0]), CONTENT_BROWSER_FILTER_MAX) {
             _content_browser_sync_filter_lower(st)
         }
@@ -305,12 +310,12 @@ imgui_draw_content_browser_panel :: proc(app: ^App) {
                     visible_count += 1
                     prefix := "T"
                     if asset.kind == .Scene { prefix = "S" }
-                    label := fmt.aprintf("[%s] %s##asset_%d", prefix, asset.name, asset_idx)
+                    label := fmt.aprintf("[%s] %s##asset_%d", prefix, asset.name, asset_idx,
+                        allocator = context.temp_allocator)
                     selected := asset_idx == st.selected_idx
                     if imgui.Selectable(strings.clone_to_cstring(label, context.temp_allocator), selected) {
                         st.selected_idx = asset_idx
                     }
-                    delete(label)
                 }
             }
             if visible_count == 0 {
