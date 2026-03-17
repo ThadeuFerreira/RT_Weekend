@@ -1,10 +1,12 @@
 package editor
 
+import "core:c"
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
+import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
 
 FILE_MODAL_MAX_INPUT :: 512
@@ -271,4 +273,33 @@ file_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleLinesEx(btn_cancel, 1, BORDER_COLOR)
     draw_ui_text(app, "OK",     i32(btn_ok.x) + 12, i32(btn_ok.y) + 3, 12, rl.RAYWHITE)
     draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 5, i32(btn_cancel.y) + 3, 12, rl.RAYWHITE)
+}
+
+imgui_draw_file_modal :: proc(app: ^App) {
+    modal := &app.file_modal
+    if !modal.active { return }
+    if !imgui.IsPopupOpen("##file_modal") {
+        imgui.OpenPopup("##file_modal")
+    }
+    viewport := imgui.GetMainViewport()
+    center := imgui.Vec2{viewport.Pos.x + viewport.Size.x * 0.5, viewport.Pos.y + viewport.Size.y * 0.5}
+    imgui.SetNextWindowPos(center, .Always, imgui.Vec2{0.5, 0.5})
+    imgui.SetNextWindowSize(imgui.Vec2{400, 0}, .Always)
+    if imgui.BeginPopupModal("##file_modal", nil, {.AlwaysAutoResize}) {
+        title_c := strings.clone_to_cstring(modal.title, context.temp_allocator)
+        imgui.Text("%s", title_c)
+        imgui.Separator()
+        imgui.InputText("##path", cast(cstring)raw_data(modal.input[:]), FILE_MODAL_MAX_INPUT)
+        if imgui.Button("OK") {
+            modal.input_len = len(string(cstring(raw_data(modal.input[:]))))
+            file_modal_confirm(app)
+            imgui.CloseCurrentPopup()
+        }
+        imgui.SameLine()
+        if imgui.Button("Cancel") {
+            modal.active = false
+            imgui.CloseCurrentPopup()
+        }
+        imgui.EndPopup()
+    }
 }
