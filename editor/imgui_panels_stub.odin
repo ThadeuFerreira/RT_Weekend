@@ -212,95 +212,63 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
 imgui_draw_camera_panel :: proc(app: ^App) {
     if !app.e_panel_vis.camera { return }
     if imgui.Begin("Camera", &app.e_panel_vis.camera) {
-        st := &app.e_camera_panel
-
-        commit_camera_undo_if_needed :: proc(app: ^App) {
-            st := &app.e_camera_panel
-            if st.imgui_drag_active && imgui.IsItemDeactivatedAfterEdit() {
-                rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{
-                    before = st.imgui_drag_before,
-                    after  = app.c_camera_params,
-                })
-                mark_scene_dirty(app)
-                st.imgui_drag_active = false
-            }
-        }
-
-        begin_camera_undo_if_needed :: proc(app: ^App) {
-            st := &app.e_camera_panel
-            if imgui.IsItemActivated() {
-                st.imgui_drag_before = app.c_camera_params
-                st.imgui_drag_active = true
-            }
-        }
-
-        clamp_shutter_invariants :: proc(params: ^core.CameraParams) {
-            params.shutter_open  = clamp(params.shutter_open,  f32(0), f32(1))
-            params.shutter_close = clamp(params.shutter_close, f32(0), f32(1))
-            if params.shutter_open > params.shutter_close {
-                params.shutter_close = params.shutter_open
-            }
-        }
-
         // NOTE: We call apply_scene_camera while dragging so dependent views stay in sync.
         // We only push undo + dirty on gesture end (IsItemDeactivatedAfterEdit()).
 
         if imgui.DragFloat("FOV", &app.c_camera_params.vfov, 0.5, 1, 120, "%.1f°") {
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
         if imgui.DragFloat3("Look From", &app.c_camera_params.lookfrom, 0.02, 0, 0, "%.3f") {
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
         if imgui.DragFloat3("Look At", &app.c_camera_params.lookat, 0.02, 0, 0, "%.3f") {
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
+        // v_min=0, v_max=0 means unclamped in ImGui; clamp manually below
         if imgui.DragFloat("Defocus Angle", &app.c_camera_params.defocus_angle, 0.02, 0, 0, "%.3f") {
             if app.c_camera_params.defocus_angle < 0 { app.c_camera_params.defocus_angle = 0 }
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
+        // v_min=0.1, v_max=0 means unclamped in ImGui; clamp manually below
         if imgui.DragFloat("Focus Dist", &app.c_camera_params.focus_dist, 0.05, 0.1, 0, "%.3f") {
             if app.c_camera_params.focus_dist < 0.1 { app.c_camera_params.focus_dist = 0.1 }
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
+        // ColorEdit3 always produces values in [0, 1]; no clamp needed
         if imgui.ColorEdit3("Background", &app.c_camera_params.background) {
-            // background already in [0..1] with default ImGui behavior, but clamp defensively
-            app.c_camera_params.background[0] = clamp(app.c_camera_params.background[0], f32(0), f32(1))
-            app.c_camera_params.background[1] = clamp(app.c_camera_params.background[1], f32(0), f32(1))
-            app.c_camera_params.background[2] = clamp(app.c_camera_params.background[2], f32(0), f32(1))
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
         if imgui.SliderFloat("Shutter Open", &app.c_camera_params.shutter_open, 0, 1) {
-            clamp_shutter_invariants(&app.c_camera_params)
+            _camera_panel_clamp_shutter(&app.c_camera_params)
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
         if imgui.SliderFloat("Shutter Close", &app.c_camera_params.shutter_close, 0, 1) {
-            clamp_shutter_invariants(&app.c_camera_params)
+            _camera_panel_clamp_shutter(&app.c_camera_params)
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
     }
     imgui.End()
 }
@@ -477,7 +445,6 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
                 continue
             }
             if quad, ok := GetSceneQuad(sm, i); ok {
-                _ = quad
                 any_rows = true
                 label := fmt.ctprintf("Quad %d  (%.2f, %.2f, %.2f)", i, quad.Q[0], quad.Q[1], quad.Q[2])
                 is_sel := ev.selection_kind == .Quad && ev.selected_idx == i
@@ -491,6 +458,7 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
 
         for i in 0..<vol_count {
             any_rows = true
+            // TODO: Add volume position/bounds to label (spheres and quads show position)
             label := fmt.ctprintf("Volume %d", i)
             is_sel := ev.selection_kind == .Volume && ev.selected_idx == i
             if imgui.Selectable(label, is_sel) {

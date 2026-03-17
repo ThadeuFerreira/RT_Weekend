@@ -4,6 +4,10 @@
 *.xcf
 build/*.a
 build/*.o
+build/*.lib
+
+# ImGui layout file (machine-generated, per-developer state)
+imgui.ini
 
 # User scene files (keep folder via scenes/.gitkeep)
 scenes/*
@@ -13,6 +17,3 @@ scenes/*
 logs/
 # Test output artifacts
 tests/output/
-
-
-#Vendor
