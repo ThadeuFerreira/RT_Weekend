@@ -10,6 +10,7 @@ import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import "RT_Weekend:util"
+import imgui "RT_Weekend:vendor/odin-imgui"
 
 LOG_RING_SIZE :: 64
 
@@ -232,6 +233,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
 App :: struct {
     panels:        [dynamic]^FloatingPanel,
     dock_layout:   DockLayout,
+    e_panel_vis:   ImguiPanelVis,
 
     render_tex:    rl.Texture2D,
     pixel_staging: []rl.Color,
@@ -534,6 +536,10 @@ run_app :: proc(
     rl.SetWindowMinSize(640, 360)
     rl.SetTargetFPS(60)
 
+    // Dear ImGui — must be initialised after the OpenGL context is live.
+    imgui_rl_setup()
+    defer imgui_rl_shutdown()
+
     // Load UI font when SDF feature is enabled; otherwise use raylib default font
     ui_font: rl.Font
     ui_shader: rl.Shader
@@ -662,26 +668,20 @@ run_app :: proc(
         delete(app.r_samples_input)
     }
 
-    for desc in PANEL_REGISTRY {
-        app_add_panel(&app, make_panel(PanelDesc{
-            id                 = desc.panel_id,
-            title              = desc.title,
-            rect               = desc.default_rect,
-            min_size           = desc.min_size,
-            visible            = desc.visible,
-            closeable          = desc.closeable,
-            detachable         = desc.detachable,
-            dim_when_maximized = desc.dim_when_maximized,
-            style              = desc.style,
-            draw_content       = desc.draw_content,
-            update_content     = desc.update_content,
-        }))
+    // Panel visibility — all open by default; ImGui persists layout via imgui.ini.
+    app.e_panel_vis = ImguiPanelVis{
+        render          = true,
+        stats           = true,
+        console         = true,
+        system_info     = true,
+        viewport        = true,
+        camera          = true,
+        details         = true,
+        camera_preview  = true,
+        texture_view    = true,
+        content_browser = true,
+        outliner        = true,
     }
-
-    if initial_editor_layout != nil {
-        apply_editor_layout(&app, initial_editor_layout)
-    }
-    layout_build_default(&app, &app.dock_layout)
 
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)
@@ -727,56 +727,35 @@ run_app :: proc(
 
         app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
 
-        mouse       := rl.GetMousePosition()
-        lmb         := rl.IsMouseButtonDown(.LEFT)
-        lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
-
         // ── Input phase (priority order) ──────────────────────────────────
         keyboard_update(&app.keyboard)
         app.input_consumed = false
 
-        // Priority 1: menu bar
-        menu_bar_update(&app, &app.e_menu_bar, mouse, lmb_pressed)
-
-        // Priority 2: file modal (blocks all other input when active)
+        // Priority 1: file modal (blocks all other input when active)
         file_modal_update(&app)
 
-        // Priority 2b: save-changes modal (exit / import when dirty)
+        // Priority 2: save-changes modal (exit / import when dirty)
         save_changes_modal_update(&app)
 
-        // Priority 2c: confirm-load modal (example scene when dirty)
+        // Priority 3: confirm-load modal (example scene when dirty)
         confirm_load_modal_update(&app)
 
-        // Priority 3: keyboard shortcuts (only when not consumed by menu/modal)
-        if !app.input_consumed {
+        // Priority 4: keyboard shortcuts (blocked when modal active or ImGui wants keyboard)
+        if !app.input_consumed && !imgui_rl_want_capture_keyboard() {
             ctrl_held  := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
             shift_held := rl.IsKeyDown(.LEFT_SHIFT)   || rl.IsKeyDown(.RIGHT_SHIFT)
 
             if !ctrl_held {
                 if rl.IsKeyPressed(.F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
-                if rl.IsKeyPressed(.L) {
-                    if log := app_find_panel(&app, PANEL_ID_CONSOLE); log != nil { log.visible = true }
-                }
-                if rl.IsKeyPressed(.S) {
-                    if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil { si.visible = true }
-                }
-                if rl.IsKeyPressed(.E) {
-                    if ev := app_find_panel(&app, PANEL_ID_VIEWPORT); ev != nil { ev.visible = true }
-                }
-                if rl.IsKeyPressed(.C) {
-                    if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil { cam.visible = true }
-                }
-                if rl.IsKeyPressed(.O) {
-                    if op := app_find_panel(&app, PANEL_ID_DETAILS); op != nil { op.visible = true }
-                }
-                if rl.IsKeyPressed(.T) {
-                    if tv := app_find_panel(&app, PANEL_ID_TEXTURE_VIEW); tv != nil { tv.visible = true }
-                }
+                if rl.IsKeyPressed(.L) { app.e_panel_vis.console = true }
+                if rl.IsKeyPressed(.S) { app.e_panel_vis.system_info = true }
+                if rl.IsKeyPressed(.E) { app.e_panel_vis.viewport = true }
+                if rl.IsKeyPressed(.C) { app.e_panel_vis.camera = true }
+                if rl.IsKeyPressed(.O) { app.e_panel_vis.details = true }
+                if rl.IsKeyPressed(.T) { app.e_panel_vis.texture_view = true }
                 if rl.IsKeyPressed(.B) {
-                    if cb := app_find_panel(&app, PANEL_ID_CONTENT_BROWSER); cb != nil {
-                        cb.visible = true
-                        app.e_content_browser.scan_requested = true
-                    }
+                    app.e_panel_vis.content_browser = true
+                    app.e_content_browser.scan_requested = true
                 }
             }
 
@@ -846,10 +825,12 @@ run_app :: proc(
         rl.BeginDrawing()
         rl.ClearBackground(rl.Color{20, 20, 30, 255})
 
-        // Pass effective lmb_pressed (blocked when modal or menu consumed input)
-        effective_lmb_pressed := lmb_pressed && !app.input_consumed
-        layout_update_and_draw(&app, &app.dock_layout, mouse, lmb, effective_lmb_pressed)
-        menu_bar_draw(&app, &app.e_menu_bar)
+        // Dear ImGui frame: DockSpace + menu bar + all panel stubs.
+        imgui_rl_new_frame()
+        imgui_draw_all_panels(&app)
+        imgui_rl_render()
+
+        // Raylib modal overlays drawn on top of ImGui (transitional; Track E migrates these).
         file_modal_draw(&app)
         save_changes_modal_draw(&app)
         confirm_load_modal_draw(&app)
@@ -871,7 +852,7 @@ run_app :: proc(
             height            = r_camera.image_height,
             samples_per_pixel = r_camera.samples_per_pixel,
         }
-        config.editor = build_editor_layout_from_app(&app)
+        config.editor = nil // panel layout is persisted by ImGui via imgui.ini
         config.editor_view = build_editor_view_config_from_app(&app.e_edit_view)
         // Snapshot user presets for saving
         if len(app.layout_presets) > 0 {
@@ -879,10 +860,6 @@ run_app :: proc(
         }
         if !persistence.save_config(config_save_path, config) {
             fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
-        }
-        if config.editor != nil {
-            delete(config.editor.panels)
-            free(config.editor)
         }
         if config.editor_view != nil {
             free(config.editor_view)

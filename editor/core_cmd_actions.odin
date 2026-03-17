@@ -122,13 +122,16 @@ cmd_action_file_exit :: proc(app: ^App) {
 // ── View panel toggle actions ─
 
 toggle_panel :: proc(app: ^App, id: string) {
-    p := app_find_panel(app, id)
-    if p != nil { p.visible = !p.visible }
+    if ptr := _imgui_panel_vis_ptr(&app.e_panel_vis, id); ptr != nil {
+        ptr^ = !ptr^
+    }
 }
 
 panel_visible :: proc(app: ^App, id: string) -> bool {
-    p := app_find_panel(app, id)
-    return p != nil && p.visible
+    if ptr := _imgui_panel_vis_ptr(&app.e_panel_vis, id); ptr != nil {
+        return ptr^
+    }
+    return false
 }
 
 cmd_action_view_render :: proc(app: ^App) { toggle_panel(app, PANEL_ID_RENDER) }
@@ -162,19 +165,18 @@ cmd_checked_view_outliner :: proc(app: ^App) -> bool { return panel_visible(app,
 
 // ── View preset actions ──────────────────────────────────────────────────────
 
+// Layout presets are now managed by Dear ImGui via imgui.ini.
+// These stubs keep the commands registered so menu items remain visible.
 cmd_action_preset_default :: proc(app: ^App) {
-    layout_build_default(app, &app.dock_layout)
-    app_push_log(app, strings.clone("Layout: Default"))
+    app_push_log(app, strings.clone("Layout: rearrange panels via ImGui docking (delete imgui.ini to reset)"))
 }
 
 cmd_action_preset_render :: proc(app: ^App) {
-    layout_build_render_focus(app, &app.dock_layout)
-    app_push_log(app, strings.clone("Layout: Rendering Focus"))
+    app_push_log(app, strings.clone("Layout: rearrange panels via ImGui docking"))
 }
 
 cmd_action_preset_edit :: proc(app: ^App) {
-    layout_build_edit_focus(app, &app.dock_layout)
-    app_push_log(app, strings.clone("Layout: Editing Focus"))
+    app_push_log(app, strings.clone("Layout: rearrange panels via ImGui docking"))
 }
 
 cmd_action_save_preset :: proc(app: ^App) {
