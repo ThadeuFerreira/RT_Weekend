@@ -333,6 +333,8 @@ App :: struct {
     // Named layout presets (built-ins + user-saved)
     layout_presets: [dynamic]persistence.LayoutPreset,
 
+    // Cached system info (queried once at startup; never changes at runtime)
+    system_info: util.System_Info,
 }
 
 g_app: ^App = nil
@@ -585,6 +587,7 @@ run_app :: proc(
     app.prefer_gpu  = use_gpu
     app.e_menu_bar  = MenuBarState{open_menu_index = -1}
     app.layout_presets = make([dynamic]persistence.LayoutPreset)
+    app.system_info = util.get_system_info()
     defer delete(app.pixel_staging)
     defer {
         for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
