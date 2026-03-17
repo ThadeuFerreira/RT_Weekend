@@ -2,6 +2,8 @@ package editor
 
 import "core:fmt"
 import rl "vendor:raylib"
+import imgui "RT_Weekend:vendor/odin-imgui"
+import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
 
 // CameraPanelState: camera panel drag state (which field is being dragged).
@@ -13,6 +15,10 @@ CameraPanelState :: struct {
 	bg_drag_idx:    int, // -1=none, 0=R,1=G,2=B
 	bg_drag_start_x: f32,
 	bg_drag_start_val: f32,
+
+	// ImGui Track B: capture one undo entry per edit gesture.
+	imgui_drag_before: core.CameraParams,
+	imgui_drag_active: bool,
 }
 
 CAMERA_PANEL_LINE_H :: f32(24)
@@ -188,5 +194,41 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				return
 			}
 		}
+	}
+}
+
+// ─── ImGui Camera Panel Helpers ────────────────────────────────────────────────
+// These are package-level private procs used by imgui_draw_camera_panel in
+// imgui_panels_stub.odin. Placed here to match editor package conventions.
+
+@(private)
+_camera_panel_commit_undo_if_needed :: proc(app: ^App) {
+	st := &app.e_camera_panel
+	if st.imgui_drag_active && imgui.IsItemDeactivatedAfterEdit() {
+		rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+		edit_history_push(&app.edit_history, ModifyCameraAction{
+			before = st.imgui_drag_before,
+			after  = app.c_camera_params,
+		})
+		mark_scene_dirty(app)
+		st.imgui_drag_active = false
+	}
+}
+
+@(private)
+_camera_panel_begin_undo_if_needed :: proc(app: ^App) {
+	st := &app.e_camera_panel
+	if imgui.IsItemActivated() {
+		st.imgui_drag_before = app.c_camera_params
+		st.imgui_drag_active = true
+	}
+}
+
+@(private)
+_camera_panel_clamp_shutter :: proc(params: ^core.CameraParams) {
+	params.shutter_open  = clamp(params.shutter_open,  f32(0), f32(1))
+	params.shutter_close = clamp(params.shutter_close, f32(0), f32(1))
+	if params.shutter_open > params.shutter_close {
+		params.shutter_close = params.shutter_open
 	}
 }
