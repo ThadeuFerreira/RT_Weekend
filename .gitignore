@@ -13,3 +13,7 @@ scenes/*
 logs/
 # Test output artifacts
 tests/output/
+
+
+#Vendor
+vendor/odin-imgui/*.a
