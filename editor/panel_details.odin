@@ -79,10 +79,11 @@ DetailsPanelState :: struct {
 	prop_drag_start_x:   f32,
 	prop_drag_start_val: f32,
 
-	// Before-state captured at drag start (for undo history)
+	// Before-state captured at drag start (for undo history). Lives on App so it resets on scene load.
 	drag_before_sphere: core.SceneSphere,
-	drag_before_c_camera_params: core.CameraParams,
+	drag_before_quad: rt.Quad,
 	drag_before_volume: core.SceneVolume,
+	drag_before_c_camera_params: core.CameraParams,
 
 	// Perlin noise preview (cached; regenerated when scale or type changes)
 	noise_preview: NoisePreview,

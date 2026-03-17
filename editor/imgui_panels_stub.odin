@@ -215,94 +215,63 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
 imgui_draw_camera_panel :: proc(app: ^App) {
     if !app.e_panel_vis.camera { return }
     if imgui.Begin("Camera", &app.e_panel_vis.camera) {
-        @(static) before_drag: core.CameraParams
-        @(static) drag_active: bool
-
-        commit_camera_undo_if_needed :: proc(app: ^App) {
-            if drag_active && imgui.IsItemDeactivatedAfterEdit() {
-                rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{
-                    before = before_drag,
-                    after  = app.c_camera_params,
-                })
-                mark_scene_dirty(app)
-                drag_active = false
-            }
-        }
-
-        begin_camera_undo_if_needed :: proc(app: ^App) {
-            if imgui.IsItemActivated() {
-                before_drag = app.c_camera_params
-                drag_active = true
-            }
-        }
-
-        clamp_shutter_invariants :: proc(params: ^core.CameraParams) {
-            params.shutter_open  = clamp(params.shutter_open,  f32(0), f32(1))
-            params.shutter_close = clamp(params.shutter_close, f32(0), f32(1))
-            if params.shutter_open > params.shutter_close {
-                params.shutter_close = params.shutter_open
-            }
-        }
-
         // NOTE: We call apply_scene_camera while dragging so dependent views stay in sync.
-        // We only push undo + dirty on gesture end (IsItemDeactivatedAfterEdit()).
+        // Undo state lives on app.e_camera_panel (not @(static)) so it resets on scene load.
 
         if imgui.DragFloat("FOV", &app.c_camera_params.vfov, 0.5, 1, 120, "%.1f°") {
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
         if imgui.DragFloat3("Look From", &app.c_camera_params.lookfrom, 0.02, 0, 0, "%.3f") {
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
         if imgui.DragFloat3("Look At", &app.c_camera_params.lookat, 0.02, 0, 0, "%.3f") {
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
+        // v_min=0, v_max=0 means unclamped in ImGui; clamp manually below
         if imgui.DragFloat("Defocus Angle", &app.c_camera_params.defocus_angle, 0.02, 0, 0, "%.3f") {
             if app.c_camera_params.defocus_angle < 0 { app.c_camera_params.defocus_angle = 0 }
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
+        // v_min=0.1, v_max=0 means unclamped in ImGui; clamp manually below
         if imgui.DragFloat("Focus Dist", &app.c_camera_params.focus_dist, 0.05, 0.1, 0, "%.3f") {
             if app.c_camera_params.focus_dist < 0.1 { app.c_camera_params.focus_dist = 0.1 }
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
+        // ColorEdit3 always produces values in [0, 1]; no clamp needed
         if imgui.ColorEdit3("Background", &app.c_camera_params.background) {
-            // background already in [0..1] with default ImGui behavior, but clamp defensively
-            app.c_camera_params.background[0] = clamp(app.c_camera_params.background[0], f32(0), f32(1))
-            app.c_camera_params.background[1] = clamp(app.c_camera_params.background[1], f32(0), f32(1))
-            app.c_camera_params.background[2] = clamp(app.c_camera_params.background[2], f32(0), f32(1))
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
         if imgui.SliderFloat("Shutter Open", &app.c_camera_params.shutter_open, 0, 1) {
-            clamp_shutter_invariants(&app.c_camera_params)
+            _camera_panel_clamp_shutter(&app.c_camera_params)
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
 
         if imgui.SliderFloat("Shutter Close", &app.c_camera_params.shutter_close, 0, 1) {
-            clamp_shutter_invariants(&app.c_camera_params)
+            _camera_panel_clamp_shutter(&app.c_camera_params)
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
         }
-        begin_camera_undo_if_needed(app)
-        commit_camera_undo_if_needed(app)
+        _camera_panel_begin_undo_if_needed(app)
+        _camera_panel_commit_undo_if_needed(app)
     }
     imgui.End()
 }
@@ -311,20 +280,7 @@ imgui_draw_details_panel :: proc(app: ^App) {
     if !app.e_panel_vis.details { return }
     if imgui.Begin("Details", &app.e_panel_vis.details) {
         ev := &app.e_edit_view
-
-        // Persist across frames to coalesce undo to one entry per gesture.
-        @(static) before_sphere: core.SceneSphere
-        @(static) before_quad: rt.Quad
-        @(static) before_volume: core.SceneVolume
-        @(static) before_camera: core.CameraParams
-
-        clamp_shutter_invariants :: proc(params: ^core.CameraParams) {
-            params.shutter_open  = clamp(params.shutter_open,  f32(0), f32(1))
-            params.shutter_close = clamp(params.shutter_close, f32(0), f32(1))
-            if params.shutter_open > params.shutter_close {
-                params.shutter_close = params.shutter_open
-            }
-        }
+        det := &app.e_details
 
         switch ev.selection_kind {
         case .None:
@@ -342,19 +298,19 @@ imgui_draw_details_panel :: proc(app: ^App) {
                     if imgui.DragFloat("Density", &v.density, 0.002, 0.0001, 1.0, "%.4f") {
                         v.density = clamp(v.density, f32(0.0001), f32(1))
                     }
-                    if imgui.IsItemActivated() { before_volume = v^ }
+                    if imgui.IsItemActivated() { det.drag_before_volume = v^ }
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifyVolumeAction{idx = i, before = before_volume, after = v^})
+                        edit_history_push(&app.edit_history, ModifyVolumeAction{idx = i, before = det.drag_before_volume, after = v^})
                         mark_scene_dirty(app)
                     }
 
                     if imgui.ColorEdit3("Albedo", &v.albedo) {}
-                    if imgui.IsItemActivated() { before_volume = v^ }
+                    if imgui.IsItemActivated() { det.drag_before_volume = v^ }
                     if imgui.IsItemDeactivatedAfterEdit() {
                         v.albedo[0] = clamp(v.albedo[0], f32(0), f32(1))
                         v.albedo[1] = clamp(v.albedo[1], f32(0), f32(1))
                         v.albedo[2] = clamp(v.albedo[2], f32(0), f32(1))
-                        edit_history_push(&app.edit_history, ModifyVolumeAction{idx = i, before = before_volume, after = v^})
+                        edit_history_push(&app.edit_history, ModifyVolumeAction{idx = i, before = det.drag_before_volume, after = v^})
                         mark_scene_dirty(app)
                     }
 
@@ -366,41 +322,41 @@ imgui_draw_details_panel :: proc(app: ^App) {
             imgui.Text("Camera")
 
             imgui.DragFloat("FOV", &app.c_camera_params.vfov, 0.5, 1, 120, "%.1f°")
-            if imgui.IsItemActivated() { before_camera = app.c_camera_params }
+            if imgui.IsItemActivated() { det.drag_before_c_camera_params = app.c_camera_params }
             if imgui.IsItemDeactivatedAfterEdit() {
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{before = before_camera, after = app.c_camera_params})
+                edit_history_push(&app.edit_history, ModifyCameraAction{before = det.drag_before_c_camera_params, after = app.c_camera_params})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
             }
 
             imgui.DragFloat3("Look From", &app.c_camera_params.lookfrom, 0.02, 0, 0, "%.3f")
-            if imgui.IsItemActivated() { before_camera = app.c_camera_params }
+            if imgui.IsItemActivated() { det.drag_before_c_camera_params = app.c_camera_params }
             if imgui.IsItemDeactivatedAfterEdit() {
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{before = before_camera, after = app.c_camera_params})
+                edit_history_push(&app.edit_history, ModifyCameraAction{before = det.drag_before_c_camera_params, after = app.c_camera_params})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
             }
 
             imgui.DragFloat3("Look At", &app.c_camera_params.lookat, 0.02, 0, 0, "%.3f")
-            if imgui.IsItemActivated() { before_camera = app.c_camera_params }
+            if imgui.IsItemActivated() { det.drag_before_c_camera_params = app.c_camera_params }
             if imgui.IsItemDeactivatedAfterEdit() {
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{before = before_camera, after = app.c_camera_params})
+                edit_history_push(&app.edit_history, ModifyCameraAction{before = det.drag_before_c_camera_params, after = app.c_camera_params})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
             }
 
             imgui.DragFloat("Defocus Angle", &app.c_camera_params.defocus_angle, 0.02, 0, 0, "%.3f")
-            if imgui.IsItemActivated() { before_camera = app.c_camera_params }
+            if imgui.IsItemActivated() { det.drag_before_c_camera_params = app.c_camera_params }
             if imgui.IsItemDeactivatedAfterEdit() {
                 if app.c_camera_params.defocus_angle < 0 { app.c_camera_params.defocus_angle = 0 }
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{before = before_camera, after = app.c_camera_params})
+                edit_history_push(&app.edit_history, ModifyCameraAction{before = det.drag_before_c_camera_params, after = app.c_camera_params})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
                 if app.c_camera_params.defocus_angle < 0 { app.c_camera_params.defocus_angle = 0 }
@@ -408,11 +364,11 @@ imgui_draw_details_panel :: proc(app: ^App) {
             }
 
             imgui.DragFloat("Focus Dist", &app.c_camera_params.focus_dist, 0.05, 0.1, 0, "%.3f")
-            if imgui.IsItemActivated() { before_camera = app.c_camera_params }
+            if imgui.IsItemActivated() { det.drag_before_c_camera_params = app.c_camera_params }
             if imgui.IsItemDeactivatedAfterEdit() {
                 if app.c_camera_params.focus_dist < 0.1 { app.c_camera_params.focus_dist = 0.1 }
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{before = before_camera, after = app.c_camera_params})
+                edit_history_push(&app.edit_history, ModifyCameraAction{before = det.drag_before_c_camera_params, after = app.c_camera_params})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
                 if app.c_camera_params.focus_dist < 0.1 { app.c_camera_params.focus_dist = 0.1 }
@@ -420,39 +376,39 @@ imgui_draw_details_panel :: proc(app: ^App) {
             }
 
             imgui.ColorEdit3("Background", &app.c_camera_params.background)
-            if imgui.IsItemActivated() { before_camera = app.c_camera_params }
+            if imgui.IsItemActivated() { det.drag_before_c_camera_params = app.c_camera_params }
             if imgui.IsItemDeactivatedAfterEdit() {
                 app.c_camera_params.background[0] = clamp(app.c_camera_params.background[0], f32(0), f32(1))
                 app.c_camera_params.background[1] = clamp(app.c_camera_params.background[1], f32(0), f32(1))
                 app.c_camera_params.background[2] = clamp(app.c_camera_params.background[2], f32(0), f32(1))
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{before = before_camera, after = app.c_camera_params})
+                edit_history_push(&app.edit_history, ModifyCameraAction{before = det.drag_before_c_camera_params, after = app.c_camera_params})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
             }
 
             imgui.SliderFloat("Shutter Open", &app.c_camera_params.shutter_open, 0, 1)
-            if imgui.IsItemActivated() { before_camera = app.c_camera_params }
+            if imgui.IsItemActivated() { det.drag_before_c_camera_params = app.c_camera_params }
             if imgui.IsItemDeactivatedAfterEdit() {
-                clamp_shutter_invariants(&app.c_camera_params)
+                _camera_panel_clamp_shutter(&app.c_camera_params)
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{before = before_camera, after = app.c_camera_params})
+                edit_history_push(&app.edit_history, ModifyCameraAction{before = det.drag_before_c_camera_params, after = app.c_camera_params})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
-                clamp_shutter_invariants(&app.c_camera_params)
+                _camera_panel_clamp_shutter(&app.c_camera_params)
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
             }
 
             imgui.SliderFloat("Shutter Close", &app.c_camera_params.shutter_close, 0, 1)
-            if imgui.IsItemActivated() { before_camera = app.c_camera_params }
+            if imgui.IsItemActivated() { det.drag_before_c_camera_params = app.c_camera_params }
             if imgui.IsItemDeactivatedAfterEdit() {
-                clamp_shutter_invariants(&app.c_camera_params)
+                _camera_panel_clamp_shutter(&app.c_camera_params)
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-                edit_history_push(&app.edit_history, ModifyCameraAction{before = before_camera, after = app.c_camera_params})
+                edit_history_push(&app.edit_history, ModifyCameraAction{before = det.drag_before_c_camera_params, after = app.c_camera_params})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
-                clamp_shutter_invariants(&app.c_camera_params)
+                _camera_panel_clamp_shutter(&app.c_camera_params)
                 rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
             }
 
@@ -464,21 +420,21 @@ imgui_draw_details_panel :: proc(app: ^App) {
             imgui.Text(fmt.ctprintf("Sphere %d", ev.selected_idx))
 
             imgui.DragFloat3("Center", &sphere.center, 0.02, 0, 0, "%.3f")
-            if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+            if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
             if imgui.IsItemDeactivatedAfterEdit() {
                 SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
-                edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
                 SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
             }
 
             imgui.DragFloat("Radius", &sphere.radius, 0.01, 0.001, 0, "%.3f")
-            if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+            if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
             if imgui.IsItemDeactivatedAfterEdit() {
                 if sphere.radius < 0.001 { sphere.radius = 0.001 }
                 SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
-                edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                 mark_scene_dirty(app)
             } else if imgui.IsItemEdited() {
                 if sphere.radius < 0.001 { sphere.radius = 0.001 }
@@ -488,11 +444,11 @@ imgui_draw_details_panel :: proc(app: ^App) {
             kinds := [4]cstring{"Lambertian", "Metallic", "Dielectric", "DiffuseLight"}
             current := c.int(sphere.material_kind)
             imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds)))
-            if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+            if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
             if imgui.IsItemDeactivatedAfterEdit() {
                 sphere.material_kind = cast(core.MaterialKind)current
                 SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
-                edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                 mark_scene_dirty(app)
             }
 
@@ -504,7 +460,7 @@ imgui_draw_details_panel :: proc(app: ^App) {
                 motion[2] = sphere.center1[2] - sphere.center[2]
             }
             imgui.DragFloat3("Motion dX/Y/Z", &motion, 0.02, 0, 0, "%.3f")
-            if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+            if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
             if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                 sphere.center1[0] = sphere.center[0] + motion[0]
                 sphere.center1[1] = sphere.center[1] + motion[1]
@@ -512,7 +468,7 @@ imgui_draw_details_panel :: proc(app: ^App) {
                 sphere.is_moving = (sphere.center1[0] != sphere.center[0] || sphere.center1[1] != sphere.center[1] || sphere.center1[2] != sphere.center[2])
                 SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
                 if imgui.IsItemDeactivatedAfterEdit() {
-                    edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                    edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                     mark_scene_dirty(app)
                 }
             }
@@ -524,12 +480,12 @@ imgui_draw_details_panel :: proc(app: ^App) {
                 col: [3]f32 = {0.5, 0.5, 0.5}
                 if ct, okc := sphere.albedo.(core.ConstantTexture); okc { col = ct.color }
                 imgui.ColorEdit3("Albedo", &col)
-                if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+                if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
                 if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                     sphere.albedo = core.ConstantTexture{color = col}
                     SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                         mark_scene_dirty(app)
                     }
                 }
@@ -538,12 +494,12 @@ imgui_draw_details_panel :: proc(app: ^App) {
                 if it, is_img := sphere.albedo.(core.ImageTexture); is_img {
                     imgui.Text(fmt.ctprintf("Image: %s", filepath.base(it.path)))
                     if imgui.SmallButton("× Clear") {
-                        before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+                        det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx)
                         sphere.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
                         sphere.texture_kind = .Constant
                         sphere.image_path = ""
                         SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
-                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                         mark_scene_dirty(app)
                     }
                     imgui.SameLine()
@@ -553,13 +509,13 @@ imgui_draw_details_panel :: proc(app: ^App) {
                     img_path, ok2 := util.open_file_dialog(default_dir, util.IMAGE_FILTER_DESC, util.IMAGE_FILTER_EXT)
                     delete(default_dir)
                     if ok2 {
-                        before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx)
+                        det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx)
                         sphere.albedo = core.ImageTexture{path = img_path}
                         sphere.texture_kind = .Image
                         sphere.image_path = img_path
                         app_ensure_image_cached(app, img_path)
                         SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
-                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                         mark_scene_dirty(app)
                     }
                 }
@@ -569,35 +525,35 @@ imgui_draw_details_panel :: proc(app: ^App) {
                 col: [3]f32 = {0.5, 0.5, 0.5}
                 if ct, okc := sphere.albedo.(core.ConstantTexture); okc { col = ct.color }
                 imgui.ColorEdit3("Albedo", &col)
-                if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+                if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
                 if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                     sphere.albedo = core.ConstantTexture{color = col}
                     SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                         mark_scene_dirty(app)
                     }
                 }
 
                 imgui.DragFloat("Fuzz", &sphere.fuzz, 0.01, 0, 1, "%.3f")
-                if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+                if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
                 if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                     sphere.fuzz = clamp(sphere.fuzz, f32(0), f32(1))
                     SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                         mark_scene_dirty(app)
                     }
                 }
 
             case .Dielectric:
                 imgui.DragFloat("IOR", &sphere.ref_idx, 0.01, 1, 3, "%.3f")
-                if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+                if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
                 if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                     sphere.ref_idx = clamp(sphere.ref_idx, f32(1), f32(3))
                     SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                         mark_scene_dirty(app)
                     }
                 }
@@ -606,12 +562,12 @@ imgui_draw_details_panel :: proc(app: ^App) {
                 col: [3]f32 = {1, 1, 1}
                 if ct, okc := sphere.albedo.(core.ConstantTexture); okc { col = ct.color }
                 imgui.ColorEdit3("Emit", &col)
-                if imgui.IsItemActivated() { before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
+                if imgui.IsItemActivated() { det.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, ev.selected_idx) }
                 if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                     sphere.albedo = core.ConstantTexture{color = col}
                     SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before_sphere, after = sphere})
+                        edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = det.drag_before_sphere, after = sphere})
                         mark_scene_dirty(app)
                     }
                 }
@@ -635,7 +591,7 @@ imgui_draw_details_panel :: proc(app: ^App) {
             case rt.diffuse_light: current = 3
             }
             imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds)))
-            if imgui.IsItemActivated() { before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
+            if imgui.IsItemActivated() { det.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
             if imgui.IsItemDeactivatedAfterEdit() {
                 // Rebuild material while preserving color where possible
                 col := [3]f32{0.5, 0.5, 0.5}
@@ -658,7 +614,7 @@ imgui_draw_details_panel :: proc(app: ^App) {
                 case 3: quad.material = rt.diffuse_light{emit = {2, 2, 2}}
                 }
                 SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
-                edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = before_quad, after = quad})
+                edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = det.drag_before_quad, after = quad})
                 mark_scene_dirty(app)
             }
 
@@ -682,7 +638,7 @@ imgui_draw_details_panel :: proc(app: ^App) {
             }
 
             imgui.ColorEdit3(is_emitter ? "Emit Color" : "Color", &col)
-            if imgui.IsItemActivated() { before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
+            if imgui.IsItemActivated() { det.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
             if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                 if is_emitter {
                     quad.material = rt.diffuse_light{emit = {col[0]*param, col[1]*param, col[2]*param}}
@@ -696,42 +652,42 @@ imgui_draw_details_panel :: proc(app: ^App) {
                 }
                 SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
                 if imgui.IsItemDeactivatedAfterEdit() {
-                    edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = before_quad, after = quad})
+                    edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = det.drag_before_quad, after = quad})
                     mark_scene_dirty(app)
                 }
             }
 
             if is_emitter {
                 imgui.DragFloat("Intensity", &param, 0.02, 0, 50, "%.3f")
-                if imgui.IsItemActivated() { before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
+                if imgui.IsItemActivated() { det.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
                 if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                     if param < 0 { param = 0 }
                     quad.material = rt.diffuse_light{emit = {col[0]*param, col[1]*param, col[2]*param}}
                     SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = before_quad, after = quad})
+                        edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = det.drag_before_quad, after = quad})
                         mark_scene_dirty(app)
                     }
                 }
             } else if current == 1 {
                 imgui.DragFloat("Fuzz", &param, 0.01, 0, 1, "%.3f")
-                if imgui.IsItemActivated() { before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
+                if imgui.IsItemActivated() { det.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
                 if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                     quad.material = rt.metallic{albedo = col, fuzz = clamp(param, f32(0), f32(1))}
                     SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = before_quad, after = quad})
+                        edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = det.drag_before_quad, after = quad})
                         mark_scene_dirty(app)
                     }
                 }
             } else if current == 2 {
                 imgui.DragFloat("IOR", &param, 0.01, 1, 3, "%.3f")
-                if imgui.IsItemActivated() { before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
+                if imgui.IsItemActivated() { det.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, ev.selected_idx) }
                 if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                     quad.material = rt.dielectric{ref_idx = clamp(param, f32(1), f32(3))}
                     SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
                     if imgui.IsItemDeactivatedAfterEdit() {
-                        edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = before_quad, after = quad})
+                        edit_history_push(&app.edit_history, ModifyQuadAction{idx = ev.selected_idx, before = det.drag_before_quad, after = quad})
                         mark_scene_dirty(app)
                     }
                 }
@@ -743,45 +699,45 @@ imgui_draw_details_panel :: proc(app: ^App) {
             imgui.Text(fmt.ctprintf("Volume %d", ev.selected_idx))
 
             imgui.DragFloat3("Translate", &v.translate, 0.02, 0, 0, "%.3f")
-            if imgui.IsItemActivated() { before_volume = v }
+            if imgui.IsItemActivated() { det.drag_before_volume = v }
             if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                 app.e_volumes[ev.selected_idx] = v
                 if imgui.IsItemDeactivatedAfterEdit() {
-                    edit_history_push(&app.edit_history, ModifyVolumeAction{idx = ev.selected_idx, before = before_volume, after = v})
+                    edit_history_push(&app.edit_history, ModifyVolumeAction{idx = ev.selected_idx, before = det.drag_before_volume, after = v})
                     mark_scene_dirty(app)
                 }
             }
 
             imgui.DragFloat("Rotate Y (deg)", &v.rotate_y_deg, 0.2, 0, 0, "%.3f")
-            if imgui.IsItemActivated() { before_volume = v }
+            if imgui.IsItemActivated() { det.drag_before_volume = v }
             if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                 app.e_volumes[ev.selected_idx] = v
                 if imgui.IsItemDeactivatedAfterEdit() {
-                    edit_history_push(&app.edit_history, ModifyVolumeAction{idx = ev.selected_idx, before = before_volume, after = v})
+                    edit_history_push(&app.edit_history, ModifyVolumeAction{idx = ev.selected_idx, before = det.drag_before_volume, after = v})
                     mark_scene_dirty(app)
                 }
             }
 
             imgui.DragFloat("Density", &v.density, 0.002, 0.0001, 1.0, "%.4f")
-            if imgui.IsItemActivated() { before_volume = v }
+            if imgui.IsItemActivated() { det.drag_before_volume = v }
             if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                 v.density = clamp(v.density, f32(0.0001), f32(1))
                 app.e_volumes[ev.selected_idx] = v
                 if imgui.IsItemDeactivatedAfterEdit() {
-                    edit_history_push(&app.edit_history, ModifyVolumeAction{idx = ev.selected_idx, before = before_volume, after = v})
+                    edit_history_push(&app.edit_history, ModifyVolumeAction{idx = ev.selected_idx, before = det.drag_before_volume, after = v})
                     mark_scene_dirty(app)
                 }
             }
 
             imgui.ColorEdit3("Albedo", &v.albedo)
-            if imgui.IsItemActivated() { before_volume = v }
+            if imgui.IsItemActivated() { det.drag_before_volume = v }
             if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
                 v.albedo[0] = clamp(v.albedo[0], f32(0), f32(1))
                 v.albedo[1] = clamp(v.albedo[1], f32(0), f32(1))
                 v.albedo[2] = clamp(v.albedo[2], f32(0), f32(1))
                 app.e_volumes[ev.selected_idx] = v
                 if imgui.IsItemDeactivatedAfterEdit() {
-                    edit_history_push(&app.edit_history, ModifyVolumeAction{idx = ev.selected_idx, before = before_volume, after = v})
+                    edit_history_push(&app.edit_history, ModifyVolumeAction{idx = ev.selected_idx, before = det.drag_before_volume, after = v})
                     mark_scene_dirty(app)
                 }
             }
