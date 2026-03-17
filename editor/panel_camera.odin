@@ -13,6 +13,10 @@ CameraPanelState :: struct {
 	bg_drag_idx:    int, // -1=none, 0=R,1=G,2=B
 	bg_drag_start_x: f32,
 	bg_drag_start_val: f32,
+
+	// ImGui Track B: capture one undo entry per edit gesture.
+	imgui_drag_before: core.CameraParams,
+	imgui_drag_active: bool,
 }
 
 CAMERA_PANEL_LINE_H :: f32(24)
