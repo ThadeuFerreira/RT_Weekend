@@ -5,6 +5,9 @@
 build/*.a
 build/*.o
 
+# ImGui layout (machine-generated, per-developer; avoid spurious diffs)
+imgui.ini
+
 # User scene files (keep folder via scenes/.gitkeep)
 scenes/*
 !scenes/.gitkeep
