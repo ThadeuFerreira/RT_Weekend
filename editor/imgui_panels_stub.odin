@@ -8,6 +8,7 @@ package editor
 
 import "core:c"
 import "core:fmt"
+import "core:math"
 import "core:strconv"
 import "core:strings"
 import imgui "RT_Weekend:vendor/odin-imgui"
@@ -214,6 +215,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                 ev.last_mouse = mouse
                 ev.camera_yaw -= delta.x * 0.01
                 ev.camera_pitch -= delta.y * 0.01
+                ev.camera_pitch = clamp(ev.camera_pitch, -math.PI/2 + 0.01, math.PI/2 - 0.01)
                 update_orbit_camera(ev)
             }
         } else if ev.rmb_held {

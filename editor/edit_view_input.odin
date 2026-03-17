@@ -735,6 +735,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 			} else {
 				ev.camera_yaw   += orb_delta.x * 0.005
 				ev.camera_pitch += -orb_delta.y * 0.005
+				ev.camera_pitch = clamp(ev.camera_pitch, -math.PI/2 + 0.01, math.PI/2 - 0.01)
 			}
 		}
 		ev.last_mouse = mouse
