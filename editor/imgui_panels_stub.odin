@@ -10,7 +10,6 @@ import "core:fmt"
 import "core:strings"
 import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
-import "RT_Weekend:util"
 import rl "vendor:raylib"
 
 // imgui_draw_main_menu_bar renders the application main menu bar using Dear
