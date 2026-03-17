@@ -191,6 +191,12 @@ imgui_draw_all_panels :: proc(app: ^App) {
     imgui_draw_texture_view_panel(app)
     imgui_draw_content_browser_panel(app)
     imgui_draw_outliner_panel(app)
+
+    // ImGui modal popups (Track E) — drawn after panels so they overlay correctly
+    imgui_draw_save_changes_modal(app)
+    imgui_draw_confirm_load_modal(app)
+    imgui_draw_file_modal(app)
+
     if app.e_panel_vis.imgui_metrics {
         imgui.ShowMetricsWindow(&app.e_panel_vis.imgui_metrics)
     }

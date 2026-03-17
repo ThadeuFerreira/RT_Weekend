@@ -310,8 +310,8 @@ confirm_load_modal_draw :: proc(app: ^App) {
     draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 6, i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
 }
 
-@(private="file")
-_load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
+// load_example_at loads an example scene, optionally saving first. Returns false if save dialog cancelled.
+load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     if save_first {
         if len(app.current_scene_path) > 0 {
             if !cmd_action_file_save(app) { return false } // save failed, don't load
@@ -372,9 +372,130 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
 confirm_load_execute :: proc(app: ^App, save_first: bool) {
     modal := &app.e_confirm_load
     if !app.finished { return }
-    if _load_example_at(app, modal.scene_idx, save_first) {
+    if load_example_at(app, modal.scene_idx, save_first) {
         app_push_log(app, fmt.aprintf("Loaded example: %s", modal.scene_label))
         modal.active = false
     }
-    // If _load_example_at returned false, user cancelled Save As dialog; keep modal open
+    // If load_example_at returned false, user cancelled Save As dialog; keep modal open
+}
+
+// =============================================================================
+// ImGui Modal Implementations (Track E)
+// =============================================================================
+
+import imgui "RT_Weekend:vendor/odin-imgui"
+
+// imgui_draw_save_changes_modal draws the "Save Changes?" modal using ImGui.
+// Call from imgui_draw_all_panels before imgui_rl_render.
+imgui_draw_save_changes_modal :: proc(app: ^App) {
+    modal := &app.e_save_changes
+    if !modal.active { return }
+    if !imgui.IsPopupOpen("Save Changes?") {
+        imgui.OpenPopup("Save Changes?")
+    }
+    viewport := imgui.GetMainViewport()
+    center := imgui.Vec2{viewport.Pos.x + viewport.Size.x * 0.5, viewport.Pos.y + viewport.Size.y * 0.5}
+    imgui.SetNextWindowPos(center, .Always, imgui.Vec2{0.5, 0.5})
+    if imgui.BeginPopupModal("Save Changes?", nil, {.AlwaysAutoResize}) {
+        if modal.reason == .Exit {
+            imgui.Text("Save before closing?")
+        } else {
+            imgui.Text("Save before loading another scene?")
+        }
+        imgui.Separator()
+        save_enabled := len(app.current_scene_path) > 0
+        if !save_enabled { imgui.BeginDisabled() }
+        if imgui.Button("Save") {
+            if cmd_action_file_save(app) {
+                _save_changes_proceed(app, modal)
+            }
+        }
+        if !save_enabled { imgui.EndDisabled() }
+        imgui.SameLine()
+        if imgui.Button("Save As…") {
+            default_dir := util.dialog_default_dir(app.current_scene_path)
+            path, ok := util.save_file_dialog(default_dir, "scene.json",
+                util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+            delete(default_dir)
+            if ok && file_save_as_path(app, path) {
+                _save_changes_proceed(app, modal)
+            }
+        }
+        imgui.SameLine()
+        if imgui.Button("Cancel") {
+            modal.active = false
+            modal.reason = .None
+            imgui.CloseCurrentPopup()
+        }
+        imgui.SameLine()
+        if imgui.Button("Continue (discard)") {
+            _save_changes_proceed(app, modal)
+        }
+        imgui.EndPopup()
+    }
+}
+
+@(private="file")
+_save_changes_proceed :: proc(app: ^App, modal: ^SaveChangesModalState) {
+    reason := modal.reason
+    modal.active = false
+    modal.reason = .None
+    imgui.CloseCurrentPopup()
+    switch reason {
+    case .Exit:
+        app.should_exit = true
+    case .Import:
+        default_dir := util.dialog_default_dir(app.current_scene_path)
+        path, ok := util.open_file_dialog(default_dir, util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+        delete(default_dir)
+        if ok { file_import_from_path(app, path) }
+    case .None:
+    }
+}
+
+// imgui_draw_confirm_load_modal draws the "Load Example Scene?" modal using ImGui.
+// Call from imgui_draw_all_panels before imgui_rl_render.
+imgui_draw_confirm_load_modal :: proc(app: ^App) {
+    modal := &app.e_confirm_load
+    if !modal.active { return }
+    if !imgui.IsPopupOpen("Load Example Scene?") {
+        imgui.OpenPopup("Load Example Scene?")
+    }
+    viewport := imgui.GetMainViewport()
+    center := imgui.Vec2{viewport.Pos.x + viewport.Size.x * 0.5, viewport.Pos.y + viewport.Size.y * 0.5}
+    imgui.SetNextWindowPos(center, .Always, imgui.Vec2{0.5, 0.5})
+    if imgui.BeginPopupModal("Load Example Scene?", nil, {.AlwaysAutoResize}) {
+        label_c := strings.clone_to_cstring(modal.scene_label, context.temp_allocator)
+        imgui.Text("\"%s\" will replace your current scene.", label_c)
+        imgui.Text("This cannot be undone.")
+        imgui.Separator()
+        save_enabled := app.e_scene_dirty
+        if !save_enabled { imgui.BeginDisabled() }
+        if imgui.Button("Save & Load") {
+            if len(app.current_scene_path) > 0 {
+                if cmd_action_file_save(app) {
+                    confirm_load_execute(app, true)
+                }
+            } else {
+                default_dir := util.dialog_default_dir(app.current_scene_path)
+                path, ok := util.save_file_dialog(default_dir, "scene.json",
+                    util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+                delete(default_dir)
+                if ok && file_save_as_path(app, path) {
+                    confirm_load_execute(app, true)
+                }
+            }
+        }
+        if !save_enabled { imgui.EndDisabled() }
+        imgui.SameLine()
+        if imgui.Button("Load") {
+            confirm_load_execute(app, false)
+        }
+        imgui.SameLine()
+        if imgui.Button("Cancel") {
+            modal.active = false
+            imgui.CloseCurrentPopup()
+        }
+        imgui.EndPopup()
+    }
 }
