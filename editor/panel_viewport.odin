@@ -199,6 +199,37 @@ draw_viewport_3d :: proc(app: ^App, vp_rect: rl.Rectangle) {
 	rl.DrawTexturePro(ev.viewport_tex.texture, src, vp_rect, rl.Vector2{0, 0}, 0.0, rl.WHITE)
 }
 
+render_viewport_to_texture :: proc(app: ^App, width, height: i32) {
+	ev := &app.e_edit_view
+	sm := ev.scene_mgr
+	if sm == nil || width <= 0 || height <= 0 { return }
+
+	if width != ev.tex_w || height != ev.tex_h {
+		if ev.tex_w > 0 {
+			rl.UnloadRenderTexture(ev.viewport_tex)
+		}
+		ev.viewport_tex = rl.LoadRenderTexture(width, height)
+		ev.tex_w = width
+		ev.tex_h = height
+	}
+
+	if ev.tex_w <= 0 || ev.tex_h <= 0 { return }
+
+	ensure_viewport_sphere_cache_filled(app, ev)
+
+	rl.BeginTextureMode(ev.viewport_tex)
+	rl.ClearBackground(rl.Color{20, 25, 35, 255})
+	rl.BeginMode3D(ev.cam3d)
+	draw_adaptive_infinite_grid(ev)
+	draw_viewport_scene_objects(app, ev, ev.selection_kind, ev.selected_idx)
+	for v, i in app.e_volumes {
+		draw_volume_cube_wireframe(v, ev.selection_kind == .Volume && ev.selected_idx == i)
+	}
+	draw_viewport_camera_gizmos(app, ev)
+	rl.EndMode3D()
+	rl.EndTextureMode()
+}
+
 // ── Panel draw ─────────────────────────────────────────────────────────────
 
 draw_viewport_content :: proc(app: ^App, content: rl.Rectangle) {

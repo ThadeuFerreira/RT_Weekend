@@ -6,8 +6,12 @@ package editor
 // app.e_panel_vis so the built-in close button works immediately.
 // Replace each stub body in the corresponding Track task (A–E).
 
+import "core:c"
+import "core:fmt"
+import "core:strconv"
 import "core:strings"
 import imgui "RT_Weekend:vendor/odin-imgui"
+import rl "vendor:raylib"
 
 // imgui_draw_main_menu_bar renders the application main menu bar using Dear
 // ImGui.  All items wire to the existing command registry so enabled/checked
@@ -87,10 +91,78 @@ imgui_draw_main_menu_bar :: proc(app: ^App) {
 // Each proc below is a placeholder.  Replace the body with real ImGui widgets
 // in the corresponding migration track (see the plan comment).
 
+@(private)
+_imgui_fit_size :: proc(avail: imgui.Vec2, aspect: f32) -> imgui.Vec2 {
+    size := avail
+    if size.x <= 0 { size.x = 1 }
+    if size.y <= 0 { size.y = 1 }
+    if size.x / max(size.y, 1) > aspect {
+        size = imgui.Vec2{size.y * aspect, size.y}
+    } else {
+        size = imgui.Vec2{size.x, size.x / aspect}
+    }
+    return size
+}
+
+@(private)
+_imgui_update_int_string :: proc(dst: ^string, value: int) {
+    next := fmt.aprintf("%d", value)
+    delete(dst^)
+    dst^ = next
+}
+
+@(private)
+_imgui_render_settings_height :: proc() -> f32 {
+    return imgui.GetFrameHeightWithSpacing() * 4 + imgui.GetTextLineHeightWithSpacing() + 12
+}
+
 imgui_draw_render_panel :: proc(app: ^App) {
     if !app.e_panel_vis.render { return }
-    if imgui.Begin("Render Preview", &app.e_panel_vis.render) {
-        imgui.Text("(render panel — Track C)")
+    flags := imgui.WindowFlags{.NoScrollbar, .NoScrollWithMouse}
+    if imgui.Begin("Render Preview", &app.e_panel_vis.render, flags) {
+        avail := imgui.GetContentRegionAvail()
+        settings_h := _imgui_render_settings_height()
+        image_h := max(avail.y - settings_h, 120)
+        if imgui.BeginChild("RenderImage", imgui.Vec2{-1, image_h}, {.Borders}) {
+            tex_id := imgui.TextureID(uintptr(app.render_tex.id))
+            img_avail := imgui.GetContentRegionAvail()
+            aspect := f32(app.render_tex.width) / max(f32(app.render_tex.height), 1)
+            size := _imgui_fit_size(img_avail, aspect)
+            imgui.Image(tex_id, size)
+        }
+        imgui.EndChild()
+
+        imgui.Separator()
+        height, _ := strconv.parse_int(strings.trim_space(app.r_height_input))
+        samples, _ := strconv.parse_int(strings.trim_space(app.r_samples_input))
+        height_i := c.int(max(height, 1))
+        samples_i := c.int(max(samples, 1))
+        if imgui.InputInt("Height", &height_i) {
+            if height_i < 1 { height_i = 1 }
+            _imgui_update_int_string(&app.r_height_input, int(height_i))
+            app.r_render_pending = true
+        }
+        if imgui.InputInt("Samples", &samples_i) {
+            if samples_i < 1 { samples_i = 1 }
+            _imgui_update_int_string(&app.r_samples_input, int(samples_i))
+            app.r_render_pending = true
+        }
+
+        preview: cstring = "4:3"
+        if app.r_aspect_ratio == 1 { preview = "16:9" }
+        if imgui.BeginCombo("Aspect", preview) {
+            aspect_options := [2]cstring{"4:3", "16:9"}
+            for label, i in aspect_options {
+                selected := app.r_aspect_ratio == i
+                if imgui.Selectable(label, selected) {
+                    app.r_aspect_ratio = i
+                    app.r_render_pending = true
+                }
+            }
+            imgui.EndCombo()
+        }
+        _ = imgui.Checkbox("Use GPU (next render)", &app.prefer_gpu)
+        _ = imgui.Checkbox("Show Progress", &app.show_intermediate_render)
     }
     imgui.End()
 }
@@ -121,10 +193,35 @@ imgui_draw_system_info_panel :: proc(app: ^App) {
 
 imgui_draw_viewport_panel :: proc(app: ^App) {
     if !app.e_panel_vis.viewport { return }
+    imgui.PushStyleVarImVec2(.WindowPadding, imgui.Vec2{0, 0})
     if imgui.Begin("Viewport", &app.e_panel_vis.viewport) {
-        imgui.Text("(viewport panel — Track C)")
+        size := imgui.GetContentRegionAvail()
+        app.e_edit_view.tex_w = max(i32(size.x), 1)
+        app.e_edit_view.tex_h = max(i32(size.y), 1)
+
+        tex_id := imgui.TextureID(uintptr(app.e_edit_view.viewport_tex.texture.id))
+        imgui.Image(tex_id, size, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
+
+        hovered := imgui.IsItemHovered()
+        ev := &app.e_edit_view
+        if hovered && rl.IsMouseButtonDown(.RIGHT) {
+            if !ev.rmb_held {
+                ev.rmb_held = true
+                ev.last_mouse = rl.GetMousePosition()
+            } else {
+                mouse := rl.GetMousePosition()
+                delta := mouse - ev.last_mouse
+                ev.last_mouse = mouse
+                ev.camera_yaw -= delta.x * 0.01
+                ev.camera_pitch -= delta.y * 0.01
+                update_orbit_camera(ev)
+            }
+        } else if ev.rmb_held {
+            ev.rmb_held = false
+        }
     }
     imgui.End()
+    imgui.PopStyleVar()
 }
 
 imgui_draw_camera_panel :: proc(app: ^App) {
@@ -145,10 +242,20 @@ imgui_draw_details_panel :: proc(app: ^App) {
 
 imgui_draw_camera_preview_panel :: proc(app: ^App) {
     if !app.e_panel_vis.camera_preview { return }
+    imgui.PushStyleVarImVec2(.WindowPadding, imgui.Vec2{0, 0})
     if imgui.Begin("Camera Preview", &app.e_panel_vis.camera_preview) {
-        imgui.Text("(camera preview — Track C)")
+        if app.preview_port_w > 0 && app.preview_port_h > 0 {
+            avail := imgui.GetContentRegionAvail()
+            aspect := f32(app.preview_port_w) / max(f32(app.preview_port_h), 1)
+            size := _imgui_fit_size(avail, aspect)
+            tex_id := imgui.TextureID(uintptr(app.preview_port_tex.texture.id))
+            imgui.Image(tex_id, size, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
+        } else {
+            imgui.TextUnformatted("(camera preview unavailable)")
+        }
     }
     imgui.End()
+    imgui.PopStyleVar()
 }
 
 imgui_draw_texture_view_panel :: proc(app: ^App) {
