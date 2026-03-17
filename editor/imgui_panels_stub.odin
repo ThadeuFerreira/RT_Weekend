@@ -114,6 +114,7 @@ _imgui_update_int_string :: proc(dst: ^string, value: int) {
 
 @(private)
 _imgui_render_settings_height :: proc() -> f32 {
+    // 4 rows of controls + one text line; +12 = extra vertical padding so the image area doesn't feel cramped.
     return imgui.GetFrameHeightWithSpacing() * 4 + imgui.GetTextLineHeightWithSpacing() + 12
 }
 
@@ -150,7 +151,7 @@ imgui_draw_render_panel :: proc(app: ^App) {
         }
 
         preview: cstring = "4:3"
-        if app.r_aspect_ratio == 1 { preview = "16:9" }
+        if app.r_aspect_ratio == RENDER_ASPECT_16_9 { preview = "16:9" }
         if imgui.BeginCombo("Aspect", preview) {
             aspect_options := [2]cstring{"4:3", "16:9"}
             for label, i in aspect_options {

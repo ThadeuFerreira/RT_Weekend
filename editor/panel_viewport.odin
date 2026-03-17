@@ -204,6 +204,8 @@ render_viewport_to_texture :: proc(app: ^App, width, height: i32) {
 	sm := ev.scene_mgr
 	if sm == nil || width <= 0 || height <= 0 { return }
 
+	// TODO: Resize only when delta exceeds a small tolerance (e.g. 4px) or after a short cooldown,
+	// to avoid reallocating every frame during drag-resize (stale frame + GPU churn).
 	if width != ev.tex_w || height != ev.tex_h {
 		if ev.tex_w > 0 {
 			rl.UnloadRenderTexture(ev.viewport_tex)
