@@ -734,10 +734,8 @@ run_app :: proc(
         keyboard_update(&app.keyboard)
         app.input_consumed = false
 
-        // Note: Modals are now handled by ImGui in imgui_draw_all_panels()
-        // (Track E migration complete)
-
-        // Keyboard shortcuts (blocked when ImGui wants keyboard)
+        // Note: Modals are now handled by ImGui in imgui_draw_all_panels().
+        // Keyboard shortcuts stay blocked whenever ImGui wants keyboard focus.
         if !app.input_consumed && !imgui_rl_want_capture_keyboard() {
             ctrl_held  := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
             shift_held := rl.IsKeyDown(.LEFT_SHIFT)   || rl.IsKeyDown(.RIGHT_SHIFT)
@@ -822,6 +820,7 @@ run_app :: proc(
         rl.BeginDrawing()
         rl.ClearBackground(rl.Color{20, 20, 30, 255})
 
+        // Dear ImGui frame: DockSpace + menu bar + all panel stubs + modals.
         // Render off-screen textures for ImGui image panels using the last requested sizes.
         if app.e_panel_vis.viewport {
             viewport_w := app.e_edit_view.tex_w

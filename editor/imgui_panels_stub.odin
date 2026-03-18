@@ -218,6 +218,7 @@ imgui_draw_stats_panel :: proc(app: ^App) {
         } else {
             progress := rt.get_render_progress(app.r_session)
             imgui.ProgressBar(progress, imgui.Vec2{-1, 0})
+            imgui.Text("%.1f%%", f64(progress) * 100)
             imgui.Separator()
             mode := "GPU" if app.r_session.use_gpu else "CPU"
             imgui.Text("Mode:     %s", mode)
@@ -478,6 +479,8 @@ imgui_draw_content_browser_panel :: proc(app: ^App) {
         if st.scan_requested || !st.scanned {
             content_browser_scan_assets(app)
         }
+        _content_browser_sync_filter_lower(st)
+
 
         // Only sync filter when InputText returns true (text changed), avoiding per-frame alloc
         if imgui.InputText("Filter", cstring(&st.filter_input[0]), CONTENT_BROWSER_FILTER_MAX) {
@@ -502,6 +505,7 @@ imgui_draw_content_browser_panel :: proc(app: ^App) {
                     if imgui.Selectable(strings.clone_to_cstring(label, context.temp_allocator), selected) {
                         st.selected_idx = asset_idx
                     }
+                    delete(label)
                 }
             }
             if visible_count == 0 {
@@ -620,12 +624,9 @@ imgui_draw_all_panels :: proc(app: ^App) {
     imgui_draw_texture_view_panel(app)
     imgui_draw_content_browser_panel(app)
     imgui_draw_outliner_panel(app)
-
-    // ImGui modal popups (Track E) — drawn after panels so they overlay correctly
     imgui_draw_save_changes_modal(app)
     imgui_draw_confirm_load_modal(app)
     imgui_draw_file_modal(app)
-
     if app.e_panel_vis.imgui_metrics {
         imgui.ShowMetricsWindow(&app.e_panel_vis.imgui_metrics)
     }

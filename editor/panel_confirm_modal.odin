@@ -381,10 +381,6 @@ confirm_load_execute :: proc(app: ^App, save_first: bool) {
     // If load_example_at returned false, user cancelled Save As dialog; keep modal open
 }
 
-// =============================================================================
-// ImGui Modal Implementations (Track E)
-// =============================================================================
-
 // imgui_draw_save_changes_modal draws the "Save Changes?" modal using ImGui.
 // Call from imgui_draw_all_panels before imgui_rl_render.
 imgui_draw_save_changes_modal :: proc(app: ^App) {
