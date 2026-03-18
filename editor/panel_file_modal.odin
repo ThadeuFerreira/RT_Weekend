@@ -7,7 +7,6 @@ import rl "vendor:raylib"
 import imgui "RT_Weekend:vendor/odin-imgui"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
-import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
 
 FILE_MODAL_MAX_INPUT :: 512
