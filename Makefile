@@ -1,4 +1,9 @@
-.PHONY: debug release run run_gpu test test-release test-all
+.PHONY: debug release run run_gpu test test-release test-all imgui
+
+# Build Dear ImGui static library from the odin-imgui submodule.
+# Run once after cloning, or after updating the submodule.
+imgui:
+	cd vendor/odin-imgui && python3 build.py
 
 debug:
 	mkdir -p build

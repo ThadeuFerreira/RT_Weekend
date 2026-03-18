@@ -1,8 +1,10 @@
 package editor
 
+import "core:c"
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
+import imgui "RT_Weekend:vendor/odin-imgui"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import rt "RT_Weekend:raytrace"
@@ -12,7 +14,6 @@ FILE_MODAL_MAX_INPUT :: 512
 FileModalMode :: enum {
     Import,
     SaveAs,
-    PresetName,
 }
 
 FileModalState :: struct {
@@ -207,15 +208,12 @@ file_modal_confirm :: proc(app: ^App) {
     case .SaveAs:
         if len(text) == 0 { delete(text); return }
         file_save_as_path(app, text)
-    case .PresetName:
-        if len(text) == 0 { delete(text); return }
-        layout_save_named_preset(app, text)
-        app_push_log(app, fmt.aprintf("Preset saved: %s", text))
     }
 }
 
 // file_modal_draw renders the modal overlay. Call after all other drawing (drawn on top).
 // Input handling is in file_modal_update — this proc is draw-only.
+// NOTE: Deprecated — use imgui_draw_file_modal for ImGui-based rendering.
 file_modal_draw :: proc(app: ^App) {
     modal := &app.file_modal
     if !modal.active { return }
@@ -238,15 +236,14 @@ file_modal_draw :: proc(app: ^App) {
 
     // Title bar
     rl.DrawRectangleRec(rl.Rectangle{dx, dy, dialog_w, TITLE_BAR_HEIGHT}, TITLE_BG_COLOR)
-    draw_ui_text(app, strings.clone_to_cstring(modal.title, context.temp_allocator), i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
+    rl.DrawText( strings.clone_to_cstring(modal.title, context.temp_allocator), i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
 
     // Input label
     input_label: cstring
     switch modal.mode {
     case .Import, .SaveAs: input_label = "File path:"
-    case .PresetName:      input_label = "Preset name:"
     }
-    draw_ui_text(app, input_label, i32(dx) + 10, i32(dy) + 32, 12, CONTENT_TEXT_COLOR)
+    rl.DrawText( input_label, i32(dx) + 10, i32(dy) + 32, 12, CONTENT_TEXT_COLOR)
 
     // Input box
     input_rect := rl.Rectangle{dx + 10, dy + 48, dialog_w - 20, 22}
@@ -257,7 +254,7 @@ file_modal_draw :: proc(app: ^App) {
     disp_text := file_modal_input_string(modal)
     cursor_str := (i32(rl.GetTime() * 2) % 2) == 0 ? "|" : ""
     full_text := strings.concatenate({disp_text, cursor_str}, context.temp_allocator)
-    draw_ui_text(app, strings.clone_to_cstring(full_text, context.temp_allocator), i32(input_rect.x) + 4, i32(input_rect.y) + 3, 12, CONTENT_TEXT_COLOR)
+    rl.DrawText( strings.clone_to_cstring(full_text, context.temp_allocator), i32(input_rect.x) + 4, i32(input_rect.y) + 3, 12, CONTENT_TEXT_COLOR)
 
     // Buttons (hover highlight only — clicks handled in file_modal_update)
     btn_ok, btn_cancel := modal_button_rects(dx, dy, dialog_w, dialog_h)
@@ -269,6 +266,44 @@ file_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleRec(btn_cancel, cancel_hov ? rl.Color{160, 60, 60, 255} : rl.Color{110, 40, 40, 255})
     rl.DrawRectangleLinesEx(btn_ok,     1, BORDER_COLOR)
     rl.DrawRectangleLinesEx(btn_cancel, 1, BORDER_COLOR)
-    draw_ui_text(app, "OK",     i32(btn_ok.x) + 12, i32(btn_ok.y) + 3, 12, rl.RAYWHITE)
-    draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 5, i32(btn_cancel.y) + 3, 12, rl.RAYWHITE)
+    rl.DrawText( "OK",     i32(btn_ok.x) + 12, i32(btn_ok.y) + 3, 12, rl.RAYWHITE)
+    rl.DrawText( "Cancel", i32(btn_cancel.x) + 5, i32(btn_cancel.y) + 3, 12, rl.RAYWHITE)
+}
+
+// =============================================================================
+// ImGui Modal Implementation (Track E)
+// =============================================================================
+
+// imgui_draw_file_modal draws the file path / preset name modal using ImGui.
+// Call from imgui_draw_all_panels before imgui_rl_render.
+imgui_draw_file_modal :: proc(app: ^App) {
+    modal := &app.file_modal
+    if !modal.active { return }
+    // Visible title in title bar; "##file_modal" gives a stable popup ID
+    popup_label := strings.concatenate({modal.title, "##file_modal"}, context.temp_allocator)
+    label_c := strings.clone_to_cstring(popup_label, context.temp_allocator)
+    if !imgui.IsPopupOpen(label_c) {
+        imgui.OpenPopup(label_c)
+    }
+    viewport := imgui.GetMainViewport()
+    center := imgui.Vec2{viewport.Pos.x + viewport.Size.x * 0.5, viewport.Pos.y + viewport.Size.y * 0.5}
+    imgui.SetNextWindowPos(center, .Always, imgui.Vec2{0.5, 0.5})
+    imgui.SetNextWindowSize(imgui.Vec2{400, 0}, .Always)
+    if imgui.BeginPopupModal(label_c, nil, {.AlwaysAutoResize}) {
+        imgui.Separator()
+        // InputText writes directly into modal.input buffer
+        imgui.InputText("##path", cast(cstring)raw_data(modal.input[:]), FILE_MODAL_MAX_INPUT)
+        if imgui.Button("OK") {
+            // sync input_len from buffer
+            modal.input_len = len(string(cstring(raw_data(modal.input[:]))))
+            file_modal_confirm(app)
+            imgui.CloseCurrentPopup()
+        }
+        imgui.SameLine()
+        if imgui.Button("Cancel") {
+            modal.active = false
+            imgui.CloseCurrentPopup()
+        }
+        imgui.EndPopup()
+    }
 }

@@ -2,6 +2,8 @@ package editor
 
 import "core:fmt"
 import rl "vendor:raylib"
+import imgui "RT_Weekend:vendor/odin-imgui"
+import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
 
 // CameraPanelState: camera panel drag state (which field is being dragged).
@@ -13,6 +15,10 @@ CameraPanelState :: struct {
 	bg_drag_idx:    int, // -1=none, 0=R,1=G,2=B
 	bg_drag_start_x: f32,
 	bg_drag_start_val: f32,
+
+	// ImGui Track B: one undo entry per edit gesture (lives on App so it resets on scene load).
+	imgui_drag_before: core.CameraParams,
+	imgui_drag_active: bool,
 }
 
 CAMERA_PANEL_LINE_H :: f32(24)
@@ -58,8 +64,8 @@ draw_camera_panel_drag_field :: proc(app: ^App, label: cstring, value: f32, box:
 	border := (active || hovered) ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(box, bg)
 	rl.DrawRectangleLinesEx(box, 1, border)
-	draw_ui_text(app, fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, label, i32(box.x) - i32(CAMERA_PROP_LW + CAMERA_PROP_GAP) + 2, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
+	rl.DrawText(fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
+	rl.DrawText(label, i32(box.x) - i32(CAMERA_PROP_LW + CAMERA_PROP_GAP) + 2, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
 }
 
 draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
@@ -75,14 +81,14 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	row := CAMERA_PANEL_LINE_H
 	fs := i32(11)
 
-	draw_ui_text(app, "From", i32(x0), i32(y0 + 0*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "At",   i32(x0), i32(y0 + 1*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "FOV", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Defocus", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Focus dist", i32(x0), i32(y0 + 4*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Max depth", i32(x0), i32(y0 + 5*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Shutter", i32(x0), i32(y0 + 6*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Background", i32(x0), i32(y0 + 7*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("From", i32(x0), i32(y0 + 0*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("At",   i32(x0), i32(y0 + 1*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("FOV", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Defocus", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Focus dist", i32(x0), i32(y0 + 4*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Max depth", i32(x0), i32(y0 + 5*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Shutter", i32(x0), i32(y0 + 6*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Background", i32(x0), i32(y0 + 7*row), fs, CONTENT_TEXT_COLOR)
 
 	fields := camera_panel_field_rects(content)
 	draw_camera_panel_drag_field(app, "X", c_params.lookfrom[0], fields[0], e_cam.drag_idx == 0, mouse)
@@ -101,7 +107,7 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_camera_panel_drag_field(app, "G", c_params.background[1], fields[13], e_cam.drag_idx == 13, mouse)
 	draw_camera_panel_drag_field(app, "B", c_params.background[2], fields[14], e_cam.drag_idx == 14, mouse)
 
-	draw_ui_text(app, "Edits apply to next render. Use Viewport Render to use orbit camera.", i32(x0), i32(y0 + 8*row + 4), 10, rl.Color{120, 130, 148, 180})
+	rl.DrawText("Edits apply to next render. Use Viewport Render to use orbit camera.", i32(x0), i32(y0 + 8*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {
@@ -188,5 +194,41 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				return
 			}
 		}
+	}
+}
+
+// ─── ImGui Camera Panel Helpers ────────────────────────────────────────────────
+// Used by imgui_draw_camera_panel (imgui_panels_stub.odin). State lives on
+// app.e_camera_panel so it follows App lifetime and is cleared on scene reset.
+
+@(private)
+_camera_panel_commit_undo_if_needed :: proc(app: ^App) {
+	st := &app.e_camera_panel
+	if st.imgui_drag_active && imgui.IsItemDeactivatedAfterEdit() {
+		rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+		edit_history_push(&app.edit_history, ModifyCameraAction{
+			before = st.imgui_drag_before,
+			after  = app.c_camera_params,
+		})
+		mark_scene_dirty(app)
+		st.imgui_drag_active = false
+	}
+}
+
+@(private)
+_camera_panel_begin_undo_if_needed :: proc(app: ^App) {
+	st := &app.e_camera_panel
+	if imgui.IsItemActivated() {
+		st.imgui_drag_before = app.c_camera_params
+		st.imgui_drag_active = true
+	}
+}
+
+@(private)
+_camera_panel_clamp_shutter :: proc(params: ^core.CameraParams) {
+	params.shutter_open  = clamp(params.shutter_open,  f32(0), f32(1))
+	params.shutter_close = clamp(params.shutter_close, f32(0), f32(1))
+	if params.shutter_open > params.shutter_close {
+		params.shutter_close = params.shutter_open
 	}
 }

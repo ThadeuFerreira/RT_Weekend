@@ -122,13 +122,16 @@ cmd_action_file_exit :: proc(app: ^App) {
 // ── View panel toggle actions ─
 
 toggle_panel :: proc(app: ^App, id: string) {
-    p := app_find_panel(app, id)
-    if p != nil { p.visible = !p.visible }
+    if ptr := _imgui_panel_vis_ptr(&app.e_panel_vis, id); ptr != nil {
+        ptr^ = !ptr^
+    }
 }
 
 panel_visible :: proc(app: ^App, id: string) -> bool {
-    p := app_find_panel(app, id)
-    return p != nil && p.visible
+    if ptr := _imgui_panel_vis_ptr(&app.e_panel_vis, id); ptr != nil {
+        return ptr^
+    }
+    return false
 }
 
 cmd_action_view_render :: proc(app: ^App) { toggle_panel(app, PANEL_ID_RENDER) }
@@ -162,23 +165,8 @@ cmd_checked_view_outliner :: proc(app: ^App) -> bool { return panel_visible(app,
 
 // ── View preset actions ──────────────────────────────────────────────────────
 
-cmd_action_preset_default :: proc(app: ^App) {
-    layout_build_default(app, &app.dock_layout)
-    app_push_log(app, strings.clone("Layout: Default"))
-}
-
-cmd_action_preset_render :: proc(app: ^App) {
-    layout_build_render_focus(app, &app.dock_layout)
-    app_push_log(app, strings.clone("Layout: Rendering Focus"))
-}
-
-cmd_action_preset_edit :: proc(app: ^App) {
-    layout_build_edit_focus(app, &app.dock_layout)
-    app_push_log(app, strings.clone("Layout: Editing Focus"))
-}
-
 cmd_action_save_preset :: proc(app: ^App) {
-    file_modal_open(&app.file_modal, .PresetName, "Save Layout As Preset")
+    // No-op: layout presets are managed by Dear ImGui via imgui.ini.
 }
 
 // ── Render actions ───────────────────────────────────────────────────────────
@@ -557,20 +545,19 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_FILE_SAVE_AS, label = "Save As…", shortcut = "",       action = cmd_action_file_save_as})
     cmd_register(cmd_reg, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
 
-    // View — panels (driven by PANEL_REGISTRY)
-    for desc in PANEL_REGISTRY {
-        cmd_register(cmd_reg, Command{
-            id           = desc.cmd_id,
-            label        = string(desc.cmd_label),
-            action       = desc.cmd_action,
-            checked_proc = desc.cmd_checked,
-        })
-    }
+    // View — panels
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_RENDER,          label = "Render Preview",  action = cmd_action_view_render,          checked_proc = cmd_checked_view_render})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_STATS,           label = "Stats",           action = cmd_action_view_stats,           checked_proc = cmd_checked_view_stats})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_CONSOLE,         label = "Console",         action = cmd_action_view_console,         checked_proc = cmd_checked_view_console})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_SYSINFO,         label = "System Info",     action = cmd_action_view_sysinfo,         checked_proc = cmd_checked_view_sysinfo})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_EDIT,            label = "Viewport",        action = cmd_action_view_edit,            checked_proc = cmd_checked_view_edit})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_CAMERA,          label = "Camera",          action = cmd_action_view_camera,          checked_proc = cmd_checked_view_camera})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_PROPS,           label = "Details",         action = cmd_action_view_props,           checked_proc = cmd_checked_view_props})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_PREVIEW,         label = "Camera Preview",  action = cmd_action_view_preview,         checked_proc = cmd_checked_view_preview})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_OUTLINER,        label = "World Outliner",  action = cmd_action_view_outliner,        checked_proc = cmd_checked_view_outliner})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_TEXTURE,         label = "Texture View",    action = cmd_action_view_texture,         checked_proc = cmd_checked_view_texture})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_CONTENT_BROWSER, label = "Content Browser", action = cmd_action_view_content_browser, checked_proc = cmd_checked_view_content_browser})
 
-    // View — presets
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",         action = cmd_action_preset_default})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_RENDER,  label = "Rendering Focus", action = cmd_action_preset_render})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_EDIT,    label = "Editing Focus",   action = cmd_action_preset_edit})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_SAVE_PRESET,    label = "Save Layout As…", action = cmd_action_save_preset})
 
     // Edit

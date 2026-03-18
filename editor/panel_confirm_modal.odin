@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
+import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:util"
 
@@ -144,11 +145,11 @@ save_changes_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleRec(dialog_rect, PANEL_BG_COLOR)
     rl.DrawRectangleLinesEx(dialog_rect, 1, BORDER_COLOR)
     rl.DrawRectangleRec(rl.Rectangle{dx, dy, dialog_w, TITLE_BAR_HEIGHT}, TITLE_BG_COLOR)
-    draw_ui_text(app, "Save Changes?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
+    rl.DrawText( "Save Changes?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
     if modal.reason == .Exit {
-        draw_ui_text(app, "Save before closing?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
+        rl.DrawText( "Save before closing?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
     } else {
-        draw_ui_text(app, "Save before loading another scene?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
+        rl.DrawText( "Save before loading another scene?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
     }
 
     btn_save, btn_save_as, btn_cancel, btn_continue := save_changes_button_rects(dx, dy, dialog_w, dialog_h)
@@ -177,10 +178,10 @@ save_changes_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleLinesEx(btn_continue, 1, BORDER_COLOR)
 
     save_label_col := save_enabled ? rl.RAYWHITE : rl.Color{160, 160, 160, 120}
-    draw_ui_text(app, "Save",    i32(btn_save.x) + 14,     i32(btn_save.y) + 4, 12, save_label_col)
-    draw_ui_text(app, "Save As", i32(btn_save_as.x) + 8,   i32(btn_save_as.y) + 4, 12, rl.RAYWHITE)
-    draw_ui_text(app, "Cancel",  i32(btn_cancel.x) + 8,    i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
-    draw_ui_text(app, "Continue", i32(btn_continue.x) + 4, i32(btn_continue.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Save",    i32(btn_save.x) + 14,     i32(btn_save.y) + 4, 12, save_label_col)
+    rl.DrawText( "Save As", i32(btn_save_as.x) + 8,   i32(btn_save_as.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Cancel",  i32(btn_cancel.x) + 8,    i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Continue", i32(btn_continue.x) + 4, i32(btn_continue.y) + 4, 12, rl.RAYWHITE)
 }
 
 // --- Load Example Scene confirmation ---
@@ -267,13 +268,13 @@ confirm_load_modal_draw :: proc(app: ^App) {
 
     // Title bar
     rl.DrawRectangleRec(rl.Rectangle{dx, dy, dialog_w, TITLE_BAR_HEIGHT}, TITLE_BG_COLOR)
-    draw_ui_text(app, "Load Example Scene?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
+    rl.DrawText( "Load Example Scene?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
 
     // Body text
     label_c := strings.clone_to_cstring(modal.scene_label, context.temp_allocator)
     line1 := fmt.ctprintf("\"%s\" will replace your current scene.", label_c)
-    draw_ui_text(app, line1, i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
-    draw_ui_text(app, "This cannot be undone.", i32(dx) + 12, i32(dy) + 54, 12, CONTENT_TEXT_COLOR)
+    rl.DrawText( line1, i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
+    rl.DrawText( "This cannot be undone.", i32(dx) + 12, i32(dy) + 54, 12, CONTENT_TEXT_COLOR)
 
     // Buttons: Save & Load enabled only when dirty; Load and Cancel always available
     mouse := rl.GetMousePosition()
@@ -293,25 +294,26 @@ confirm_load_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleRec(btn_save_load, save_bg)
     rl.DrawRectangleLinesEx(btn_save_load, 1, BORDER_COLOR)
     save_label_col := save_enabled ? rl.RAYWHITE : rl.Color{160, 160, 160, 120}
-    draw_ui_text(app, "Save & Load", i32(btn_save_load.x) + 6, i32(btn_save_load.y) + 4, 12, save_label_col)
+    rl.DrawText( "Save & Load", i32(btn_save_load.x) + 6, i32(btn_save_load.y) + 4, 12, save_label_col)
 
     // [Load]
     load_hov := rl.CheckCollisionPointRec(mouse, btn_load)
     load_bg := load_hov ? rl.Color{80, 120, 200, 255} : rl.Color{55, 80, 160, 255}
     rl.DrawRectangleRec(btn_load, load_bg)
     rl.DrawRectangleLinesEx(btn_load, 1, BORDER_COLOR)
-    draw_ui_text(app, "Load", i32(btn_load.x) + 12, i32(btn_load.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Load", i32(btn_load.x) + 12, i32(btn_load.y) + 4, 12, rl.RAYWHITE)
 
     // [Cancel]
     cancel_hov := rl.CheckCollisionPointRec(mouse, btn_cancel)
     cancel_bg := cancel_hov ? rl.Color{160, 60, 60, 255} : rl.Color{110, 40, 40, 255}
     rl.DrawRectangleRec(btn_cancel, cancel_bg)
     rl.DrawRectangleLinesEx(btn_cancel, 1, BORDER_COLOR)
-    draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 6, i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Cancel", i32(btn_cancel.x) + 6, i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
 }
 
+// load_example_at loads an example scene, optionally saving first. Returns false if save dialog cancelled.
 @(private="file")
-_load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
+load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     if save_first {
         if len(app.current_scene_path) > 0 {
             if !cmd_action_file_save(app) { return false } // save failed, don't load
@@ -372,9 +374,126 @@ _load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
 confirm_load_execute :: proc(app: ^App, save_first: bool) {
     modal := &app.e_confirm_load
     if !app.finished { return }
-    if _load_example_at(app, modal.scene_idx, save_first) {
+    if load_example_at(app, modal.scene_idx, save_first) {
         app_push_log(app, fmt.aprintf("Loaded example: %s", modal.scene_label))
         modal.active = false
     }
-    // If _load_example_at returned false, user cancelled Save As dialog; keep modal open
+    // If load_example_at returned false, user cancelled Save As dialog; keep modal open
+}
+
+// imgui_draw_save_changes_modal draws the "Save Changes?" modal using ImGui.
+// Call from imgui_draw_all_panels before imgui_rl_render.
+imgui_draw_save_changes_modal :: proc(app: ^App) {
+    modal := &app.e_save_changes
+    if !modal.active { return }
+    if !imgui.IsPopupOpen("Save Changes?") {
+        imgui.OpenPopup("Save Changes?")
+    }
+    viewport := imgui.GetMainViewport()
+    center := imgui.Vec2{viewport.Pos.x + viewport.Size.x * 0.5, viewport.Pos.y + viewport.Size.y * 0.5}
+    imgui.SetNextWindowPos(center, .Always, imgui.Vec2{0.5, 0.5})
+    if imgui.BeginPopupModal("Save Changes?", nil, {.AlwaysAutoResize}) {
+        if modal.reason == .Exit {
+            imgui.Text("Save before closing?")
+        } else {
+            imgui.Text("Save before loading another scene?")
+        }
+        imgui.Separator()
+        save_enabled := len(app.current_scene_path) > 0
+        if !save_enabled { imgui.BeginDisabled() }
+        if imgui.Button("Save") {
+            if cmd_action_file_save(app) {
+                _save_changes_proceed(app, modal)
+            }
+        }
+        if !save_enabled { imgui.EndDisabled() }
+        imgui.SameLine()
+        if imgui.Button("Save As…") {
+            default_dir := util.dialog_default_dir(app.current_scene_path)
+            path, ok := util.save_file_dialog(default_dir, "scene.json",
+                util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+            delete(default_dir)
+            if ok && file_save_as_path(app, path) {
+                _save_changes_proceed(app, modal)
+            }
+        }
+        imgui.SameLine()
+        if imgui.Button("Cancel") {
+            modal.active = false
+            modal.reason = .None
+            imgui.CloseCurrentPopup()
+        }
+        imgui.SameLine()
+        if imgui.Button("Continue (discard)") {
+            _save_changes_proceed(app, modal)
+        }
+        imgui.EndPopup()
+    }
+}
+
+// Must be called from within imgui_draw_save_changes_modal (i.e. while BeginPopupModal is active);
+// otherwise imgui.CloseCurrentPopup() is a no-op.
+@(private="file")
+_save_changes_proceed :: proc(app: ^App, modal: ^SaveChangesModalState) {
+    reason := modal.reason
+    modal.active = false
+    modal.reason = .None
+    imgui.CloseCurrentPopup()
+    switch reason {
+    case .Exit:
+        app.should_exit = true
+    case .Import:
+        default_dir := util.dialog_default_dir(app.current_scene_path)
+        path, ok := util.open_file_dialog(default_dir, util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+        delete(default_dir)
+        if ok { file_import_from_path(app, path) }
+    case .None:
+    }
+}
+
+// imgui_draw_confirm_load_modal draws the "Load Example Scene?" modal using ImGui.
+// Call from imgui_draw_all_panels before imgui_rl_render.
+imgui_draw_confirm_load_modal :: proc(app: ^App) {
+    modal := &app.e_confirm_load
+    if !modal.active { return }
+    if !imgui.IsPopupOpen("Load Example Scene?") {
+        imgui.OpenPopup("Load Example Scene?")
+    }
+    viewport := imgui.GetMainViewport()
+    center := imgui.Vec2{viewport.Pos.x + viewport.Size.x * 0.5, viewport.Pos.y + viewport.Size.y * 0.5}
+    imgui.SetNextWindowPos(center, .Always, imgui.Vec2{0.5, 0.5})
+    if imgui.BeginPopupModal("Load Example Scene?", nil, {.AlwaysAutoResize}) {
+        label_c := strings.clone_to_cstring(modal.scene_label, context.temp_allocator)
+        imgui.Text("\"%s\" will replace your current scene.", label_c)
+        imgui.Text("This cannot be undone.")
+        imgui.Separator()
+        save_enabled := app.e_scene_dirty
+        if !save_enabled { imgui.BeginDisabled() }
+        if imgui.Button("Save & Load") {
+            if len(app.current_scene_path) > 0 {
+                if cmd_action_file_save(app) {
+                    confirm_load_execute(app, false) // already saved above
+                }
+            } else {
+                default_dir := util.dialog_default_dir(app.current_scene_path)
+                path, ok := util.save_file_dialog(default_dir, "scene.json",
+                    util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+                delete(default_dir)
+                if ok && file_save_as_path(app, path) {
+                    confirm_load_execute(app, false) // already saved above
+                }
+            }
+        }
+        if !save_enabled { imgui.EndDisabled() }
+        imgui.SameLine()
+        if imgui.Button("Load") {
+            confirm_load_execute(app, false)
+        }
+        imgui.SameLine()
+        if imgui.Button("Cancel") {
+            modal.active = false
+            imgui.CloseCurrentPopup()
+        }
+        imgui.EndPopup()
+    }
 }

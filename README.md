@@ -1,8 +1,9 @@
 # Ray Tracing in One Weekend — Odin
 
 An implementation of the [Ray Tracing in One Weekend](https://raytracing.github.io/) series
-in the [Odin programming language](https://odin-lang.org/), extended with a live Raylib UI,
-scene editing, and a GPU compute-shader path.
+in the [Odin programming language](https://odin-lang.org/), extended with a live
+[Dear ImGui](https://github.com/ocornut/imgui) docking UI, scene editing, and a GPU
+compute-shader path.
 
 ![Rendered Image](output.png)
 
@@ -10,6 +11,7 @@ scene editing, and a GPU compute-shader path.
 
 - **CPU path tracer** — multi-threaded, BVH-accelerated, progressive tile rendering
 - **GPU path tracer** — OpenGL 4.3 compute shader with progressive accumulation (`-gpu` flag)
+- **Dear ImGui docking UI** — native docking, undockable panels, menu bar, ImGui Metrics window
 - **Live preview** — Raylib window with real-time texture upload as tiles / samples complete
 - **Scene editor** — interactive 3D viewport; add, move, and delete spheres; three material types
 - **Scene-load light safety** — imported scenes with no emissive materials and black/missing background auto-fallback to white background
@@ -20,13 +22,17 @@ scene editing, and a GPU compute-shader path.
 ### Prerequisites
 
 - [Odin compiler](https://odin-lang.org/) (with full vendor collection including Raylib)
-- A C linker (`clang` or `gcc` on Linux/macOS, MSVC on Windows)
+- A C++ linker (`clang++` or `g++` on Linux/macOS, MSVC on Windows) — required to link the Dear ImGui static library
+- Python 3 — used once by `make imgui` to build the Dear ImGui static library
 
 ### Build
 
 **Using the Makefile (recommended):**
 
 ```sh
+# One-time: build the Dear ImGui static library (required after first clone or submodule update)
+make imgui
+
 make debug    # Debug build → build/debug
 make release  # Optimized release build → build/release
 ```
@@ -72,8 +78,9 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 
 ```
 .
-├── main.odin               Entry point — CLI parsing, scene setup, launches UI
-├── util/                   CLI args, system info, Xoshiro256++ RNG
+├── main.odin               Entry point — CLI parsing, scene setup, launches editor
+├── core/                   Shared types: SceneSphere, CameraParams, MaterialKind, Texture
+├── util/                   CLI args, system info, Xoshiro256++ RNG, native file dialogs
 ├── raytrace/               Core path tracer (CPU + GPU)
 │   ├── camera.odin         Parallel render session, tile dispatch, start_render_auto
 │   ├── hittable.odin       Sphere/Quad, AABB, recursive + flat BVH
@@ -82,17 +89,22 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 │   ├── gpu_types.odin      GPUBackend, GPUSphere, LinearBVHNode, GPUCameraUniforms
 │   ├── gpu_backend.odin    OpenGL compute backend (Linux/Windows/macOS loaders)
 │   ├── gpu_renderer.odin   GpuRendererApi vtable + create_gpu_renderer factory
-│   ├── raytrace.odin       setup_scene (default scene), write_buffer_to_ppm
+│   ├── raytrace.odin       setup_scene (default scene), write_buffer_to_png/ppm
 │   ├── scene_build.odin    build_world_from_scene
-│   ├── scene_io.odin       load_scene / save_scene (JSON)
 │   └── profiling.odin      Zero-cost timing (PROFILING_ENABLED flag)
-├── ui/                     Raylib window, panels, scene editor
-│   ├── app.odin            App struct, FloatingPanel, run_app event loop
-│   ├── ui.odin             Shared draw primitives, panel chrome, colors
-│   ├── stats_panel.odin    Tile/sample progress, elapsed time
-│   ├── edit_view_panel.odin 3D orbit viewport, toolbar, drag-float properties
-│   └── …                   Other panels (log, camera, object props, preview port)
-├── scene/                  Shared scene types (SceneSphere, CameraParams, MaterialKind)
+├── persistence/            Scene + config load/save (JSON)
+├── editor/                 Dear ImGui docking UI + scene editor
+│   ├── app.odin            App struct, run_app event loop, render lifecycle
+│   ├── imgui_rl.odin       Raylib→ImGui platform bridge (NewFrame, Render, Setup, Shutdown)
+│   ├── imgui_panel_vis.odin ImguiPanelVis — per-panel open/close bools
+│   ├── imgui_panels_stub.odin DockSpace + menu bar + panel stub windows (migration in progress)
+│   ├── panel_*.odin        Per-panel draw/update (being migrated to ImGui — see below)
+│   ├── ui_*.odin           Legacy Raylib UI infrastructure (removed after migration)
+│   ├── core_*.odin         Framework-agnostic logic: commands, history, scene state
+│   └── edit_view_*.odin    3D viewport: orbit camera, picking, nudge, input state machine
+├── vendor/
+│   └── odin-imgui/         Dear ImGui v1.91.7-docking — Odin bindings + static lib
+│                           Build with: make imgui  (runs python3 build.py once)
 └── assets/
     ├── fonts/              Inter-Regular.ttf (SDF UI text, optional)
     └── shaders/

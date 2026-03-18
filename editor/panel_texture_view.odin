@@ -176,9 +176,9 @@ texture_view_build_image :: proc(app: ^App, tex: core.Texture) -> (img: rl.Image
 draw_texture_view_content :: proc(app: ^App, content: rl.Rectangle) {
 	tex, has_tex := texture_view_current(app)
 	if !has_tex {
-		draw_ui_text(app, "No texture",
+		rl.DrawText("No texture",
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Select a sphere in the Viewport to preview its material.",
+		rl.DrawText("Select a sphere in the Viewport to preview its material.",
 			i32(content.x) + 10, i32(content.y) + 42, 10, rl.Color{140, 150, 165, 200})
 		return
 	}
@@ -197,10 +197,10 @@ draw_texture_view_content :: proc(app: ^App, content: rl.Rectangle) {
 
 		img, buf_to_free, ok := texture_view_build_image(app, tex)
 		if !ok {
-			draw_ui_text(app, "Texture unavailable",
+			rl.DrawText("Texture unavailable",
 				i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
 			if it, is_img := tex.(core.ImageTexture); is_img {
-				draw_ui_text(app, fmt.ctprintf("Image: %s", it.path),
+				rl.DrawText(fmt.ctprintf("Image: %s", it.path),
 					i32(content.x) + 10, i32(content.y) + 42, 10, rl.Color{160, 80, 80, 200})
 			}
 			return
@@ -218,9 +218,9 @@ draw_texture_view_content :: proc(app: ^App, content: rl.Rectangle) {
 		} else {
 			rl.UnloadTexture(app.e_texture_view.preview_tex)
 			app.e_texture_view.valid = false
-			draw_ui_text(app, "Texture unavailable",
+			rl.DrawText("Texture unavailable",
 				i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-			draw_ui_text(app, "Failed to upload to GPU.",
+			rl.DrawText("Failed to upload to GPU.",
 				i32(content.x) + 10, i32(content.y) + 42, 10, rl.Color{160, 80, 80, 200})
 			return
 		}

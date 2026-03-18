@@ -10,8 +10,21 @@ import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import "RT_Weekend:util"
+import imgui "RT_Weekend:vendor/odin-imgui"
 
 LOG_RING_SIZE :: 64
+
+// Panel chrome constants — shared by all panel draw procs.
+TITLE_BAR_HEIGHT   :: f32(24)
+RESIZE_GRIP_SIZE   :: f32(14)
+
+PANEL_BG_COLOR     :: rl.Color{35,  35,  50,  230}
+TITLE_BG_COLOR     :: rl.Color{55,  55,  80,  255}
+TITLE_TEXT_COLOR   :: rl.RAYWHITE
+BORDER_COLOR       :: rl.Color{80,  80, 110,  255}
+CONTENT_TEXT_COLOR :: rl.Color{200, 210, 220, 255}
+ACCENT_COLOR       :: rl.Color{100, 180, 255, 255}
+DONE_COLOR         :: rl.Color{100, 220, 120, 255}
 
 PANEL_ID_RENDER         :: "render_preview"
 PANEL_ID_STATS          :: "stats"
@@ -24,77 +37,6 @@ PANEL_ID_CAMERA_PREVIEW :: "camera_preview"
 PANEL_ID_TEXTURE_VIEW    :: "texture_view"
 PANEL_ID_CONTENT_BROWSER :: "content_browser"
 PANEL_ID_OUTLINER        :: "outliner"
-
-FloatingPanel :: struct {
-    id:                 string,
-    title:              cstring,
-    rect:               rl.Rectangle,
-    min_size:           rl.Vector2,
-    dragging:           bool,
-    resizing:           bool,
-    drag_offset:        rl.Vector2,
-    visible:            bool,
-    closeable:          bool,
-    detachable:         bool,
-    maximized:          bool,
-    saved_rect:         rl.Rectangle,
-    dim_when_maximized: bool,
-    style:              ^PanelStyle,
-
-    // Composable content renderer. Nil = empty body (chrome still draws).
-    draw_content:   proc(app: ^App, content: rl.Rectangle),
-
-    // Input strategy. Called during the update phase after chrome interaction is resolved.
-    // Nil = panel has no custom input handling.
-    update_content: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool),
-}
-
-// PanelDesc is a builder struct for constructing a FloatingPanel via make_panel.
-PanelDesc :: struct {
-    id:                 string,
-    title:              cstring,
-    rect:               rl.Rectangle,
-    min_size:           rl.Vector2,
-    visible:            bool,
-    closeable:          bool,
-    detachable:         bool,
-    dim_when_maximized: bool,
-    style:              ^PanelStyle,
-    draw_content:       proc(app: ^App, content: rl.Rectangle),
-    update_content:     proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool),
-}
-
-// make_panel allocates a FloatingPanel from a PanelDesc. Caller must either transfer ownership via app_add_panel or free() the panel.
-make_panel :: proc(desc: PanelDesc) -> ^FloatingPanel {
-    p := new(FloatingPanel)
-    p^ = FloatingPanel{
-        id                 = desc.id,
-        title              = desc.title,
-        rect               = desc.rect,
-        min_size           = desc.min_size,
-        visible            = desc.visible,
-        closeable          = desc.closeable,
-        detachable         = desc.detachable,
-        dim_when_maximized = desc.dim_when_maximized,
-        style              = desc.style,
-        draw_content       = desc.draw_content,
-        update_content     = desc.update_content,
-    }
-    return p
-}
-
-// app_add_panel appends a heap-allocated panel to app.panels. App takes ownership.
-app_add_panel :: proc(app: ^App, panel: ^FloatingPanel) {
-    append(&app.panels, panel)
-}
-
-// app_find_panel returns the panel with the given id, or nil if not found.
-app_find_panel :: proc(app: ^App, id: string) -> ^FloatingPanel {
-    for p in app.panels {
-        if p.id == id { return p }
-    }
-    return nil
-}
 
 // app_active_ground_texture returns the currently configured custom ground texture.
 // Nil means "use default grey ground".
@@ -230,8 +172,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
 }
 
 App :: struct {
-    panels:        [dynamic]^FloatingPanel,
-    dock_layout:   DockLayout,
+    e_panel_vis:   ImguiPanelVis,
 
     render_tex:    rl.Texture2D,
     pixel_staging: []rl.Color,
@@ -272,7 +213,6 @@ App :: struct {
 
     e_edit_view:    EditViewState,
     e_camera_panel: CameraPanelState,
-    e_menu_bar:     MenuBarState,
     e_details:      DetailsPanelState,
     e_outliner:     OutlinerPanelState,
     e_texture_view: TextureViewPanelState,
@@ -282,11 +222,6 @@ App :: struct {
     preview_port_tex: rl.RenderTexture2D,
     preview_port_w:   i32,
     preview_port_h:   i32,
-
-    // SDF UI font (optional; fallback to default font if load fails)
-    ui_font:       rl.Font,
-    ui_font_shader: rl.Shader,
-    use_sdf_font:   bool,
 
     // Keyboard state: updated once per frame by keyboard_update; use instead of rl.IsKeyDown in features (nudge, etc.)
     keyboard: KeyboardState,
@@ -328,9 +263,8 @@ App :: struct {
     // Confirm-load modal for example scene loading
     e_confirm_load: ConfirmLoadModalState,
 
-    // Named layout presets (built-ins + user-saved)
-    layout_presets: [dynamic]persistence.LayoutPreset,
-
+    // Cached system info (queried once at startup; never changes at runtime)
+    system_info: util.System_Info,
 }
 
 g_app: ^App = nil
@@ -348,38 +282,33 @@ mark_scene_dirty :: proc(app: ^App) {
     }
 }
 
-// has_custom_ui_font returns true when a custom font (SDF or LoadFontEx) is loaded for UI text.
-has_custom_ui_font :: proc(app: ^App) -> bool {
-    return app != nil && app.ui_font.glyphCount > 0
-}
+upload_render_texture :: proc(app: ^App) {
+    session := app.r_session
+    if session == nil { return }
 
-// draw_ui_text draws text using the SDF font when available, else custom font (LoadFontEx), else default font.
-draw_ui_text :: proc(app: ^App, text: cstring, x, y: i32, fontSize: i32, color: rl.Color) {
-    if app == nil {
-        rl.DrawText(text, x, y, fontSize, color)
-        return
-    }
-    if app.use_sdf_font {
-        draw_text_sdf(app.ui_font, app.ui_font_shader, text, rl.Vector2{f32(x), f32(y)}, f32(fontSize), 0, color)
-        return
-    }
-    if has_custom_ui_font(app) {
-        rl.DrawTextEx(app.ui_font, text, rl.Vector2{f32(x), f32(y)}, f32(fontSize), 0, color)
-        return
-    }
-    rl.DrawText(text, x, y, fontSize, color)
-}
+    buf    := &session.pixel_buffer
+    camera := session.r_camera
+    clamp  := rt.Interval{0.0, 0.999}
 
-// UITextSize is the result of measure_ui_text (width and height in pixels).
-UITextSize :: struct { width, height: i32 }
+    for y in 0..<buf.height {
+        for x in 0..<buf.width {
+            raw := buf.pixels[y * buf.width + x] * camera.pixel_samples_scale
 
-// measure_ui_text returns width and height of text using the custom or default font.
-measure_ui_text :: proc(app: ^App, text: cstring, fontSize: i32) -> UITextSize {
-    if app != nil && has_custom_ui_font(app) {
-        size := rl.MeasureTextEx(app.ui_font, text, f32(fontSize), 0)
-        return UITextSize{i32(size.x), i32(size.y)}
+            r := rt.linear_to_gamma(raw[0])
+            g := rt.linear_to_gamma(raw[1])
+            b := rt.linear_to_gamma(raw[2])
+
+            idx := y * buf.width + x
+            app.pixel_staging[idx] = rl.Color{
+                u8(rt.interval_clamp(clamp, r) * 255.0),
+                u8(rt.interval_clamp(clamp, g) * 255.0),
+                u8(rt.interval_clamp(clamp, b) * 255.0),
+                255,
+            }
+        }
     }
-    return UITextSize{rl.MeasureText(text, fontSize), fontSize}
+
+    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
 }
 
 // app_push_log appends a line to the log ring. Takes ownership of msg; callers must pass
@@ -396,67 +325,6 @@ app_push_log :: proc(app: ^App, msg: string) {
     }
     app.log_lines[idx] = msg
     app.log_count += 1
-}
-
-// _panel_id_translate returns the legacy (pre-rename) panel ID for a current panel ID.
-// Used by apply_editor_layout to locate panels in old saved configs.
-// Returns the old ID if one exists; returns the current id unchanged when there is no alias.
-@(private="file")
-_panel_id_translate :: proc(current_id: string) -> string {
-    switch current_id {
-    case PANEL_ID_VIEWPORT:       return "edit_view"
-    case PANEL_ID_DETAILS:        return "object_props"
-    case PANEL_ID_CONSOLE:        return "log"
-    case PANEL_ID_CAMERA_PREVIEW: return "preview_port"
-    }
-    return current_id
-}
-
-// apply_editor_layout sets each panel's rect, visible, maximized, and saved_rect from the loaded layout.
-apply_editor_layout :: proc(app: ^App, layout: ^persistence.EditorLayout) {
-    if app == nil || layout == nil { return }
-    panel_rect :: proc(r: persistence.RectF) -> rl.Rectangle {
-        return rl.Rectangle{x = r.x, y = r.y, width = r.width, height = r.height}
-    }
-    for p in app.panels {
-        // Try the current ID first, then try the translated ID (for old saved configs).
-        if state, ok := layout.panels[p.id]; ok {
-            p.rect       = panel_rect(state.rect)
-            p.visible    = state.visible
-            p.maximized  = state.maximized
-            p.saved_rect = panel_rect(state.saved_rect)
-            continue
-        }
-        // Fall back to the legacy ID (panels renamed in a previous version).
-        old_id := _panel_id_translate(p.id)
-        if old_id != p.id {
-            if state, ok := layout.panels[old_id]; ok {
-                p.rect       = panel_rect(state.rect)
-                p.visible    = state.visible
-                p.maximized  = state.maximized
-                p.saved_rect = panel_rect(state.saved_rect)
-            }
-        }
-    }
-}
-
-// build_editor_layout_from_app allocates an EditorLayout and fills it from the current panel state. Caller must free the result.
-build_editor_layout_from_app :: proc(app: ^App) -> ^persistence.EditorLayout {
-    if app == nil { return nil }
-    layout := new(persistence.EditorLayout)
-    layout.panels = make(map[string]persistence.PanelState)
-    rect_from :: proc(r: rl.Rectangle) -> persistence.RectF {
-        return persistence.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
-    }
-    for p in app.panels {
-        layout.panels[p.id] = persistence.PanelState{
-            rect       = rect_from(p.rect),
-            visible    = p.visible,
-            maximized  = p.maximized,
-            saved_rect = rect_from(p.saved_rect),
-        }
-    }
-    return layout
 }
 
 apply_editor_view_config :: proc(ev: ^EditViewState, cfg: ^persistence.EditorViewConfig) {
@@ -518,10 +386,8 @@ run_app :: proc(
     r_world: [dynamic]rt.Object,
     num_threads: int,
     use_gpu: bool = false,
-    initial_editor_layout: ^persistence.EditorLayout = nil,
     initial_editor_view: ^persistence.EditorViewConfig = nil,
     config_save_path: string = "",
-    initial_presets: []persistence.LayoutPreset = nil,
     initial_volumes: [dynamic]core.SceneVolume = nil,
 ) {
     WIN_W :: i32(1280)
@@ -534,20 +400,9 @@ run_app :: proc(
     rl.SetWindowMinSize(640, 360)
     rl.SetTargetFPS(60)
 
-    // Load UI font when SDF feature is enabled; otherwise use raylib default font
-    ui_font: rl.Font
-    ui_shader: rl.Shader
-    sdf_ok := false
-    when USE_SDF_FONT {
-        rl.SetTraceLogLevel(.ALL)
-        ui_font, ui_shader, sdf_ok = load_sdf_font("assets/fonts/Inter-Regular.ttf", "assets/shaders/sdf.fs", SDF_BASE_SIZE)
-        if !sdf_ok {
-            if font_ex, ex_ok := load_font_ex_fallback("assets/fonts/Inter-Regular.ttf", FONTEX_FALLBACK_SIZE); ex_ok {
-                ui_font = font_ex
-            }
-        }
-        rl.SetTraceLogLevel(.WARNING)
-    }
+    // Dear ImGui — must be initialised after the OpenGL context is live.
+    imgui_rl_setup()
+    defer imgui_rl_shutdown()
 
     img := rl.GenImageColor(i32(r_camera.image_width), i32(r_camera.image_height), rl.BLACK)
     render_tex := rl.LoadTextureFromImage(img)
@@ -559,9 +414,6 @@ run_app :: proc(
     app := App{
         render_tex          = render_tex,
         pixel_staging       = pixel_staging,
-        use_sdf_font        = sdf_ok,
-        ui_font             = ui_font,
-        ui_font_shader      = ui_shader,
         include_ground_plane = true,
         show_intermediate_render = true,
         r_height_input      = fmt.aprintf("%d", r_camera.image_height),
@@ -569,35 +421,14 @@ run_app :: proc(
         r_aspect_ratio      = 1, // default to 16:9
         r_render_pending    = true, // initial render needed
     }
-    when USE_SDF_FONT {
-        if has_custom_ui_font(&app) {
-            defer unload_ui_font(&app.ui_font, app.ui_font_shader, app.use_sdf_font)
-        }
-    }
     app.r_camera    = r_camera
     app.num_threads = num_threads
     app.prefer_gpu  = use_gpu
-    app.e_menu_bar  = MenuBarState{open_menu_index = -1}
-    app.layout_presets = make([dynamic]persistence.LayoutPreset)
+    app.system_info = util.get_system_info()
     defer delete(app.pixel_staging)
-    defer {
-        for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
-        delete(app.layout_presets)
-    }
     defer { if len(app.current_scene_path) > 0 { delete(app.current_scene_path) } }
     defer edit_history_free(&app.edit_history)
     register_all_commands(&app)
-    // Load persisted presets (cloned so app owns them)
-    for p in initial_presets {
-        import_preset := persistence.LayoutPreset{
-            name   = strings.clone(p.name),
-            layout = persistence.EditorLayout{panels = make(map[string]persistence.PanelState)},
-        }
-        for k, v in p.layout.panels {
-            import_preset.layout.panels[strings.clone(k)] = v
-        }
-        append(&app.layout_presets, import_preset)
-    }
     rt.copy_camera_to_scene_params(&app.c_camera_params, r_camera)
 	// Startup default (no loaded world): editor uses its built-in 3 spheres.
 	// Ensure they are visible by default with a white miss/background color.
@@ -656,43 +487,27 @@ run_app :: proc(
     defer { rt.free_world_volumes(app.r_world); delete(app.r_world); delete(app.e_volumes) }
     defer { if app.image_texture_cache != nil { delete(app.image_texture_cache) } }
     defer {
-        for p in app.panels { free(p) }
-        delete(app.panels)
         delete(app.r_height_input)
         delete(app.r_samples_input)
     }
 
-    for desc in PANEL_REGISTRY {
-        app_add_panel(&app, make_panel(PanelDesc{
-            id                 = desc.panel_id,
-            title              = desc.title,
-            rect               = desc.default_rect,
-            min_size           = desc.min_size,
-            visible            = desc.visible,
-            closeable          = desc.closeable,
-            detachable         = desc.detachable,
-            dim_when_maximized = desc.dim_when_maximized,
-            style              = desc.style,
-            draw_content       = desc.draw_content,
-            update_content     = desc.update_content,
-        }))
+    // Panel visibility — all open by default; ImGui persists layout via imgui.ini.
+    app.e_panel_vis = ImguiPanelVis{
+        render          = true,
+        stats           = true,
+        console         = true,
+        system_info     = true,
+        viewport        = true,
+        camera          = true,
+        details         = true,
+        camera_preview  = true,
+        texture_view    = true,
+        content_browser = true,
+        outliner        = true,
     }
-
-    if initial_editor_layout != nil {
-        apply_editor_layout(&app, initial_editor_layout)
-    }
-    layout_build_default(&app, &app.dock_layout)
 
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)
-
-    if app.use_sdf_font {
-        app_push_log(&app, strings.clone("Font: SDF (Inter) loaded"))
-    } else if has_custom_ui_font(&app) {
-        app_push_log(&app, strings.clone("Font: Inter (LoadFontEx fallback)"))
-    } else {
-        app_push_log(&app, strings.clone("Font: default (SDF/Inter load failed)"))
-    }
 
     app_push_log(&app, fmt.aprintf("Scene: %dx%d, %d spp", r_camera.image_width, r_camera.image_height, r_camera.samples_per_pixel))
     app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))
@@ -727,56 +542,27 @@ run_app :: proc(
 
         app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
 
-        mouse       := rl.GetMousePosition()
-        lmb         := rl.IsMouseButtonDown(.LEFT)
-        lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
-
         // ── Input phase (priority order) ──────────────────────────────────
         keyboard_update(&app.keyboard)
         app.input_consumed = false
 
-        // Priority 1: menu bar
-        menu_bar_update(&app, &app.e_menu_bar, mouse, lmb_pressed)
-
-        // Priority 2: file modal (blocks all other input when active)
-        file_modal_update(&app)
-
-        // Priority 2b: save-changes modal (exit / import when dirty)
-        save_changes_modal_update(&app)
-
-        // Priority 2c: confirm-load modal (example scene when dirty)
-        confirm_load_modal_update(&app)
-
-        // Priority 3: keyboard shortcuts (only when not consumed by menu/modal)
-        if !app.input_consumed {
+        // Note: Modals are now handled by ImGui in imgui_draw_all_panels().
+        // Keyboard shortcuts stay blocked whenever ImGui wants keyboard focus.
+        if !app.input_consumed && !imgui_rl_want_capture_keyboard() {
             ctrl_held  := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
             shift_held := rl.IsKeyDown(.LEFT_SHIFT)   || rl.IsKeyDown(.RIGHT_SHIFT)
 
             if !ctrl_held {
                 if rl.IsKeyPressed(.F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
-                if rl.IsKeyPressed(.L) {
-                    if log := app_find_panel(&app, PANEL_ID_CONSOLE); log != nil { log.visible = true }
-                }
-                if rl.IsKeyPressed(.S) {
-                    if si := app_find_panel(&app, PANEL_ID_SYSTEM_INFO); si != nil { si.visible = true }
-                }
-                if rl.IsKeyPressed(.E) {
-                    if ev := app_find_panel(&app, PANEL_ID_VIEWPORT); ev != nil { ev.visible = true }
-                }
-                if rl.IsKeyPressed(.C) {
-                    if cam := app_find_panel(&app, PANEL_ID_CAMERA); cam != nil { cam.visible = true }
-                }
-                if rl.IsKeyPressed(.O) {
-                    if op := app_find_panel(&app, PANEL_ID_DETAILS); op != nil { op.visible = true }
-                }
-                if rl.IsKeyPressed(.T) {
-                    if tv := app_find_panel(&app, PANEL_ID_TEXTURE_VIEW); tv != nil { tv.visible = true }
-                }
+                if rl.IsKeyPressed(.L) { app.e_panel_vis.console = true }
+                if rl.IsKeyPressed(.S) { app.e_panel_vis.system_info = true }
+                if rl.IsKeyPressed(.E) { app.e_panel_vis.viewport = true }
+                if rl.IsKeyPressed(.C) { app.e_panel_vis.camera = true }
+                if rl.IsKeyPressed(.O) { app.e_panel_vis.details = true }
+                if rl.IsKeyPressed(.T) { app.e_panel_vis.texture_view = true }
                 if rl.IsKeyPressed(.B) {
-                    if cb := app_find_panel(&app, PANEL_ID_CONTENT_BROWSER); cb != nil {
-                        cb.visible = true
-                        app.e_content_browser.scan_requested = true
-                    }
+                    app.e_panel_vis.content_browser = true
+                    app.e_content_browser.scan_requested = true
                 }
             }
 
@@ -846,13 +632,14 @@ run_app :: proc(
         rl.BeginDrawing()
         rl.ClearBackground(rl.Color{20, 20, 30, 255})
 
-        // Pass effective lmb_pressed (blocked when modal or menu consumed input)
-        effective_lmb_pressed := lmb_pressed && !app.input_consumed
-        layout_update_and_draw(&app, &app.dock_layout, mouse, lmb, effective_lmb_pressed)
-        menu_bar_draw(&app, &app.e_menu_bar)
-        file_modal_draw(&app)
-        save_changes_modal_draw(&app)
-        confirm_load_modal_draw(&app)
+        // Off-screen textures (viewport, camera preview) are rendered inside their
+        // respective panel procs — after imgui.GetContentRegionAvail() — so the
+        // texture size always matches the panel size that frame (no stretch on resize).
+
+        // Dear ImGui frame: DockSpace + menu bar + all panel stubs.
+        imgui_rl_new_frame()
+        imgui_draw_all_panels(&app)
+        imgui_rl_render()
 
         rl.EndDrawing()
 
@@ -871,18 +658,9 @@ run_app :: proc(
             height            = r_camera.image_height,
             samples_per_pixel = r_camera.samples_per_pixel,
         }
-        config.editor = build_editor_layout_from_app(&app)
-        config.editor_view = build_editor_view_config_from_app(&app.e_edit_view)
-        // Snapshot user presets for saving
-        if len(app.layout_presets) > 0 {
-            config.presets = app.layout_presets[:]
-        }
+        config.editor_view = build_editor_view_config_from_app(&app.e_edit_view) // panel layout is persisted by ImGui via imgui.ini
         if !persistence.save_config(config_save_path, config) {
             fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
-        }
-        if config.editor != nil {
-            delete(config.editor.panels)
-            free(config.editor)
         }
         if config.editor_view != nil {
             free(config.editor_view)
