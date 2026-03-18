@@ -14,6 +14,18 @@ import imgui "RT_Weekend:vendor/odin-imgui"
 
 LOG_RING_SIZE :: 64
 
+// Panel chrome constants — shared by all panel draw procs.
+TITLE_BAR_HEIGHT   :: f32(24)
+RESIZE_GRIP_SIZE   :: f32(14)
+
+PANEL_BG_COLOR     :: rl.Color{35,  35,  50,  230}
+TITLE_BG_COLOR     :: rl.Color{55,  55,  80,  255}
+TITLE_TEXT_COLOR   :: rl.RAYWHITE
+BORDER_COLOR       :: rl.Color{80,  80, 110,  255}
+CONTENT_TEXT_COLOR :: rl.Color{200, 210, 220, 255}
+ACCENT_COLOR       :: rl.Color{100, 180, 255, 255}
+DONE_COLOR         :: rl.Color{100, 220, 120, 255}
+
 PANEL_ID_RENDER         :: "render_preview"
 PANEL_ID_STATS          :: "stats"
 PANEL_ID_CONSOLE        :: "console"
@@ -25,77 +37,6 @@ PANEL_ID_CAMERA_PREVIEW :: "camera_preview"
 PANEL_ID_TEXTURE_VIEW    :: "texture_view"
 PANEL_ID_CONTENT_BROWSER :: "content_browser"
 PANEL_ID_OUTLINER        :: "outliner"
-
-FloatingPanel :: struct {
-    id:                 string,
-    title:              cstring,
-    rect:               rl.Rectangle,
-    min_size:           rl.Vector2,
-    dragging:           bool,
-    resizing:           bool,
-    drag_offset:        rl.Vector2,
-    visible:            bool,
-    closeable:          bool,
-    detachable:         bool,
-    maximized:          bool,
-    saved_rect:         rl.Rectangle,
-    dim_when_maximized: bool,
-    style:              ^PanelStyle,
-
-    // Composable content renderer. Nil = empty body (chrome still draws).
-    draw_content:   proc(app: ^App, content: rl.Rectangle),
-
-    // Input strategy. Called during the update phase after chrome interaction is resolved.
-    // Nil = panel has no custom input handling.
-    update_content: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool),
-}
-
-// PanelDesc is a builder struct for constructing a FloatingPanel via make_panel.
-PanelDesc :: struct {
-    id:                 string,
-    title:              cstring,
-    rect:               rl.Rectangle,
-    min_size:           rl.Vector2,
-    visible:            bool,
-    closeable:          bool,
-    detachable:         bool,
-    dim_when_maximized: bool,
-    style:              ^PanelStyle,
-    draw_content:       proc(app: ^App, content: rl.Rectangle),
-    update_content:     proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool),
-}
-
-// make_panel allocates a FloatingPanel from a PanelDesc. Caller must either transfer ownership via app_add_panel or free() the panel.
-make_panel :: proc(desc: PanelDesc) -> ^FloatingPanel {
-    p := new(FloatingPanel)
-    p^ = FloatingPanel{
-        id                 = desc.id,
-        title              = desc.title,
-        rect               = desc.rect,
-        min_size           = desc.min_size,
-        visible            = desc.visible,
-        closeable          = desc.closeable,
-        detachable         = desc.detachable,
-        dim_when_maximized = desc.dim_when_maximized,
-        style              = desc.style,
-        draw_content       = desc.draw_content,
-        update_content     = desc.update_content,
-    }
-    return p
-}
-
-// app_add_panel appends a heap-allocated panel to app.panels. App takes ownership.
-app_add_panel :: proc(app: ^App, panel: ^FloatingPanel) {
-    append(&app.panels, panel)
-}
-
-// app_find_panel returns the panel with the given id, or nil if not found.
-app_find_panel :: proc(app: ^App, id: string) -> ^FloatingPanel {
-    for p in app.panels {
-        if p.id == id { return p }
-    }
-    return nil
-}
 
 // app_active_ground_texture returns the currently configured custom ground texture.
 // Nil means "use default grey ground".
@@ -231,8 +172,6 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
 }
 
 App :: struct {
-    panels:        [dynamic]^FloatingPanel,
-    dock_layout:   DockLayout,
     e_panel_vis:   ImguiPanelVis,
 
     render_tex:    rl.Texture2D,
@@ -274,7 +213,6 @@ App :: struct {
 
     e_edit_view:    EditViewState,
     e_camera_panel: CameraPanelState,
-    e_menu_bar:     MenuBarState,
     e_details:      DetailsPanelState,
     e_outliner:     OutlinerPanelState,
     e_texture_view: TextureViewPanelState,
@@ -330,9 +268,6 @@ App :: struct {
     // Confirm-load modal for example scene loading
     e_confirm_load: ConfirmLoadModalState,
 
-    // Named layout presets (built-ins + user-saved)
-    layout_presets: [dynamic]persistence.LayoutPreset,
-
     // Cached system info (queried once at startup; never changes at runtime)
     system_info: util.System_Info,
 }
@@ -386,6 +321,35 @@ measure_ui_text :: proc(app: ^App, text: cstring, fontSize: i32) -> UITextSize {
     return UITextSize{rl.MeasureText(text, fontSize), fontSize}
 }
 
+upload_render_texture :: proc(app: ^App) {
+    session := app.r_session
+    if session == nil { return }
+
+    buf    := &session.pixel_buffer
+    camera := session.r_camera
+    clamp  := rt.Interval{0.0, 0.999}
+
+    for y in 0..<buf.height {
+        for x in 0..<buf.width {
+            raw := buf.pixels[y * buf.width + x] * camera.pixel_samples_scale
+
+            r := rt.linear_to_gamma(raw[0])
+            g := rt.linear_to_gamma(raw[1])
+            b := rt.linear_to_gamma(raw[2])
+
+            idx := y * buf.width + x
+            app.pixel_staging[idx] = rl.Color{
+                u8(rt.interval_clamp(clamp, r) * 255.0),
+                u8(rt.interval_clamp(clamp, g) * 255.0),
+                u8(rt.interval_clamp(clamp, b) * 255.0),
+                255,
+            }
+        }
+    }
+
+    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+}
+
 // app_push_log appends a line to the log ring. Takes ownership of msg; callers must pass
 // a heap-allocated string (e.g. fmt.aprintf, strings.concatenate, or strings.clone for literals).
 // Do not use the string after the call.
@@ -400,67 +364,6 @@ app_push_log :: proc(app: ^App, msg: string) {
     }
     app.log_lines[idx] = msg
     app.log_count += 1
-}
-
-// _panel_id_translate returns the legacy (pre-rename) panel ID for a current panel ID.
-// Used by apply_editor_layout to locate panels in old saved configs.
-// Returns the old ID if one exists; returns the current id unchanged when there is no alias.
-@(private="file")
-_panel_id_translate :: proc(current_id: string) -> string {
-    switch current_id {
-    case PANEL_ID_VIEWPORT:       return "edit_view"
-    case PANEL_ID_DETAILS:        return "object_props"
-    case PANEL_ID_CONSOLE:        return "log"
-    case PANEL_ID_CAMERA_PREVIEW: return "preview_port"
-    }
-    return current_id
-}
-
-// apply_editor_layout sets each panel's rect, visible, maximized, and saved_rect from the loaded layout.
-apply_editor_layout :: proc(app: ^App, layout: ^persistence.EditorLayout) {
-    if app == nil || layout == nil { return }
-    panel_rect :: proc(r: persistence.RectF) -> rl.Rectangle {
-        return rl.Rectangle{x = r.x, y = r.y, width = r.width, height = r.height}
-    }
-    for p in app.panels {
-        // Try the current ID first, then try the translated ID (for old saved configs).
-        if state, ok := layout.panels[p.id]; ok {
-            p.rect       = panel_rect(state.rect)
-            p.visible    = state.visible
-            p.maximized  = state.maximized
-            p.saved_rect = panel_rect(state.saved_rect)
-            continue
-        }
-        // Fall back to the legacy ID (panels renamed in a previous version).
-        old_id := _panel_id_translate(p.id)
-        if old_id != p.id {
-            if state, ok := layout.panels[old_id]; ok {
-                p.rect       = panel_rect(state.rect)
-                p.visible    = state.visible
-                p.maximized  = state.maximized
-                p.saved_rect = panel_rect(state.saved_rect)
-            }
-        }
-    }
-}
-
-// build_editor_layout_from_app allocates an EditorLayout and fills it from the current panel state. Caller must free the result.
-build_editor_layout_from_app :: proc(app: ^App) -> ^persistence.EditorLayout {
-    if app == nil { return nil }
-    layout := new(persistence.EditorLayout)
-    layout.panels = make(map[string]persistence.PanelState)
-    rect_from :: proc(r: rl.Rectangle) -> persistence.RectF {
-        return persistence.RectF{x = r.x, y = r.y, width = r.width, height = r.height}
-    }
-    for p in app.panels {
-        layout.panels[p.id] = persistence.PanelState{
-            rect       = rect_from(p.rect),
-            visible    = p.visible,
-            maximized  = p.maximized,
-            saved_rect = rect_from(p.saved_rect),
-        }
-    }
-    return layout
 }
 
 apply_editor_view_config :: proc(ev: ^EditViewState, cfg: ^persistence.EditorViewConfig) {
@@ -525,7 +428,7 @@ run_app :: proc(
     initial_editor_layout: ^persistence.EditorLayout = nil,
     initial_editor_view: ^persistence.EditorViewConfig = nil,
     config_save_path: string = "",
-    initial_presets: []persistence.LayoutPreset = nil,
+    initial_presets: []persistence.LayoutPreset = nil, // kept for call-site compatibility; ignored
     initial_volumes: [dynamic]core.SceneVolume = nil,
 ) {
     WIN_W :: i32(1280)
@@ -585,28 +488,11 @@ run_app :: proc(
     app.r_camera    = r_camera
     app.num_threads = num_threads
     app.prefer_gpu  = use_gpu
-    app.e_menu_bar  = MenuBarState{open_menu_index = -1}
-    app.layout_presets = make([dynamic]persistence.LayoutPreset)
     app.system_info = util.get_system_info()
     defer delete(app.pixel_staging)
-    defer {
-        for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
-        delete(app.layout_presets)
-    }
     defer { if len(app.current_scene_path) > 0 { delete(app.current_scene_path) } }
     defer edit_history_free(&app.edit_history)
     register_all_commands(&app)
-    // Load persisted presets (cloned so app owns them)
-    for p in initial_presets {
-        import_preset := persistence.LayoutPreset{
-            name   = strings.clone(p.name),
-            layout = persistence.EditorLayout{panels = make(map[string]persistence.PanelState)},
-        }
-        for k, v in p.layout.panels {
-            import_preset.layout.panels[strings.clone(k)] = v
-        }
-        append(&app.layout_presets, import_preset)
-    }
     rt.copy_camera_to_scene_params(&app.c_camera_params, r_camera)
 	// Startup default (no loaded world): editor uses its built-in 3 spheres.
 	// Ensure they are visible by default with a white miss/background color.
@@ -665,8 +551,6 @@ run_app :: proc(
     defer { rt.free_world_volumes(app.r_world); delete(app.r_world); delete(app.e_volumes) }
     defer { if app.image_texture_cache != nil { delete(app.image_texture_cache) } }
     defer {
-        for p in app.panels { free(p) }
-        delete(app.panels)
         delete(app.r_height_input)
         delete(app.r_samples_input)
     }
@@ -861,10 +745,6 @@ run_app :: proc(
         }
         config.editor = nil // panel layout is persisted by ImGui via imgui.ini
         config.editor_view = build_editor_view_config_from_app(&app.e_edit_view)
-        // Snapshot user presets for saving
-        if len(app.layout_presets) > 0 {
-            config.presets = app.layout_presets[:]
-        }
         if !persistence.save_config(config_save_path, config) {
             fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
         }

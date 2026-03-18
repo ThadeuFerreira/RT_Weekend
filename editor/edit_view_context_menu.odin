@@ -2,7 +2,42 @@ package editor
 
 import rl "vendor:raylib"
 
-CTX_MENU_W :: f32(280)
+CTX_MENU_W       :: f32(280)
+MENU_ITEM_HEIGHT :: f32(22)
+
+// MenuEntryDyn is a single item in a dynamic dropdown or context menu.
+MenuEntryDyn :: struct {
+    label:             string,
+    cmd_id:            string,
+    user_preset_name:  string,
+    is_example:        bool,
+    example_scene_idx: int,
+    disabled:          bool,
+    checked:           bool,
+    shortcut:          string,
+    separator:         bool,
+}
+
+// entry_height returns the pixel height for one menu entry (separator = half row).
+entry_height :: proc(e: MenuEntryDyn) -> f32 {
+    if e.separator { return MENU_ITEM_HEIGHT * 0.5 }
+    return MENU_ITEM_HEIGHT
+}
+
+// entry_list_height returns the total pixel height for all entries.
+entry_list_height :: proc(entries: []MenuEntryDyn) -> f32 {
+    h: f32 = 0
+    for &e in entries { h += entry_height(e) }
+    return h
+}
+
+// make_cstring_temp converts a string to a null-terminated cstring using the temp allocator.
+make_cstring_temp :: proc(s: string) -> cstring {
+    buf := make([]u8, len(s) + 1, context.temp_allocator)
+    copy(buf, s)
+    buf[len(s)] = 0
+    return cstring(raw_data(buf))
+}
 
 // ctx_menu_build_items returns a temp-allocated slice of menu entries for the context menu.
 @(private="package") ctx_menu_build_items :: proc(app: ^App, ev: ^EditViewState) -> []MenuEntryDyn {

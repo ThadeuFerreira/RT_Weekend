@@ -13,6 +13,7 @@ import "RT_Weekend:core"
 
 AABB_MAX_DEPTH_CAP :: 20
 RMB_DRAG_THRESHOLD :: f32(5.0)
+EDIT_PROPS_H       :: f32(120) // height of properties strip at bottom of legacy edit view
 
 EditViewRects :: struct {
 	vp_rect, props_rect: rl.Rectangle,
@@ -55,8 +56,6 @@ EditViewInputPhase :: enum {
 	SpherePropDrag,
 	ViewportObjectDrag,
 	Toolbar,
-	PropFieldCamera,
-	PropFieldSphere,
 	ViewportOrbitAndPick,
 }
 
@@ -103,18 +102,6 @@ get_edit_view_input_phase :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 		     rl.CheckCollisionPointRec(mouse, rects.btn_fromview),
 		     app.finished && rl.CheckCollisionPointRec(mouse, rects.btn_render):
 			return .Toolbar
-		}
-	}
-	if ev.selection_kind == .Camera && rl.CheckCollisionPointRec(mouse, rects.props_rect) && lmb_pressed {
-		fields := cam_orbit_prop_rects(rects.props_rect)
-		for i in 0..<7 {
-			if rl.CheckCollisionPointRec(mouse, fields[i]) { return .PropFieldCamera }
-		}
-	}
-	if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && rl.CheckCollisionPointRec(mouse, rects.props_rect) && lmb_pressed {
-		fields := prop_field_rects(rects.props_rect)
-		for i in 0..<4 {
-			if rl.CheckCollisionPointRec(mouse, fields[i]) { return .PropFieldSphere }
 		}
 	}
 	return .ViewportOrbitAndPick
@@ -654,57 +641,6 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 	if g_app != nil { g_app.input_consumed = true }
 }
 
-handle_prop_field_camera_start :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) {
-	_ts := ui_trace_handler_begin("handle_prop_field_camera_start"); defer ui_trace_handler_end(_ts)
-	fields := cam_orbit_prop_rects(rects.props_rect)
-	any_hovered := false
-	for i in 0..<7 {
-		if rl.CheckCollisionPointRec(mouse, fields[i]) {
-			any_hovered = true
-			if lmb_pressed {
-				cp := &app.c_camera_params
-				ev.cam_drag_before_params   = app.c_camera_params
-				ev.cam_prop_drag_idx       = i
-				ev.cam_prop_drag_start_x   = mouse.x
-				ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
-				ev.cam_drag_start_lookat   = {cp.lookat[0], cp.lookat[1], cp.lookat[2]}
-				if i == 6 {
-					ev.cam_prop_drag_start_val = roll_from_vup(cp.lookfrom, cp.lookat, cp.vup)
-				}
-				ui_log_drag_start(app, "CamProp")
-				rl.SetMouseCursor(.RESIZE_EW)
-				return
-			}
-		}
-	}
-	if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else { rl.SetMouseCursor(.DEFAULT) }
-}
-
-handle_prop_field_sphere_start :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) {
-	_ts := ui_trace_handler_begin("handle_prop_field_sphere_start"); defer ui_trace_handler_end(_ts)
-	fields := prop_field_rects(rects.props_rect)
-	if tmp, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-		vals := [4]f32{tmp.center[0], tmp.center[1], tmp.center[2], tmp.radius}
-		any_hovered := false
-		for i in 0..<4 {
-			if rl.CheckCollisionPointRec(mouse, fields[i]) {
-				any_hovered = true
-				if lmb_pressed {
-					ev.prop_drag_idx       = i
-					ev.prop_drag_start_x   = mouse.x
-					ev.prop_drag_start_val = vals[i]
-					ui_log_drag_start(app, "SphereProp")
-					rl.SetMouseCursor(.RESIZE_EW)
-					app.r_render_pending = true
-					return
-				}
-			}
-		}
-		if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else { rl.SetMouseCursor(.DEFAULT) }
-	} else {
-		rl.SetMouseCursor(.DEFAULT)
-	}
-}
 
 handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) {
 	_ts := ui_trace_handler_begin("handle_viewport_orbit_and_pick"); defer ui_trace_handler_end(_ts)

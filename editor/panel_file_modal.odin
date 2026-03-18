@@ -14,7 +14,6 @@ FILE_MODAL_MAX_INPUT :: 512
 FileModalMode :: enum {
     Import,
     SaveAs,
-    PresetName,
 }
 
 FileModalState :: struct {
@@ -209,10 +208,6 @@ file_modal_confirm :: proc(app: ^App) {
     case .SaveAs:
         if len(text) == 0 { delete(text); return }
         file_save_as_path(app, text)
-    case .PresetName:
-        if len(text) == 0 { delete(text); return }
-        layout_save_named_preset(app, text)
-        app_push_log(app, fmt.aprintf("Preset saved: %s", text))
     }
 }
 
@@ -247,7 +242,6 @@ file_modal_draw :: proc(app: ^App) {
     input_label: cstring
     switch modal.mode {
     case .Import, .SaveAs: input_label = "File path:"
-    case .PresetName:      input_label = "Preset name:"
     }
     draw_ui_text(app, input_label, i32(dx) + 10, i32(dy) + 32, 12, CONTENT_TEXT_COLOR)
 
