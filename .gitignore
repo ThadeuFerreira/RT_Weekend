@@ -4,6 +4,10 @@
 *.xcf
 build/*.a
 build/*.o
+build/*.lib
+
+# ImGui layout file (machine-generated, per-developer state)
+imgui.ini
 
 # ImGui layout (machine-generated, per-developer; avoid spurious diffs)
 imgui.ini
