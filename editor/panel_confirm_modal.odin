@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
+import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:util"
 
@@ -383,8 +384,6 @@ confirm_load_execute :: proc(app: ^App, save_first: bool) {
 // ImGui Modal Implementations (Track E)
 // =============================================================================
 
-import imgui "RT_Weekend:vendor/odin-imgui"
-
 // imgui_draw_save_changes_modal draws the "Save Changes?" modal using ImGui.
 // Call from imgui_draw_all_panels before imgui_rl_render.
 imgui_draw_save_changes_modal :: proc(app: ^App) {
@@ -435,6 +434,8 @@ imgui_draw_save_changes_modal :: proc(app: ^App) {
     }
 }
 
+// Must be called from within imgui_draw_save_changes_modal (i.e. while BeginPopupModal is active);
+// otherwise imgui.CloseCurrentPopup() is a no-op.
 @(private="file")
 _save_changes_proceed :: proc(app: ^App, modal: ^SaveChangesModalState) {
     reason := modal.reason
@@ -474,7 +475,7 @@ imgui_draw_confirm_load_modal :: proc(app: ^App) {
         if imgui.Button("Save & Load") {
             if len(app.current_scene_path) > 0 {
                 if cmd_action_file_save(app) {
-                    confirm_load_execute(app, true)
+                    confirm_load_execute(app, false) // already saved above
                 }
             } else {
                 default_dir := util.dialog_default_dir(app.current_scene_path)
@@ -482,7 +483,7 @@ imgui_draw_confirm_load_modal :: proc(app: ^App) {
                     util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
                 delete(default_dir)
                 if ok && file_save_as_path(app, path) {
-                    confirm_load_execute(app, true)
+                    confirm_load_execute(app, false) // already saved above
                 }
             }
         }
