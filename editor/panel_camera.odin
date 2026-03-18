@@ -16,7 +16,7 @@ CameraPanelState :: struct {
 	bg_drag_start_x: f32,
 	bg_drag_start_val: f32,
 
-	// ImGui Track B: capture one undo entry per edit gesture.
+	// ImGui Track B: one undo entry per edit gesture (lives on App so it resets on scene load).
 	imgui_drag_before: core.CameraParams,
 	imgui_drag_active: bool,
 }
@@ -198,8 +198,8 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 }
 
 // ─── ImGui Camera Panel Helpers ────────────────────────────────────────────────
-// These are package-level private procs used by imgui_draw_camera_panel in
-// imgui_panels_stub.odin. Placed here to match editor package conventions.
+// Used by imgui_draw_camera_panel (imgui_panels_stub.odin). State lives on
+// app.e_camera_panel so it follows App lifetime and is cleared on scene reset.
 
 @(private)
 _camera_panel_commit_undo_if_needed :: proc(app: ^App) {

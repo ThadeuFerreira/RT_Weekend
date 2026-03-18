@@ -11,6 +11,10 @@ import "core:fmt"
 import "core:math"
 import "core:strconv"
 import "core:strings"
+import "core:c"
+import "core:path/filepath"
+import "RT_Weekend:core"
+import "RT_Weekend:util"
 import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
 import rl "vendor:raylib"
@@ -310,7 +314,7 @@ imgui_draw_camera_panel :: proc(app: ^App) {
     if !app.e_panel_vis.camera { return }
     if imgui.Begin("Camera", &app.e_panel_vis.camera) {
         // NOTE: We call apply_scene_camera while dragging so dependent views stay in sync.
-        // We only push undo + dirty on gesture end (IsItemDeactivatedAfterEdit()).
+        // Undo state lives on app.e_camera_panel (not @(static)) so it resets on scene load.
 
         if imgui.DragFloat("FOV", &app.c_camera_params.vfov, 0.5, 1, 120, "%.1f°") {
             rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
@@ -373,7 +377,28 @@ imgui_draw_camera_panel :: proc(app: ^App) {
 imgui_draw_details_panel :: proc(app: ^App) {
     if !app.e_panel_vis.details { return }
     if imgui.Begin("Details", &app.e_panel_vis.details) {
-        imgui.Text("(details panel — Track D)")
+        ev := &app.e_edit_view
+        det := &app.e_details
+
+        switch ev.selection_kind {
+        case .None:
+            imgui.TextUnformatted("Nothing selected")
+
+        case .Camera:
+            _details_draw_camera(app, det)
+
+        case .Sphere:
+            if ev.selected_idx < 0 { break }
+            _details_draw_sphere(app, det, ev.selected_idx)
+
+        case .Quad:
+            if ev.selected_idx < 0 { break }
+            _details_draw_quad(app, det, ev.selected_idx)
+
+        case .Volume:
+            if ev.selected_idx < 0 || ev.selected_idx >= len(app.e_volumes) { break }
+            _details_draw_volume(app, det, ev.selected_idx)
+        }
     }
     imgui.End()
 }
