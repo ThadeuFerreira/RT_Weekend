@@ -311,6 +311,8 @@ confirm_load_modal_draw :: proc(app: ^App) {
     draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 6, i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
 }
 
+// load_example_at loads an example scene, optionally saving first. Returns false if save dialog cancelled.
+@(private="file")
 load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     if save_first {
         if len(app.current_scene_path) > 0 {
@@ -406,7 +408,8 @@ imgui_draw_save_changes_modal :: proc(app: ^App) {
         imgui.SameLine()
         if imgui.Button("Save As…") {
             default_dir := util.dialog_default_dir(app.current_scene_path)
-            path, ok := util.save_file_dialog(default_dir, "scene.json", util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+            path, ok := util.save_file_dialog(default_dir, "scene.json",
+                util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
             delete(default_dir)
             if ok && file_save_as_path(app, path) {
                 _save_changes_proceed(app, modal)
@@ -426,6 +429,8 @@ imgui_draw_save_changes_modal :: proc(app: ^App) {
     }
 }
 
+// Must be called from within imgui_draw_save_changes_modal (i.e. while BeginPopupModal is active);
+// otherwise imgui.CloseCurrentPopup() is a no-op.
 @(private="file")
 _save_changes_proceed :: proc(app: ^App, modal: ^SaveChangesModalState) {
     reason := modal.reason
@@ -444,6 +449,8 @@ _save_changes_proceed :: proc(app: ^App, modal: ^SaveChangesModalState) {
     }
 }
 
+// imgui_draw_confirm_load_modal draws the "Load Example Scene?" modal using ImGui.
+// Call from imgui_draw_all_panels before imgui_rl_render.
 imgui_draw_confirm_load_modal :: proc(app: ^App) {
     modal := &app.e_confirm_load
     if !modal.active { return }
@@ -463,14 +470,15 @@ imgui_draw_confirm_load_modal :: proc(app: ^App) {
         if imgui.Button("Save & Load") {
             if len(app.current_scene_path) > 0 {
                 if cmd_action_file_save(app) {
-                    confirm_load_execute(app, true)
+                    confirm_load_execute(app, false) // already saved above
                 }
             } else {
                 default_dir := util.dialog_default_dir(app.current_scene_path)
-                path, ok := util.save_file_dialog(default_dir, "scene.json", util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
+                path, ok := util.save_file_dialog(default_dir, "scene.json",
+                    util.SCENE_FILTER_DESC, util.SCENE_FILTER_EXT)
                 delete(default_dir)
                 if ok && file_save_as_path(app, path) {
-                    confirm_load_execute(app, true)
+                    confirm_load_execute(app, false) // already saved above
                 }
             }
         }
