@@ -7,9 +7,13 @@ import "core:time"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 
+// Aspect ratio indices (used by r_aspect_ratio and legacy/ImGui render panels).
+RENDER_ASPECT_4_3  :: 0
+RENDER_ASPECT_16_9 :: 1
+
 // get_aspect_ratio returns the aspect ratio for the given index (0=4:3, 1=16:9).
 get_aspect_ratio :: proc(idx: int) -> f32 {
-    if idx == 0 { return 4.0 / 3.0 }
+    if idx == RENDER_ASPECT_4_3 { return 4.0 / 3.0 }
     return 16.0 / 9.0
 }
 

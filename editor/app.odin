@@ -333,6 +333,8 @@ App :: struct {
     // Named layout presets (built-ins + user-saved)
     layout_presets: [dynamic]persistence.LayoutPreset,
 
+    // Cached system info (queried once at startup; never changes at runtime)
+    system_info: util.System_Info,
 }
 
 g_app: ^App = nil
@@ -585,6 +587,7 @@ run_app :: proc(
     app.prefer_gpu  = use_gpu
     app.e_menu_bar  = MenuBarState{open_menu_index = -1}
     app.layout_presets = make([dynamic]persistence.LayoutPreset)
+    app.system_info = util.get_system_info()
     defer delete(app.pixel_staging)
     defer {
         for &p in app.layout_presets { delete(p.name); delete(p.layout.panels) }
@@ -819,7 +822,23 @@ run_app :: proc(
         rl.BeginDrawing()
         rl.ClearBackground(rl.Color{20, 20, 30, 255})
 
-        // Dear ImGui frame: DockSpace + menu bar + all panel stubs + modals.
+        // Render off-screen textures for ImGui image panels using the last requested sizes.
+        if app.e_panel_vis.viewport {
+            viewport_w := app.e_edit_view.tex_w
+            viewport_h := app.e_edit_view.tex_h
+            if viewport_w <= 0 { viewport_w = 600 }
+            if viewport_h <= 0 { viewport_h = 400 }
+            render_viewport_to_texture(&app, viewport_w, viewport_h)
+        }
+        if app.e_panel_vis.camera_preview {
+            preview_w := app.preview_port_w
+            preview_h := app.preview_port_h
+            if preview_w <= 0 { preview_w = 400 }
+            if preview_h <= 0 { preview_h = i32(f32(preview_w) / get_render_aspect(&app)) }
+            render_camera_preview_to_texture(&app, preview_w, preview_h)
+        }
+
+        // Dear ImGui frame: DockSpace + menu bar + all panel stubs.
         imgui_rl_new_frame()
         imgui_draw_all_panels(&app)
         imgui_rl_render()
