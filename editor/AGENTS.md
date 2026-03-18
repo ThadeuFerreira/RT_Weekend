@@ -158,7 +158,7 @@ Key files: `panel_viewport.odin` (render + grid), `edit_view_state.odin`, `edit_
 **core_commands.odin**: `Command`, `CommandRegistry`, `cmd_register`, `cmd_execute`, `CMD_*` constants.
 **core_cmd_actions.odin**: all action procs; `toggle_panel` / `panel_visible` use `ImguiPanelVis`.
 
-Layout preset commands (`CMD_VIEW_PRESET_*`) are no-ops — Dear ImGui persists layout in `imgui.ini`.
+Layout is persisted by Dear ImGui via `imgui.ini`.
 
 ---
 

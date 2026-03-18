@@ -5,7 +5,7 @@ This package implements **persistence**: scene file and config file load/save. I
 ## Purpose
 
 - **Scene I/O** — `load_scene(path, image_width, image_height, samples_per_pixel)` → `(^rt.Camera, [dynamic]Object, bool)`; `save_scene(path, r_camera, r_world)` → `bool`. JSON types: `SceneFile`, `SceneCamera`, `SceneMaterial`, `SceneObject`. **SceneCamera** includes optional `shutter_open`, `shutter_close`. **SceneObject** includes optional `center1`, `is_moving` for motion blur; older scene files without these fields load as static spheres (center1 = center).
-- **Config I/O** — `load_config(path)` → `(RenderConfig, bool)`; `save_config(path, config)` → `bool`. Types: `RenderConfig`, `EditorLayout`, `PanelState`, `RectF`, `LayoutPreset` (panel layout persistence).
+- **Config I/O** — `load_config(path)` → `(RenderConfig, bool)`; `save_config(path, config)` → `bool`. Types: `RenderConfig`, `EditorViewConfig`, `RectF`.
 
 ## Files
 

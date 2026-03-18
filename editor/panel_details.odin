@@ -253,7 +253,7 @@ op_camera_field_rects :: proc(content: rl.Rectangle) -> [12]rl.Rectangle {
 // ── visual helpers 
 
 op_section_label :: proc(app: ^App, text: cstring, x, y: f32) {
-	draw_ui_text(app, text, i32(x), i32(y), 10, rl.Color{160, 170, 195, 200})
+	rl.DrawText(text, i32(x), i32(y), 10, rl.Color{160, 170, 195, 200})
 }
 
 op_drag_field :: proc(app: ^App, label: cstring, value: f32, box: rl.Rectangle, active: bool, mouse: rl.Vector2) {
@@ -267,8 +267,8 @@ op_drag_field :: proc(app: ^App, label: cstring, value: f32, box: rl.Rectangle, 
 	border := (active || hovered) ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(box, bg)
 	rl.DrawRectangleLinesEx(box, 1, border)
-	draw_ui_text(app, fmt.ctprintf("%.3f", value), i32(box.x) + 3, i32(box.y) + 4, 10, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, label, i32(box.x) - i32(OP_LW + OP_GAP) + 1, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
+	rl.DrawText( fmt.ctprintf("%.3f", value), i32(box.x) + 3, i32(box.y) + 4, 10, CONTENT_TEXT_COLOR)
+	rl.DrawText(label, i32(box.x) - i32(OP_LW + OP_GAP) + 1, i32(box.y) + 4, 11, CONTENT_TEXT_COLOR)
 }
 
 op_mat_button :: proc(app: ^App, label: cstring, rect: rl.Rectangle, active: bool, mouse: rl.Vector2) {
@@ -282,10 +282,10 @@ op_mat_button :: proc(app: ^App, label: cstring, rect: rl.Rectangle, active: boo
 	border := active ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(rect, bg)
 	rl.DrawRectangleLinesEx(rect, 1, border)
-	tw  := measure_ui_text(app, label, 10).width
+	tw  := rl.MeasureText(label, 10)
 	tx  := i32(rect.x) + (i32(rect.width) - tw) / 2
 	col := active ? rl.RAYWHITE : CONTENT_TEXT_COLOR
-	draw_ui_text(app, label, tx, i32(rect.y) + 5, 10, col)
+	rl.DrawText(label, tx, i32(rect.y) + 5, 10, col)
 }
 
 // op_try_start_drag checks hover; if lmb_pressed, arms a drag on the field.
@@ -312,9 +312,9 @@ draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 	mouse := rl.GetMousePosition()
 
 	if ev.selection_kind == .None {
-		draw_ui_text(app, "No object select",
+		rl.DrawText( "No object select",
 			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Click a sphere or the camera in the Viewport.",
+		rl.DrawText( "Click a sphere or the camera in the Viewport.",
 			i32(content.x) + 10, i32(content.y) + 40, 11, rl.Color{140, 150, 165, 200})
 		// Volumes section when scene has volumes (density / albedo editable)
 		if len(app.e_volumes) > 0 {
@@ -327,13 +327,13 @@ draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 				vol_label: [32]u8
 				vol_str := fmt.bprint(vol_label[:], "Volume ", i + 1)
 				if len(vol_str) < len(vol_label) { vol_label[len(vol_str)] = 0 }
-				draw_ui_text(app, cast(cstring)&vol_label[0], i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
+				rl.DrawText( cast(cstring)&vol_label[0], i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
 				y0 += OP_FH + 2
-				draw_ui_text(app, "Density", i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
+				rl.DrawText( "Density", i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
 				box_d := rl.Rectangle{x0, y0, OP_FW, OP_FH}
 				op_drag_field(app, "", v.density, box_d, st.prop_drag_idx == OP_VOLUME_DRAG_BASE + i*4 + 0, mouse)
 				y0 += OP_FH + 2
-				draw_ui_text(app, "Albedo R G B", i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
+				rl.DrawText( "Albedo R G B", i32(lx), i32(y0), 10, CONTENT_TEXT_COLOR)
 				box_r := rl.Rectangle{x0, y0, OP_FW, OP_FH}
 				box_g := rl.Rectangle{x0 + OP_COL, y0, OP_FW, OP_FH}
 				box_b := rl.Rectangle{x0 + 2*OP_COL, y0, OP_FW, OP_FH}
@@ -394,10 +394,10 @@ draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 		op_section_label(app, "CAMERA (non-deletable)", content.x + 8, content.y + 6)
 		fields := op_camera_field_rects(content)
 		y0 := content.y + 6 + 18
-		draw_ui_text(app, "From", i32(content.x) + 8, i32(y0), 10, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "At",   i32(content.x) + 8, i32(y0 + OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "FOV / Defocus / Focus", i32(content.x) + 8, i32(y0 + 2*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
-		draw_ui_text(app, "Max D / Shutter", i32(content.x) + 8, i32(y0 + 3*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		rl.DrawText( "From", i32(content.x) + 8, i32(y0), 10, CONTENT_TEXT_COLOR)
+		rl.DrawText( "At",   i32(content.x) + 8, i32(y0 + OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		rl.DrawText( "FOV / Defocus / Focus", i32(content.x) + 8, i32(y0 + 2*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
+		rl.DrawText( "Max D / Shutter", i32(content.x) + 8, i32(y0 + 3*OP_CAM_ROW), 10, CONTENT_TEXT_COLOR)
 		op_drag_field(app, "X", c_params.lookfrom[0], fields[0], st.prop_drag_idx == 0, mouse)
 		op_drag_field(app, "Y", c_params.lookfrom[1], fields[1], st.prop_drag_idx == 1, mouse)
 		op_drag_field(app, "Z", c_params.lookfrom[2], fields[2], st.prop_drag_idx == 2, mouse)
@@ -559,7 +559,7 @@ draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 		if it, ok2 := sphere.albedo.(core.ImageTexture); ok2 {
 			base := filepath.base(it.path)
 			label := fmt.ctprintf("Img: %s", base)
-			draw_ui_text(app, label, i32(lo.lx), i32(lo.y_color) + 40, 10, CONTENT_TEXT_COLOR)
+			rl.DrawText(label, i32(lo.lx), i32(lo.y_color) + 40, 10, CONTENT_TEXT_COLOR)
 		}
 	} else {
 		// RGB drag fields + swatch
@@ -587,14 +587,14 @@ draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 		browse_bg := browse_hov ? rl.Color{70, 90, 140, 255} : rl.Color{45, 55, 80, 255}
 		rl.DrawRectangleRec(lo.btn_browse, browse_bg)
 		rl.DrawRectangleLinesEx(lo.btn_browse, 1, BORDER_COLOR)
-		draw_ui_text(app, "Browse Image\xe2\x80\xa6", i32(lo.btn_browse.x) + 4, i32(lo.btn_browse.y) + 4, 10, CONTENT_TEXT_COLOR)
+		rl.DrawText( "Browse Image\xe2\x80\xa6", i32(lo.btn_browse.x) + 4, i32(lo.btn_browse.y) + 4, 10, CONTENT_TEXT_COLOR)
 
 		if lo.has_image {
 			clear_hov := rl.CheckCollisionPointRec(mouse, lo.btn_clear)
 			clear_bg := clear_hov ? rl.Color{160, 60, 60, 255} : rl.Color{90, 40, 40, 255}
 			rl.DrawRectangleRec(lo.btn_clear, clear_bg)
 			rl.DrawRectangleLinesEx(lo.btn_clear, 1, BORDER_COLOR)
-			draw_ui_text(app, "\xc3\x97", i32(lo.btn_clear.x) + 4, i32(lo.btn_clear.y) + 4, 10, rl.RAYWHITE)
+			rl.DrawText( "\xc3\x97", i32(lo.btn_clear.x) + 4, i32(lo.btn_clear.y) + 4, 10, rl.RAYWHITE)
 		}
 	}
 }
