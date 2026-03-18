@@ -275,34 +275,251 @@ imgui_draw_system_info_panel :: proc(app: ^App) {
     imgui.End()
 }
 
+// _imgui_toggle_btn draws a toolbar button that appears highlighted when active.
+@(private)
+_imgui_toggle_btn :: proc(label: cstring, active: bool) -> bool {
+    if active { imgui.PushStyleColorImVec4(.Button, imgui.GetStyleColorVec4(.ButtonActive)^) }
+    clicked := imgui.Button(label)
+    if active { imgui.PopStyleColor() }
+    return clicked
+}
+
 imgui_draw_viewport_panel :: proc(app: ^App) {
     if !app.e_panel_vis.viewport { return }
     imgui.PushStyleVarImVec2(.WindowPadding, imgui.Vec2{0, 0})
     if imgui.Begin("Viewport", &app.e_panel_vis.viewport) {
-        size := imgui.GetContentRegionAvail()
-        app.e_edit_view.tex_w = max(i32(size.x), 1)
-        app.e_edit_view.tex_h = max(i32(size.y), 1)
-
-        tex_id := imgui.TextureID(uintptr(app.e_edit_view.viewport_tex.texture.id))
-        imgui.Image(tex_id, size, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
-
-        hovered := imgui.IsItemHovered()
         ev := &app.e_edit_view
-        if hovered && rl.IsMouseButtonDown(.RIGHT) {
-            if !ev.rmb_held {
-                ev.rmb_held = true
-                ev.last_mouse = rl.GetMousePosition()
-            } else {
-                mouse := rl.GetMousePosition()
-                delta := mouse - ev.last_mouse
-                ev.last_mouse = mouse
-                ev.camera_yaw -= delta.x * 0.01
-                ev.camera_pitch -= delta.y * 0.01
-                ev.camera_pitch = clamp(ev.camera_pitch, -math.PI/2 + 0.01, math.PI/2 - 0.01)
-                update_orbit_camera(ev)
+
+        // ── Toolbar ──────────────────────────────────────────────────────────
+        imgui.SetCursorPos(imgui.Vec2{4, 4})
+
+        // [+ Add▾] popup
+        if imgui.Button("+ Add") { imgui.OpenPopup("##vp_add") }
+        if imgui.BeginPopup("##vp_add") {
+            if imgui.Selectable("Sphere") {
+                AppendDefaultSphere(ev.scene_mgr)
+                new_idx := SceneManagerLen(ev.scene_mgr) - 1
+                ev.selection_kind = .Sphere
+                ev.selected_idx   = new_idx
+                if ns, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
+                    edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = ns})
+                    mark_scene_dirty(app)
+                    app_push_log(app, strings.clone("Add sphere"))
+                }
+                app.r_render_pending = true
             }
-        } else if ev.rmb_held {
-            ev.rmb_held = false
+            if imgui.Selectable("Quad") {
+                AppendDefaultQuad(ev.scene_mgr)
+                new_idx := SceneManagerLen(ev.scene_mgr) - 1
+                ev.selection_kind = .Quad
+                ev.selected_idx   = new_idx
+                if nq, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
+                    edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = nq})
+                    mark_scene_dirty(app)
+                    app_push_log(app, strings.clone("Add quad"))
+                }
+                app.r_render_pending = true
+            }
+            if imgui.Selectable("Volume") {
+                box_min, box_max, trans := default_volume_from_scene_scale(ev.scene_mgr)
+                new_vol := core.SceneVolume{
+                    box_min      = box_min,
+                    box_max      = box_max,
+                    rotate_y_deg = 0,
+                    translate    = trans,
+                    density      = 0.02,
+                    albedo       = {0.8, 0.8, 0.8},
+                }
+                append(&app.e_volumes, new_vol)
+                new_idx := len(app.e_volumes) - 1
+                ev.selection_kind = .Volume
+                ev.selected_idx   = new_idx
+                edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
+                mark_scene_dirty(app)
+                app_push_log(app, strings.clone("Add volume"))
+                app.r_render_pending = true
+            }
+            imgui.EndPopup()
+        }
+
+        imgui.SameLine()
+        del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
+        if !del_enabled { imgui.BeginDisabled() }
+        if imgui.Button("Delete") {
+            del_idx := ev.selected_idx
+            switch ev.selection_kind {
+            case .Sphere:
+                if ds, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+                    edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = ds})
+                    mark_scene_dirty(app)
+                    app_push_log(app, strings.clone("Delete sphere"))
+                }
+                OrderedRemove(ev.scene_mgr, del_idx)
+            case .Quad:
+                if dq, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
+                    edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = dq})
+                    mark_scene_dirty(app)
+                    app_push_log(app, strings.clone("Delete quad"))
+                }
+                OrderedRemove(ev.scene_mgr, del_idx)
+            case .Volume:
+                if del_idx >= 0 && del_idx < len(app.e_volumes) {
+                    dv := app.e_volumes[del_idx]
+                    edit_history_push(&app.edit_history, DeleteVolumeAction{idx = del_idx, volume = dv})
+                    ordered_remove(&app.e_volumes, del_idx)
+                    mark_scene_dirty(app)
+                    app_push_log(app, strings.clone("Delete volume"))
+                }
+            case .None, .Camera:
+            }
+            ev.selection_kind = .None
+            ev.selected_idx   = -1
+            app.r_render_pending = true
+        }
+        if !del_enabled { imgui.EndDisabled() }
+
+        imgui.SameLine()
+        if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo }
+        imgui.SameLine()
+        if _imgui_toggle_btn("Focal",   ev.show_focal_indicator) { ev.show_focal_indicator = !ev.show_focal_indicator }
+        imgui.SameLine()
+        if _imgui_toggle_btn("AABB",    ev.show_aabbs)           { ev.show_aabbs           = !ev.show_aabbs }
+        if ev.show_aabbs {
+            imgui.SameLine()
+            if _imgui_toggle_btn("Sel", ev.aabb_selected_only) { ev.aabb_selected_only = !ev.aabb_selected_only }
+        }
+        imgui.SameLine()
+        if _imgui_toggle_btn("BVH", ev.show_bvh_hierarchy) {
+            ev.show_bvh_hierarchy = !ev.show_bvh_hierarchy
+            if !ev.show_bvh_hierarchy && ev.viz_bvh_root != nil {
+                rt.free_bvh(ev.viz_bvh_root)
+                ev.viz_bvh_root = nil
+            }
+        }
+        if ev.show_bvh_hierarchy {
+            imgui.SameLine()
+            if imgui.Button("D+") && ev.aabb_max_depth < AABB_MAX_DEPTH_CAP { ev.aabb_max_depth += 1 }
+            imgui.SameLine()
+            if imgui.Button("D-") && ev.aabb_max_depth > -1 { ev.aabb_max_depth -= 1 }
+        }
+        imgui.SameLine()
+        if imgui.Button("From View") {
+            before := app.c_camera_params
+            lookfrom, lookat := get_orbit_camera_pose(ev)
+            app.c_camera_params.lookfrom = lookfrom
+            app.c_camera_params.lookat   = lookat
+            edit_history_push(&app.edit_history, ModifyCameraAction{before = before, after = app.c_camera_params})
+            mark_scene_dirty(app)
+            app.r_render_pending = true
+        }
+
+        // ── Viewport image (fills remaining space) ────────────────────────
+        avail := imgui.GetContentRegionAvail()
+        ev.tex_w = max(i32(avail.x), 1)
+        ev.tex_h = max(i32(avail.y), 1)
+        tex_id := imgui.TextureID(uintptr(ev.viewport_tex.texture.id))
+        imgui.Image(tex_id, avail, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
+
+        img_min := imgui.GetItemRectMin()
+        img_max := imgui.GetItemRectMax()
+        vp_rect := rl.Rectangle{img_min.x, img_min.y, img_max.x - img_min.x, img_max.y - img_min.y}
+        hovered := imgui.IsItemHovered()
+
+        // ── Input ─────────────────────────────────────────────────────────
+        rects: EditViewRects
+        rects.vp_rect = vp_rect
+        mouse       := rl.GetMousePosition()
+        lmb         := rl.IsMouseButtonDown(.LEFT)
+        lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
+        any_active  := ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0
+
+        if hovered || any_active {
+            switch {
+            case ev.cam_rot_drag_axis >= 0:
+                handle_cam_rot_drag(app, ev, mouse, lmb)
+            case ev.cam_drag_active:
+                handle_cam_body_drag(app, ev, mouse, lmb, &rects)
+            case ev.drag_obj_active:
+                handle_viewport_object_drag(app, ev, mouse, lmb, &rects)
+            case hovered:
+                handle_viewport_orbit_and_pick(app, ev, mouse, lmb_pressed, &rects)
+            }
+        }
+        update_sphere_nudge(app, ev)
+        update_orbit_camera(ev)
+
+        // ── Right-click context menu ───────────────────────────────────────
+        // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
+        if ev.ctx_menu_open {
+            imgui.SetNextWindowPos(imgui.Vec2{ev.ctx_menu_pos.x, ev.ctx_menu_pos.y})
+            imgui.OpenPopup("##vp_ctx")
+            ev.ctx_menu_open = false
+        }
+        if imgui.BeginPopup("##vp_ctx") {
+            items := ctx_menu_build_items(app, ev)
+            for entry in items {
+                if entry.separator { imgui.Separator(); continue }
+                flags: imgui.SelectableFlags
+                if entry.disabled { flags |= {.Disabled} }
+                label_c := strings.clone_to_cstring(entry.label, context.temp_allocator)
+                if imgui.Selectable(label_c, entry.checked, flags) {
+                    if len(entry.cmd_id) > 0 {
+                        cmd_execute(app, entry.cmd_id)
+                    } else {
+                        switch entry.label {
+                        case "Add Sphere":
+                            AppendDefaultSphere(ev.scene_mgr)
+                            new_idx := SceneManagerLen(ev.scene_mgr) - 1
+                            ev.selection_kind = .Sphere ; ev.selected_idx = new_idx
+                            if ns, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
+                                edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = ns})
+                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Add sphere"))
+                            }
+                            app.r_render_pending = true
+                        case "Add Quad":
+                            AppendDefaultQuad(ev.scene_mgr)
+                            new_idx := SceneManagerLen(ev.scene_mgr) - 1
+                            ev.selection_kind = .Quad ; ev.selected_idx = new_idx
+                            if nq, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
+                                edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = nq})
+                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Add quad"))
+                            }
+                            app.r_render_pending = true
+                        case "Add Volume":
+                            box_min, box_max, trans := default_volume_from_scene_scale(ev.scene_mgr)
+                            new_vol := core.SceneVolume{box_min = box_min, box_max = box_max,
+                                rotate_y_deg = 0, translate = trans, density = 0.02, albedo = {0.8, 0.8, 0.8}}
+                            append(&app.e_volumes, new_vol)
+                            new_idx := len(app.e_volumes) - 1
+                            ev.selection_kind = .Volume ; ev.selected_idx = new_idx
+                            edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
+                            mark_scene_dirty(app) ; app_push_log(app, strings.clone("Add volume"))
+                            app.r_render_pending = true
+                        case "Delete":
+                            del_idx := ev.ctx_menu_hit_idx
+                            if ev.selection_kind == .Volume && ev.selected_idx >= 0 {
+                                dv := app.e_volumes[ev.selected_idx]
+                                edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = dv})
+                                ordered_remove(&app.e_volumes, ev.selected_idx)
+                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Delete volume"))
+                                ev.selection_kind = .None ; ev.selected_idx = -1
+                            } else if ds, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
+                                edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = ds})
+                                OrderedRemove(ev.scene_mgr, del_idx)
+                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Delete sphere"))
+                                ev.selection_kind = .None ; ev.selected_idx = -1
+                            } else if dq, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
+                                edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = dq})
+                                OrderedRemove(ev.scene_mgr, del_idx)
+                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Delete quad"))
+                                ev.selection_kind = .None ; ev.selected_idx = -1
+                            }
+                            app.r_render_pending = true
+                        }
+                    }
+                }
+            }
+            imgui.EndPopup()
         }
     }
     imgui.End()
