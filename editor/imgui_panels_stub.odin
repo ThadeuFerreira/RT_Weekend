@@ -505,7 +505,6 @@ imgui_draw_content_browser_panel :: proc(app: ^App) {
                     if imgui.Selectable(strings.clone_to_cstring(label, context.temp_allocator), selected) {
                         st.selected_idx = asset_idx
                     }
-                    delete(label)
                 }
             }
             if visible_count == 0 {
