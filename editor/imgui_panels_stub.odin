@@ -260,15 +260,15 @@ imgui_draw_system_info_panel :: proc(app: ^App) {
     if !app.e_panel_vis.system_info { return }
     if imgui.Begin("System Info", &app.e_panel_vis.system_info) {
         // Use cached system info (queried once at startup; never changes at runtime)
-        imgui.Text("Odin:      %v", app.system_info.OdinVersion)
-        imgui.Text("OS:        %v", app.system_info.OS.Name)
-        imgui.Text("CPU:       %v", app.system_info.CPU.Name)
-        imgui.Text("CPU cores: %vc/%vt", app.system_info.CPU.Cores, app.system_info.CPU.LogicalCores)
+        imgui.Text("Odin:      %s", app.system_info.OdinVersion)
+        imgui.Text("OS:        %s", app.system_info.OS.Name)
+        imgui.Text("CPU:       %s", app.system_info.CPU.Name)
+        imgui.Text("CPU cores: %d/%d", app.system_info.CPU.Cores, app.system_info.CPU.LogicalCores)
         imgui.Text("RAM:       %#.1M", app.system_info.RAM.Total)
         for gpu in app.system_info.GPUs {
             imgui.Separator()
-            imgui.Text("GPU:       %v", gpu.Model)
-            imgui.Text("Vendor:    %v", gpu.Vendor)
+            imgui.Text("GPU:       %s", gpu.Model)
+            imgui.Text("Vendor:    %s", gpu.Vendor)
             imgui.Text("VRAM:      %#.1M", gpu.VRAM)
         }
     }
