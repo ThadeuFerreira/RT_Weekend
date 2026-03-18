@@ -1,8 +1,10 @@
 package editor
 
+import "core:c"
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
+import imgui "RT_Weekend:vendor/odin-imgui"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import rt "RT_Weekend:raytrace"
@@ -216,6 +218,7 @@ file_modal_confirm :: proc(app: ^App) {
 
 // file_modal_draw renders the modal overlay. Call after all other drawing (drawn on top).
 // Input handling is in file_modal_update — this proc is draw-only.
+// NOTE: Deprecated — use imgui_draw_file_modal for ImGui-based rendering.
 file_modal_draw :: proc(app: ^App) {
     modal := &app.file_modal
     if !modal.active { return }
@@ -271,4 +274,42 @@ file_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleLinesEx(btn_cancel, 1, BORDER_COLOR)
     draw_ui_text(app, "OK",     i32(btn_ok.x) + 12, i32(btn_ok.y) + 3, 12, rl.RAYWHITE)
     draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 5, i32(btn_cancel.y) + 3, 12, rl.RAYWHITE)
+}
+
+// =============================================================================
+// ImGui Modal Implementation (Track E)
+// =============================================================================
+
+// imgui_draw_file_modal draws the file path / preset name modal using ImGui.
+// Call from imgui_draw_all_panels before imgui_rl_render.
+imgui_draw_file_modal :: proc(app: ^App) {
+    modal := &app.file_modal
+    if !modal.active { return }
+    // Visible title in title bar; "##file_modal" gives a stable popup ID
+    popup_label := strings.concatenate({modal.title, "##file_modal"}, context.temp_allocator)
+    label_c := strings.clone_to_cstring(popup_label, context.temp_allocator)
+    if !imgui.IsPopupOpen(label_c) {
+        imgui.OpenPopup(label_c)
+    }
+    viewport := imgui.GetMainViewport()
+    center := imgui.Vec2{viewport.Pos.x + viewport.Size.x * 0.5, viewport.Pos.y + viewport.Size.y * 0.5}
+    imgui.SetNextWindowPos(center, .Always, imgui.Vec2{0.5, 0.5})
+    imgui.SetNextWindowSize(imgui.Vec2{400, 0}, .Always)
+    if imgui.BeginPopupModal(label_c, nil, {.AlwaysAutoResize}) {
+        imgui.Separator()
+        // InputText writes directly into modal.input buffer
+        imgui.InputText("##path", cast(cstring)raw_data(modal.input[:]), FILE_MODAL_MAX_INPUT)
+        if imgui.Button("OK") {
+            // sync input_len from buffer
+            modal.input_len = len(string(cstring(raw_data(modal.input[:]))))
+            file_modal_confirm(app)
+            imgui.CloseCurrentPopup()
+        }
+        imgui.SameLine()
+        if imgui.Button("Cancel") {
+            modal.active = false
+            imgui.CloseCurrentPopup()
+        }
+        imgui.EndPopup()
+    }
 }

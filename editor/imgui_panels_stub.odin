@@ -11,8 +11,6 @@ import "core:fmt"
 import "core:math"
 import "core:strconv"
 import "core:strings"
-import "core:c"
-import "core:path/filepath"
 import "RT_Weekend:core"
 import "RT_Weekend:util"
 import imgui "RT_Weekend:vendor/odin-imgui"
@@ -622,6 +620,12 @@ imgui_draw_all_panels :: proc(app: ^App) {
     imgui_draw_texture_view_panel(app)
     imgui_draw_content_browser_panel(app)
     imgui_draw_outliner_panel(app)
+
+    // ImGui modal popups (Track E) — drawn after panels so they overlay correctly
+    imgui_draw_save_changes_modal(app)
+    imgui_draw_confirm_load_modal(app)
+    imgui_draw_file_modal(app)
+
     if app.e_panel_vis.imgui_metrics {
         imgui.ShowMetricsWindow(&app.e_panel_vis.imgui_metrics)
     }

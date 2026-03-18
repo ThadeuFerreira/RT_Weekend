@@ -734,16 +734,10 @@ run_app :: proc(
         keyboard_update(&app.keyboard)
         app.input_consumed = false
 
-        // Priority 1: file modal (blocks all other input when active)
-        file_modal_update(&app)
+        // Note: Modals are now handled by ImGui in imgui_draw_all_panels()
+        // (Track E migration complete)
 
-        // Priority 2: save-changes modal (exit / import when dirty)
-        save_changes_modal_update(&app)
-
-        // Priority 3: confirm-load modal (example scene when dirty)
-        confirm_load_modal_update(&app)
-
-        // Priority 4: keyboard shortcuts (blocked when modal active or ImGui wants keyboard)
+        // Keyboard shortcuts (blocked when ImGui wants keyboard)
         if !app.input_consumed && !imgui_rl_want_capture_keyboard() {
             ctrl_held  := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
             shift_held := rl.IsKeyDown(.LEFT_SHIFT)   || rl.IsKeyDown(.RIGHT_SHIFT)
@@ -848,11 +842,6 @@ run_app :: proc(
         imgui_rl_new_frame()
         imgui_draw_all_panels(&app)
         imgui_rl_render()
-
-        // Raylib modal overlays drawn on top of ImGui (transitional; Track E migrates these).
-        file_modal_draw(&app)
-        save_changes_modal_draw(&app)
-        confirm_load_modal_draw(&app)
 
         rl.EndDrawing()
 
