@@ -291,7 +291,9 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         ev := &app.e_edit_view
 
         // ── Toolbar ──────────────────────────────────────────────────────────
-        imgui.SetCursorPos(imgui.Vec2{4, 4})
+        // SetCursorPos is relative to window top-left (includes title bar), so only
+        // nudge X; Y is already at the content-area top after the title bar.
+        imgui.SetCursorPosX(imgui.GetCursorPosX() + 4)
 
         // [+ Add▾] popup
         if imgui.Button("+ Add") { imgui.OpenPopup("##vp_add") }
@@ -414,9 +416,10 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         }
 
         // ── Viewport image (fills remaining space) ────────────────────────
+        // Render to texture here (not in app.odin) so the texture dimensions
+        // always match the available panel area this frame — no one-frame stretch on resize.
         avail := imgui.GetContentRegionAvail()
-        ev.tex_w = max(i32(avail.x), 1)
-        ev.tex_h = max(i32(avail.y), 1)
+        render_viewport_to_texture(app, max(i32(avail.x), 1), max(i32(avail.y), 1))
         tex_id := imgui.TextureID(uintptr(ev.viewport_tex.texture.id))
         imgui.Image(tex_id, avail, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
 
@@ -623,10 +626,13 @@ imgui_draw_camera_preview_panel :: proc(app: ^App) {
     if !app.e_panel_vis.camera_preview { return }
     imgui.PushStyleVarImVec2(.WindowPadding, imgui.Vec2{0, 0})
     if imgui.Begin("Camera Preview", &app.e_panel_vis.camera_preview) {
+        avail := imgui.GetContentRegionAvail()
+        aspect := get_render_aspect(app)
+        size := _imgui_fit_size(avail, aspect)
+        preview_w := max(i32(size.x), 1)
+        preview_h := max(i32(size.y), 1)
+        render_camera_preview_to_texture(app, preview_w, preview_h)
         if app.preview_port_w > 0 && app.preview_port_h > 0 {
-            avail := imgui.GetContentRegionAvail()
-            aspect := f32(app.preview_port_w) / max(f32(app.preview_port_h), 1)
-            size := _imgui_fit_size(avail, aspect)
             tex_id := imgui.TextureID(uintptr(app.preview_port_tex.texture.id))
             imgui.Image(tex_id, size, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
         } else {
@@ -829,6 +835,17 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
 imgui_draw_all_panels :: proc(app: ^App) {
     imgui.DockSpaceOverViewport({}, nil, {.PassthruCentralNode})
     imgui_draw_main_menu_bar(app)
+
+    // While a floating panel is being dragged by its title bar, make all windows
+    // semi-transparent so the user can see panels behind the one being moved.
+    // Condition: LMB dragging + no widget active (title-bar move, not a DragFloat etc.)
+    io := imgui.GetIO()
+    window_moving := imgui.IsMouseDragging(.Left) && !imgui.IsAnyItemActive() && io.WantCaptureMouse
+    if window_moving {
+        bg := imgui.GetStyleColorVec4(.WindowBg)
+        imgui.PushStyleColorImVec4(.WindowBg, imgui.Vec4{bg.x, bg.y, bg.z, 0.35})
+    }
+
     imgui_draw_render_panel(app)
     imgui_draw_stats_panel(app)
     imgui_draw_console_panel(app)
@@ -840,6 +857,9 @@ imgui_draw_all_panels :: proc(app: ^App) {
     imgui_draw_texture_view_panel(app)
     imgui_draw_content_browser_panel(app)
     imgui_draw_outliner_panel(app)
+
+    if window_moving { imgui.PopStyleColor() }
+
     imgui_draw_save_changes_modal(app)
     imgui_draw_confirm_load_modal(app)
     imgui_draw_file_modal(app)

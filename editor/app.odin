@@ -704,22 +704,9 @@ run_app :: proc(
         rl.BeginDrawing()
         rl.ClearBackground(rl.Color{20, 20, 30, 255})
 
-        // Dear ImGui frame: DockSpace + menu bar + all panel stubs + modals.
-        // Render off-screen textures for ImGui image panels using the last requested sizes.
-        if app.e_panel_vis.viewport {
-            viewport_w := app.e_edit_view.tex_w
-            viewport_h := app.e_edit_view.tex_h
-            if viewport_w <= 0 { viewport_w = 600 }
-            if viewport_h <= 0 { viewport_h = 400 }
-            render_viewport_to_texture(&app, viewport_w, viewport_h)
-        }
-        if app.e_panel_vis.camera_preview {
-            preview_w := app.preview_port_w
-            preview_h := app.preview_port_h
-            if preview_w <= 0 { preview_w = 400 }
-            if preview_h <= 0 { preview_h = i32(f32(preview_w) / get_render_aspect(&app)) }
-            render_camera_preview_to_texture(&app, preview_w, preview_h)
-        }
+        // Off-screen textures (viewport, camera preview) are rendered inside their
+        // respective panel procs — after imgui.GetContentRegionAvail() — so the
+        // texture size always matches the panel size that frame (no stretch on resize).
 
         // Dear ImGui frame: DockSpace + menu bar + all panel stubs.
         imgui_rl_new_frame()

@@ -34,10 +34,13 @@ imgui_rl_setup :: proc() {
     io := imgui.GetIO()
     io.ConfigFlags |= {.DockingEnable}
     io.ConfigFlags |= {.NavEnableKeyboard}
+    // Only the title bar initiates a window move — clicks on panel content are not consumed.
+    io.ConfigWindowsMoveFromTitleBarOnly = true
     // Persist ImGui window layout between sessions.
     io.IniFilename = "imgui.ini"
 
     imgui.StyleColorsDark(nil)
+    imgui.GetStyle().WindowMinSize = imgui.Vec2{40, 20}
     imgui_impl_opengl3.Init("#version 330")
 }
 
