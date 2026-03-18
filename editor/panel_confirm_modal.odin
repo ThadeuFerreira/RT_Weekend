@@ -145,11 +145,11 @@ save_changes_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleRec(dialog_rect, PANEL_BG_COLOR)
     rl.DrawRectangleLinesEx(dialog_rect, 1, BORDER_COLOR)
     rl.DrawRectangleRec(rl.Rectangle{dx, dy, dialog_w, TITLE_BAR_HEIGHT}, TITLE_BG_COLOR)
-    draw_ui_text(app, "Save Changes?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
+    rl.DrawText( "Save Changes?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
     if modal.reason == .Exit {
-        draw_ui_text(app, "Save before closing?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
+        rl.DrawText( "Save before closing?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
     } else {
-        draw_ui_text(app, "Save before loading another scene?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
+        rl.DrawText( "Save before loading another scene?", i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
     }
 
     btn_save, btn_save_as, btn_cancel, btn_continue := save_changes_button_rects(dx, dy, dialog_w, dialog_h)
@@ -178,10 +178,10 @@ save_changes_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleLinesEx(btn_continue, 1, BORDER_COLOR)
 
     save_label_col := save_enabled ? rl.RAYWHITE : rl.Color{160, 160, 160, 120}
-    draw_ui_text(app, "Save",    i32(btn_save.x) + 14,     i32(btn_save.y) + 4, 12, save_label_col)
-    draw_ui_text(app, "Save As", i32(btn_save_as.x) + 8,   i32(btn_save_as.y) + 4, 12, rl.RAYWHITE)
-    draw_ui_text(app, "Cancel",  i32(btn_cancel.x) + 8,    i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
-    draw_ui_text(app, "Continue", i32(btn_continue.x) + 4, i32(btn_continue.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Save",    i32(btn_save.x) + 14,     i32(btn_save.y) + 4, 12, save_label_col)
+    rl.DrawText( "Save As", i32(btn_save_as.x) + 8,   i32(btn_save_as.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Cancel",  i32(btn_cancel.x) + 8,    i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Continue", i32(btn_continue.x) + 4, i32(btn_continue.y) + 4, 12, rl.RAYWHITE)
 }
 
 // --- Load Example Scene confirmation ---
@@ -268,13 +268,13 @@ confirm_load_modal_draw :: proc(app: ^App) {
 
     // Title bar
     rl.DrawRectangleRec(rl.Rectangle{dx, dy, dialog_w, TITLE_BAR_HEIGHT}, TITLE_BG_COLOR)
-    draw_ui_text(app, "Load Example Scene?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
+    rl.DrawText( "Load Example Scene?", i32(dx) + 8, i32(dy) + 5, 14, TITLE_TEXT_COLOR)
 
     // Body text
     label_c := strings.clone_to_cstring(modal.scene_label, context.temp_allocator)
     line1 := fmt.ctprintf("\"%s\" will replace your current scene.", label_c)
-    draw_ui_text(app, line1, i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
-    draw_ui_text(app, "This cannot be undone.", i32(dx) + 12, i32(dy) + 54, 12, CONTENT_TEXT_COLOR)
+    rl.DrawText( line1, i32(dx) + 12, i32(dy) + 36, 12, CONTENT_TEXT_COLOR)
+    rl.DrawText( "This cannot be undone.", i32(dx) + 12, i32(dy) + 54, 12, CONTENT_TEXT_COLOR)
 
     // Buttons: Save & Load enabled only when dirty; Load and Cancel always available
     mouse := rl.GetMousePosition()
@@ -294,21 +294,21 @@ confirm_load_modal_draw :: proc(app: ^App) {
     rl.DrawRectangleRec(btn_save_load, save_bg)
     rl.DrawRectangleLinesEx(btn_save_load, 1, BORDER_COLOR)
     save_label_col := save_enabled ? rl.RAYWHITE : rl.Color{160, 160, 160, 120}
-    draw_ui_text(app, "Save & Load", i32(btn_save_load.x) + 6, i32(btn_save_load.y) + 4, 12, save_label_col)
+    rl.DrawText( "Save & Load", i32(btn_save_load.x) + 6, i32(btn_save_load.y) + 4, 12, save_label_col)
 
     // [Load]
     load_hov := rl.CheckCollisionPointRec(mouse, btn_load)
     load_bg := load_hov ? rl.Color{80, 120, 200, 255} : rl.Color{55, 80, 160, 255}
     rl.DrawRectangleRec(btn_load, load_bg)
     rl.DrawRectangleLinesEx(btn_load, 1, BORDER_COLOR)
-    draw_ui_text(app, "Load", i32(btn_load.x) + 12, i32(btn_load.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Load", i32(btn_load.x) + 12, i32(btn_load.y) + 4, 12, rl.RAYWHITE)
 
     // [Cancel]
     cancel_hov := rl.CheckCollisionPointRec(mouse, btn_cancel)
     cancel_bg := cancel_hov ? rl.Color{160, 60, 60, 255} : rl.Color{110, 40, 40, 255}
     rl.DrawRectangleRec(btn_cancel, cancel_bg)
     rl.DrawRectangleLinesEx(btn_cancel, 1, BORDER_COLOR)
-    draw_ui_text(app, "Cancel", i32(btn_cancel.x) + 6, i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
+    rl.DrawText( "Cancel", i32(btn_cancel.x) + 6, i32(btn_cancel.y) + 4, 12, rl.RAYWHITE)
 }
 
 // load_example_at loads an example scene, optionally saving first. Returns false if save dialog cancelled.

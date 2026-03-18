@@ -165,20 +165,6 @@ cmd_checked_view_outliner :: proc(app: ^App) -> bool { return panel_visible(app,
 
 // ── View preset actions ──────────────────────────────────────────────────────
 
-// Layout presets are now managed by Dear ImGui via imgui.ini.
-// These stubs keep the commands registered so menu items remain visible.
-cmd_action_preset_default :: proc(app: ^App) {
-    app_push_log(app, strings.clone("Layout: rearrange panels via ImGui docking (delete imgui.ini to reset)"))
-}
-
-cmd_action_preset_render :: proc(app: ^App) {
-    app_push_log(app, strings.clone("Layout: rearrange panels via ImGui docking"))
-}
-
-cmd_action_preset_edit :: proc(app: ^App) {
-    app_push_log(app, strings.clone("Layout: rearrange panels via ImGui docking"))
-}
-
 cmd_action_save_preset :: proc(app: ^App) {
     // No-op: layout presets are managed by Dear ImGui via imgui.ini.
 }
@@ -572,10 +558,6 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_VIEW_TEXTURE,         label = "Texture View",    action = cmd_action_view_texture,         checked_proc = cmd_checked_view_texture})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_CONTENT_BROWSER, label = "Content Browser", action = cmd_action_view_content_browser, checked_proc = cmd_checked_view_content_browser})
 
-    // View — presets
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_DEFAULT, label = "Default",         action = cmd_action_preset_default})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_RENDER,  label = "Rendering Focus", action = cmd_action_preset_render})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_PRESET_EDIT,    label = "Editing Focus",   action = cmd_action_preset_edit})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_SAVE_PRESET,    label = "Save Layout As…", action = cmd_action_save_preset})
 
     // Edit

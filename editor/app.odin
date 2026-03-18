@@ -223,11 +223,6 @@ App :: struct {
     preview_port_w:   i32,
     preview_port_h:   i32,
 
-    // SDF UI font (optional; fallback to default font if load fails)
-    ui_font:       rl.Font,
-    ui_font_shader: rl.Shader,
-    use_sdf_font:   bool,
-
     // Keyboard state: updated once per frame by keyboard_update; use instead of rl.IsKeyDown in features (nudge, etc.)
     keyboard: KeyboardState,
 
@@ -287,38 +282,33 @@ mark_scene_dirty :: proc(app: ^App) {
     }
 }
 
-// has_custom_ui_font returns true when a custom font (SDF or LoadFontEx) is loaded for UI text.
-has_custom_ui_font :: proc(app: ^App) -> bool {
-    return app != nil && app.ui_font.glyphCount > 0
-}
+upload_render_texture :: proc(app: ^App) {
+    session := app.r_session
+    if session == nil { return }
 
-// draw_ui_text draws text using the SDF font when available, else custom font (LoadFontEx), else default font.
-draw_ui_text :: proc(app: ^App, text: cstring, x, y: i32, fontSize: i32, color: rl.Color) {
-    if app == nil {
-        rl.DrawText(text, x, y, fontSize, color)
-        return
-    }
-    if app.use_sdf_font {
-        draw_text_sdf(app.ui_font, app.ui_font_shader, text, rl.Vector2{f32(x), f32(y)}, f32(fontSize), 0, color)
-        return
-    }
-    if has_custom_ui_font(app) {
-        rl.DrawTextEx(app.ui_font, text, rl.Vector2{f32(x), f32(y)}, f32(fontSize), 0, color)
-        return
-    }
-    rl.DrawText(text, x, y, fontSize, color)
-}
+    buf    := &session.pixel_buffer
+    camera := session.r_camera
+    clamp  := rt.Interval{0.0, 0.999}
 
-// UITextSize is the result of measure_ui_text (width and height in pixels).
-UITextSize :: struct { width, height: i32 }
+    for y in 0..<buf.height {
+        for x in 0..<buf.width {
+            raw := buf.pixels[y * buf.width + x] * camera.pixel_samples_scale
 
-// measure_ui_text returns width and height of text using the custom or default font.
-measure_ui_text :: proc(app: ^App, text: cstring, fontSize: i32) -> UITextSize {
-    if app != nil && has_custom_ui_font(app) {
-        size := rl.MeasureTextEx(app.ui_font, text, f32(fontSize), 0)
-        return UITextSize{i32(size.x), i32(size.y)}
+            r := rt.linear_to_gamma(raw[0])
+            g := rt.linear_to_gamma(raw[1])
+            b := rt.linear_to_gamma(raw[2])
+
+            idx := y * buf.width + x
+            app.pixel_staging[idx] = rl.Color{
+                u8(rt.interval_clamp(clamp, r) * 255.0),
+                u8(rt.interval_clamp(clamp, g) * 255.0),
+                u8(rt.interval_clamp(clamp, b) * 255.0),
+                255,
+            }
+        }
     }
-    return UITextSize{rl.MeasureText(text, fontSize), fontSize}
+
+    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
 }
 
 upload_render_texture :: proc(app: ^App) {
@@ -425,7 +415,6 @@ run_app :: proc(
     r_world: [dynamic]rt.Object,
     num_threads: int,
     use_gpu: bool = false,
-    initial_editor_layout: ^persistence.EditorLayout = nil,
     initial_editor_view: ^persistence.EditorViewConfig = nil,
     config_save_path: string = "",
     initial_presets: []persistence.LayoutPreset = nil, // kept for call-site compatibility; ignored
@@ -445,21 +434,6 @@ run_app :: proc(
     imgui_rl_setup()
     defer imgui_rl_shutdown()
 
-    // Load UI font when SDF feature is enabled; otherwise use raylib default font
-    ui_font: rl.Font
-    ui_shader: rl.Shader
-    sdf_ok := false
-    when USE_SDF_FONT {
-        rl.SetTraceLogLevel(.ALL)
-        ui_font, ui_shader, sdf_ok = load_sdf_font("assets/fonts/Inter-Regular.ttf", "assets/shaders/sdf.fs", SDF_BASE_SIZE)
-        if !sdf_ok {
-            if font_ex, ex_ok := load_font_ex_fallback("assets/fonts/Inter-Regular.ttf", FONTEX_FALLBACK_SIZE); ex_ok {
-                ui_font = font_ex
-            }
-        }
-        rl.SetTraceLogLevel(.WARNING)
-    }
-
     img := rl.GenImageColor(i32(r_camera.image_width), i32(r_camera.image_height), rl.BLACK)
     render_tex := rl.LoadTextureFromImage(img)
     rl.UnloadImage(img)
@@ -470,20 +444,12 @@ run_app :: proc(
     app := App{
         render_tex          = render_tex,
         pixel_staging       = pixel_staging,
-        use_sdf_font        = sdf_ok,
-        ui_font             = ui_font,
-        ui_font_shader      = ui_shader,
         include_ground_plane = true,
         show_intermediate_render = true,
         r_height_input      = fmt.aprintf("%d", r_camera.image_height),
         r_samples_input     = fmt.aprintf("%d", r_camera.samples_per_pixel),
         r_aspect_ratio      = 1, // default to 16:9
         r_render_pending    = true, // initial render needed
-    }
-    when USE_SDF_FONT {
-        if has_custom_ui_font(&app) {
-            defer unload_ui_font(&app.ui_font, app.ui_font_shader, app.use_sdf_font)
-        }
     }
     app.r_camera    = r_camera
     app.num_threads = num_threads
@@ -572,14 +538,6 @@ run_app :: proc(
 
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)
-
-    if app.use_sdf_font {
-        app_push_log(&app, strings.clone("Font: SDF (Inter) loaded"))
-    } else if has_custom_ui_font(&app) {
-        app_push_log(&app, strings.clone("Font: Inter (LoadFontEx fallback)"))
-    } else {
-        app_push_log(&app, strings.clone("Font: default (SDF/Inter load failed)"))
-    }
 
     app_push_log(&app, fmt.aprintf("Scene: %dx%d, %d spp", r_camera.image_width, r_camera.image_height, r_camera.samples_per_pixel))
     app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))

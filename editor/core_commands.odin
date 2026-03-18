@@ -19,9 +19,6 @@ CMD_VIEW_TEXTURE     :: "view.panel.texture"
 CMD_VIEW_CONTENT_BROWSER :: "view.panel.content_browser"
 CMD_VIEW_OUTLINER    :: "view.panel.outliner"
 
-CMD_VIEW_PRESET_DEFAULT :: "view.preset.default"
-CMD_VIEW_PRESET_RENDER  :: "view.preset.render_focus"
-CMD_VIEW_PRESET_EDIT    :: "view.preset.edit_focus"
 CMD_VIEW_SAVE_PRESET    :: "view.preset.save"
 
 CMD_UNDO             :: "edit.undo"

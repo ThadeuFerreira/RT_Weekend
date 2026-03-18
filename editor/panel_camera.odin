@@ -64,8 +64,8 @@ draw_camera_panel_drag_field :: proc(app: ^App, label: cstring, value: f32, box:
 	border := (active || hovered) ? ACCENT_COLOR : BORDER_COLOR
 	rl.DrawRectangleRec(box, bg)
 	rl.DrawRectangleLinesEx(box, 1, border)
-	draw_ui_text(app, fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, label, i32(box.x) - i32(CAMERA_PROP_LW + CAMERA_PROP_GAP) + 2, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
+	rl.DrawText(fmt.ctprintf("%.3f", value), i32(box.x) + 5, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
+	rl.DrawText(label, i32(box.x) - i32(CAMERA_PROP_LW + CAMERA_PROP_GAP) + 2, i32(box.y) + 2, 11, CONTENT_TEXT_COLOR)
 }
 
 draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
@@ -81,14 +81,14 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	row := CAMERA_PANEL_LINE_H
 	fs := i32(11)
 
-	draw_ui_text(app, "From", i32(x0), i32(y0 + 0*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "At",   i32(x0), i32(y0 + 1*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "FOV", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Defocus", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Focus dist", i32(x0), i32(y0 + 4*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Max depth", i32(x0), i32(y0 + 5*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Shutter", i32(x0), i32(y0 + 6*row), fs, CONTENT_TEXT_COLOR)
-	draw_ui_text(app, "Background", i32(x0), i32(y0 + 7*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("From", i32(x0), i32(y0 + 0*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("At",   i32(x0), i32(y0 + 1*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("FOV", i32(x0), i32(y0 + 2*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Defocus", i32(x0), i32(y0 + 3*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Focus dist", i32(x0), i32(y0 + 4*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Max depth", i32(x0), i32(y0 + 5*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Shutter", i32(x0), i32(y0 + 6*row), fs, CONTENT_TEXT_COLOR)
+	rl.DrawText("Background", i32(x0), i32(y0 + 7*row), fs, CONTENT_TEXT_COLOR)
 
 	fields := camera_panel_field_rects(content)
 	draw_camera_panel_drag_field(app, "X", c_params.lookfrom[0], fields[0], e_cam.drag_idx == 0, mouse)
@@ -107,7 +107,7 @@ draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	draw_camera_panel_drag_field(app, "G", c_params.background[1], fields[13], e_cam.drag_idx == 13, mouse)
 	draw_camera_panel_drag_field(app, "B", c_params.background[2], fields[14], e_cam.drag_idx == 14, mouse)
 
-	draw_ui_text(app, "Edits apply to next render. Use Viewport Render to use orbit camera.", i32(x0), i32(y0 + 8*row + 4), 10, rl.Color{120, 130, 148, 180})
+	rl.DrawText("Edits apply to next render. Use Viewport Render to use orbit camera.", i32(x0), i32(y0 + 8*row + 4), 10, rl.Color{120, 130, 148, 180})
 }
 
 update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2, lmb: bool, lmb_pressed: bool) {

@@ -12,25 +12,6 @@ RectF :: struct {
 	height: f32,
 }
 
-// PanelState holds persisted state for one floating panel.
-PanelState :: struct {
-	rect:       RectF,
-	visible:    bool,
-	maximized:  bool,
-	saved_rect: RectF,
-}
-
-// EditorLayout holds the panel states for the config file, keyed by panel ID string.
-EditorLayout :: struct {
-	panels: map[string]PanelState,
-}
-
-// LayoutPreset is a named snapshot of an editor layout (panel visibility/rects).
-LayoutPreset :: struct {
-	name:   string,
-	layout: EditorLayout,
-}
-
 EditorViewConfig :: struct {
 	camera_mode:  string  `json:"camera_mode,omitempty"`, // "orbit" | "free_fly"
 	move_speed:   f32     `json:"move_speed,omitempty"`,
@@ -42,14 +23,12 @@ EditorViewConfig :: struct {
 	grid_density: f32     `json:"grid_density,omitempty"`,
 }
 
-// RenderConfig is the full config file: render settings and optional editor layout.
+// RenderConfig is the full config file: render settings and optional editor view config.
 RenderConfig :: struct {
-	width:             int            `json:"width,omitempty"`,
-	height:            int            `json:"height,omitempty"`,
-	samples_per_pixel: int            `json:"samples_per_pixel,omitempty"`,
-	editor:            ^EditorLayout  `json:"editor,omitempty"`,
-	editor_view:       ^EditorViewConfig `json:"editor_view,omitempty"`,
-	presets:           []LayoutPreset `json:"presets,omitempty"`,
+	width:             int                 `json:"width,omitempty"`,
+	height:            int                 `json:"height,omitempty"`,
+	samples_per_pixel: int                 `json:"samples_per_pixel,omitempty"`,
+	editor_view:       ^EditorViewConfig   `json:"editor_view,omitempty"`,
 }
 
 // load_config reads a config file and returns the parsed config. Returns false on error or missing file.
