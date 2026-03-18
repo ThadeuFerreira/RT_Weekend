@@ -312,6 +312,7 @@ confirm_load_modal_draw :: proc(app: ^App) {
 }
 
 // load_example_at loads an example scene, optionally saving first. Returns false if save dialog cancelled.
+@(private="file")
 load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     if save_first {
         if len(app.current_scene_path) > 0 {
