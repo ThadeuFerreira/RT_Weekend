@@ -311,6 +311,35 @@ upload_render_texture :: proc(app: ^App) {
     rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
 }
 
+upload_render_texture :: proc(app: ^App) {
+    session := app.r_session
+    if session == nil { return }
+
+    buf    := &session.pixel_buffer
+    camera := session.r_camera
+    clamp  := rt.Interval{0.0, 0.999}
+
+    for y in 0..<buf.height {
+        for x in 0..<buf.width {
+            raw := buf.pixels[y * buf.width + x] * camera.pixel_samples_scale
+
+            r := rt.linear_to_gamma(raw[0])
+            g := rt.linear_to_gamma(raw[1])
+            b := rt.linear_to_gamma(raw[2])
+
+            idx := y * buf.width + x
+            app.pixel_staging[idx] = rl.Color{
+                u8(rt.interval_clamp(clamp, r) * 255.0),
+                u8(rt.interval_clamp(clamp, g) * 255.0),
+                u8(rt.interval_clamp(clamp, b) * 255.0),
+                255,
+            }
+        }
+    }
+
+    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+}
+
 // app_push_log appends a line to the log ring. Takes ownership of msg; callers must pass
 // a heap-allocated string (e.g. fmt.aprintf, strings.concatenate, or strings.clone for literals).
 // Do not use the string after the call.
@@ -388,6 +417,7 @@ run_app :: proc(
     use_gpu: bool = false,
     initial_editor_view: ^persistence.EditorViewConfig = nil,
     config_save_path: string = "",
+    initial_presets: []persistence.LayoutPreset = nil, // kept for call-site compatibility; ignored
     initial_volumes: [dynamic]core.SceneVolume = nil,
 ) {
     WIN_W :: i32(1280)
@@ -670,8 +700,9 @@ run_app :: proc(
             width             = r_camera.image_width,
             height            = r_camera.image_height,
             samples_per_pixel = r_camera.samples_per_pixel,
-            editor_view       = build_editor_view_config_from_app(&app.e_edit_view),
         }
+        config.editor = nil // panel layout is persisted by ImGui via imgui.ini
+        config.editor_view = build_editor_view_config_from_app(&app.e_edit_view)
         if !persistence.save_config(config_save_path, config) {
             fmt.fprintf(os.stderr, "Failed to save config: %s\n", config_save_path)
         }
