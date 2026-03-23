@@ -89,7 +89,8 @@ vulkan_context_init_window :: proc(title: cstring, width, height: c.int) -> (ctx
 	ctx.compute_queue_family = cfam
 
 	families := [?]u32{gfam, pfam, cfam}
-	dev, d_ok := create_logical_device(phys, families[:], nil)
+	dev_exts := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
+	dev, d_ok := create_logical_device(phys, families[:], dev_exts[:])
 	if !d_ok {
 		vulkan_context_destroy(&ctx)
 		return ctx, false

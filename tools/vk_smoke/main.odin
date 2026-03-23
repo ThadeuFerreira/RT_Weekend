@@ -76,11 +76,34 @@ main :: proc() {
 		os.exit(1)
 	}
 	fmt.println("vk_smoke: window + surface OK")
+	platform := glfw.GetPlatform()
+	switch platform {
+	case glfw.PLATFORM_WAYLAND: fmt.println("  GLFW platform: Wayland")
+	case glfw.PLATFORM_X11:     fmt.println("  GLFW platform: X11")
+	case glfw.PLATFORM_WIN32:   fmt.println("  GLFW platform: Win32")
+	case glfw.PLATFORM_COCOA:   fmt.println("  GLFW platform: Cocoa")
+	case glfw.PLATFORM_NULL:    fmt.println("  GLFW platform: Null")
+	case:                       fmt.printf("  GLFW platform: unknown (0x%x)\n", platform)
+	}
 	vk_ctx.print_vulkan_context_gpu_info(&ctx)
+
+	sc, sc_ok := vk_ctx.create_swapchain(&ctx, 640, 480)
+	defer vk_ctx.destroy_swapchain(ctx.device, &sc)
+	if !sc_ok {
+		fmt.eprintln("vk_smoke: swapchain creation failed")
+		os.exit(1)
+	}
+	fmt.println("vk_smoke: swapchain OK")
 	fmt.println("(close window to exit)")
+
 	for !glfw.WindowShouldClose(ctx.glfw_window) {
 		glfw.PollEvents()
+		// Clear to cornflower blue.
+		if !vk_ctx.swapchain_present_clear(&ctx, &sc, 0.39, 0.58, 0.93) {
+			break
+		}
 	}
+	vk.DeviceWaitIdle(ctx.device)
 }
 
 // run_compute_test exercises the full pipeline: create pipeline, allocate buffers,
