@@ -81,6 +81,11 @@ vulkan_context_init_headless :: proc(use_null_platform := true, use_glfw_loader 
 		return ctx, false
 	}
 
+	if !create_compute_command_pool(&ctx) {
+		vulkan_context_destroy(&ctx)
+		return ctx, false
+	}
+
 	return ctx, true
 }
 

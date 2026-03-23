@@ -48,6 +48,7 @@ VulkanContext :: struct {
 	present_queue:           vk.Queue,
 	compute_queue:           vk.Queue,
 	command_pool:            vk.CommandPool,
+	compute_command_pool:    vk.CommandPool, // separate pool when compute family != graphics family
 	surface:                 vk.SurfaceKHR,
 	fence:                   vk.Fence,
 	semaphore_image_available: vk.Semaphore,
@@ -515,6 +516,11 @@ vulkan_context_destroy :: proc(ctx: ^VulkanContext) {
 		vk.DestroyFence(ctx.device, ctx.fence, nil)
 		ctx.fence = {}
 	}
+	// Destroy compute command pool only if it is a distinct pool (not shared with graphics).
+	if ctx.compute_command_pool != vk.CommandPool(0) && ctx.compute_command_pool != ctx.command_pool {
+		vk.DestroyCommandPool(ctx.device, ctx.compute_command_pool, nil)
+	}
+	ctx.compute_command_pool = {}
 	if ctx.command_pool != vk.CommandPool(0) {
 		vk.DestroyCommandPool(ctx.device, ctx.command_pool, nil)
 		ctx.command_pool = {}
