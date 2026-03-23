@@ -1,4 +1,4 @@
-.PHONY: debug release run run_gpu test test-release test-all imgui
+.PHONY: debug release run run_gpu test test-release test-all imgui vk-smoke
 
 # Build Dear ImGui static library from the odin-imgui submodule.
 # Run once after cloning, or after updating the submodule.
@@ -34,3 +34,8 @@ test-release: release
 
 test-all: debug release
 	chmod +x tests/run_tests.sh && ./tests/run_tests.sh all
+
+# Vulkan bootstrap smoke test (package vk_ctx + GLFW; not linked into main app).
+vk-smoke:
+	mkdir -p build
+	odin build tools/vk_smoke -collection:RT_Weekend=. -debug -out:build/vk_smoke
