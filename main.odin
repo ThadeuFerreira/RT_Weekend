@@ -78,7 +78,8 @@ main :: proc() {
         fmt.printf("  Image size: %dx%d pixels\n", image_width, image_height)
         fmt.printf("  Samples per pixel: %d\n", samples_per_pixel)
         fmt.printf("  Threads: %d\n", thread_count)
-        fmt.printf("  GPU mode: %v\n", args.UseGPU)
+        backend_name := args.Backend if len(args.Backend) > 0 else ("gpu" if args.UseGPU else "cpu")
+        fmt.printf("  Backend: %s\n", backend_name)
         util.print_system_info()
     }
 

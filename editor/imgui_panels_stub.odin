@@ -274,6 +274,9 @@ imgui_draw_system_info_panel :: proc(app: ^App) {
         imgui.Text("CPU:       %s", app.system_info.CPU.Name)
         imgui.Text("CPU cores: %d/%d", app.system_info.CPU.Cores, app.system_info.CPU.LogicalCores)
         imgui.Text("RAM:       %#.1M", app.system_info.RAM.Total)
+        imgui.Separator()
+        backend_label := rt.backend_kind_label(app.r_session.backend.kind) if app.r_session != nil && app.r_session.backend != nil else "None"
+        imgui.Text("Render:    %s", strings.clone_to_cstring(backend_label, context.temp_allocator))
         for gpu in app.system_info.GPUs {
             imgui.Separator()
             imgui.Text("GPU:       %s", gpu.Model)
