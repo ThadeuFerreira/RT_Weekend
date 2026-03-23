@@ -120,12 +120,20 @@ validation_layer_available :: proc() -> bool {
 // Call once before creating an instance. Fails cleanly if GLFW cannot use Vulkan or the loader
 // does not respond (missing libvulkan / ICD, broken install).
 // When headless is true, GLFW is initialized with PLATFORM_NULL so no display server is required.
-vk_load_vulkan :: proc(headless := false) -> bool {
+// For window mode, pass a GLFW platform hint (ANY/X11/WAYLAND/etc.) when needed.
+vk_load_vulkan :: proc(headless := false, window_platform: c.int = glfw.ANY_PLATFORM) -> bool {
 	if headless {
 		glfw.InitHint(glfw.PLATFORM, glfw.PLATFORM_NULL)
+	} else {
+		glfw.InitHint(glfw.PLATFORM, window_platform)
 	}
 	if !glfw.Init() {
-		fmt.eprintln("vk_ctx: glfw.Init failed")
+		desc, _ := glfw.GetError()
+		if len(desc) > 0 {
+			fmt.eprintf("vk_ctx: glfw.Init failed: %s\n", desc)
+		} else {
+			fmt.eprintln("vk_ctx: glfw.Init failed")
+		}
 		return false
 	}
 	if !glfw.VulkanSupported() {
@@ -373,7 +381,8 @@ create_command_pool_and_sync :: proc(
 	}
 	fence_info := vk.FenceCreateInfo {
 		sType = .FENCE_CREATE_INFO,
-		flags = {},
+		// Start signaled so the first frame wait does not deadlock.
+		flags = {.SIGNALED},
 	}
 	if vk.CreateFence(device, &fence_info, nil, &out_ctx.fence) != .SUCCESS {
 		return false

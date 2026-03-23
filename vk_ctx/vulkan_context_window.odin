@@ -9,14 +9,18 @@ import vk "vendor:vulkan"
 // vulkan_context_init_window creates a GLFW window (NO_API), a Vulkan surface, and a full
 // VulkanContext with separate present queue when required. Linux / Windows / macOS when GLFW + WSI
 // are available; swapchain is not created here.
-vulkan_context_init_window :: proc(title: cstring, width, height: c.int) -> (ctx: VulkanContext, ok: bool) {
+vulkan_context_init_window :: proc(
+	title: cstring,
+	width, height: c.int,
+	window_platform: c.int = glfw.ANY_PLATFORM,
+) -> (ctx: VulkanContext, ok: bool) {
 	ctx = {}
 	when ODIN_OS == .JS {
 		fmt.eprintln("vk_ctx: window mode unsupported on JS")
 		return ctx, false
 	}
 
-	if !vk_load_vulkan() {
+	if !vk_load_vulkan(window_platform = window_platform) {
 		fmt.eprintln("vk_ctx: vk_load_vulkan failed")
 		return ctx, false
 	}

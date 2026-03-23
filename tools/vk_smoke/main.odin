@@ -7,7 +7,7 @@
 //
 // Usage:
 //   ./build/vk_smoke --headless [--clear] [--compute]
-//   ./build/vk_smoke --window
+//   ./build/vk_smoke --window [--platform=auto|x11|wayland] [--frames=N]
 package main
 
 import "core:c"
@@ -15,6 +15,10 @@ import "core:fmt"
 import "core:math"
 import "core:mem"
 import "core:os"
+import "core:strconv"
+import "core:strings"
+import "core:terminal"
+import "core:time"
 
 import glfw "vendor:glfw"
 import vk "vendor:vulkan"
@@ -26,17 +30,35 @@ main :: proc() {
 	mode := "headless"
 	do_clear := false
 	do_compute := false
+	window_platform: c.int = glfw.ANY_PLATFORM
+	window_frames := 0 // 0 = run until the user closes the window.
 	for arg in os.args[1:] {
 		switch arg {
 		case "--headless":
 			mode = "headless"
 		case "--window":
 			mode = "window"
+		case "--platform=x11":
+			window_platform = glfw.PLATFORM_X11
+		case "--platform=wayland":
+			window_platform = glfw.PLATFORM_WAYLAND
+		case "--platform=auto":
+			window_platform = glfw.ANY_PLATFORM
 		case "--clear":
 			do_clear = true
 		case "--compute":
 			do_compute = true
 		case:
+			if strings.has_prefix(arg, "--frames=") {
+				value := strings.trim_prefix(arg, "--frames=")
+				n, parse_ok := strconv.parse_int(value)
+				if !parse_ok || n < 0 {
+					fmt.eprintf("Invalid --frames value: %s\n", value)
+					os.exit(2)
+				}
+				window_frames = n
+				continue
+			}
 			fmt.eprintf("Unknown argument: %s\n", arg)
 			os.exit(2)
 		}
@@ -69,7 +91,11 @@ main :: proc() {
 	}
 
 	// window mode
-	ctx, ok := vk_ctx.vulkan_context_init_window(cstring("vk_smoke"), c.int(640), c.int(480))
+	ctx, ok := vk_ctx.vulkan_context_init_window(
+		cstring("vk_smoke"),
+		c.int(640), c.int(480),
+		window_platform,
+	)
 	defer vk_ctx.vulkan_context_destroy(&ctx)
 	if !ok {
 		fmt.eprintln("vk_smoke: window init failed")
@@ -94,15 +120,47 @@ main :: proc() {
 		os.exit(1)
 	}
 	fmt.println("vk_smoke: swapchain OK")
-	fmt.println("(close window to exit)")
+	pump_events := true
+	if glfw.GetPlatform() == glfw.PLATFORM_WAYLAND && !terminal.is_terminal(os.stdin) {
+		// Some launchers run GUI apps with stdin redirected (/dev/null), which can break
+		// Wayland event handling in GLFW. Use a deterministic present loop in this case.
+		pump_events = false
+		if window_frames == 0 {
+			window_frames = 300
+		}
+		fmt.printf(
+			"vk_smoke: stdin is not a TTY on Wayland; presenting %d frames without PollEvents\n",
+			window_frames,
+		)
+	}
+	if window_frames > 0 {
+		fmt.printf("vk_smoke: window frame budget: %d\n", window_frames)
+	} else {
+		fmt.println("(close window to exit)")
+	}
 
-	for !glfw.WindowShouldClose(ctx.glfw_window) {
-		glfw.PollEvents()
+	frame_count := 0
+	for {
 		// Clear to cornflower blue.
 		if !vk_ctx.swapchain_present_clear(&ctx, &sc, 0.39, 0.58, 0.93) {
+			fmt.eprintln("vk_smoke: present failed")
+			break
+		}
+		frame_count += 1
+		if pump_events {
+			glfw.PollEvents()
+			if glfw.WindowShouldClose(ctx.glfw_window) {
+				break
+			}
+		} else {
+			// Keep frame pacing predictable without depending on GLFW's event loop.
+			time.sleep(16 * time.Millisecond)
+		}
+		if window_frames > 0 && frame_count >= window_frames {
 			break
 		}
 	}
+	fmt.printf("vk_smoke: presented frames: %d\n", frame_count)
 	vk.DeviceWaitIdle(ctx.device)
 }
 

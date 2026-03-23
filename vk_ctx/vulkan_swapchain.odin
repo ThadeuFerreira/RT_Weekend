@@ -178,6 +178,9 @@ swapchain_present_clear :: proc(ctx: ^VulkanContext, sc: ^VulkanSwapchain, r, g,
 		ctx.device, sc.swapchain, ~u64(0),
 		ctx.semaphore_image_available, 0, &img_idx,
 	)
+	if acq_res == .ERROR_OUT_OF_DATE_KHR {
+		return true
+	}
 	if acq_res != .SUCCESS && acq_res != .SUBOPTIMAL_KHR {
 		return false
 	}
@@ -257,6 +260,9 @@ swapchain_present_clear :: proc(ctx: ^VulkanContext, sc: ^VulkanSwapchain, r, g,
 		pImageIndices      = &img_idx,
 	}
 	pres_res := vk.QueuePresentKHR(ctx.present_queue, &present)
+	if pres_res == .ERROR_OUT_OF_DATE_KHR {
+		return true
+	}
 	if pres_res != .SUCCESS && pres_res != .SUBOPTIMAL_KHR {
 		return false
 	}
