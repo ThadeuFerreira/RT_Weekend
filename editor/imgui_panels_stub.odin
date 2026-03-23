@@ -220,8 +220,8 @@ imgui_draw_stats_panel :: proc(app: ^App) {
             imgui.ProgressBar(progress, imgui.Vec2{-1, 0})
             imgui.Text("%.1f%%", f64(progress) * 100)
             imgui.Separator()
-            mode := "GPU" if app.r_session.use_gpu else "CPU"
-            imgui.Text("Mode:     %s", mode)
+            mode_label := rt.backend_kind_label(app.r_session.backend.kind) if app.r_session.backend != nil else "CPU"
+            imgui.Text("Mode:     %s", strings.clone_to_cstring(mode_label, context.temp_allocator))
             imgui.Text("Elapsed:  %.2fs", app.elapsed_secs)
             imgui.Text("Threads:  %d", app.num_threads)
             imgui.Text("Res:      %dx%d @ %d spp",

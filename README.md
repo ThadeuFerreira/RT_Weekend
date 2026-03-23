@@ -10,7 +10,8 @@ compute-shader path.
 ## Features
 
 - **CPU path tracer** — multi-threaded, BVH-accelerated, progressive tile rendering
-- **GPU path tracer** — OpenGL 4.3 compute shader with progressive accumulation (`-gpu` flag)
+- **GPU path tracer** — OpenGL 4.3 compute shader with progressive accumulation (`-gpu` / `-backend gpu`)
+- **Backend abstraction** — pluggable `RenderBackendApi` vtable; CPU and OpenGL ship today, Vulkan planned
 - **Dear ImGui docking UI** — native docking, undockable panels, menu bar, ImGui Metrics window
 - **Live preview** — Raylib window with real-time texture upload as tiles / samples complete
 - **Scene editor** — interactive 3D viewport; add, move, and delete spheres; three material types
@@ -60,9 +61,11 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 
 # GPU compute shader path (requires OpenGL 4.3+)
 ./build/debug -gpu -s 100
+# or equivalently:
+./build/debug -backend gpu -s 100
 
 # All flags
-./build/debug -w <int> -h <int> -s <samples> -n <spheres> -c <threads> [-gpu]
+./build/debug -w <int> -h <int> -s <samples> -n <spheres> -c <threads> [-gpu] [-backend cpu|gpu]
 ```
 
 | Flag | Description | Default |
@@ -72,7 +75,8 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 | `-s` | Samples per pixel | 10 |
 | `-n` | Number of random spheres | 10 |
 | `-c` | CPU thread count | physical cores |
-| `-gpu` | Use GPU compute shader | off |
+| `-gpu` | Use GPU compute shader (shorthand for `-backend gpu`) | off |
+| `-backend` | Select render backend: `cpu`, `gpu` | `cpu` |
 
 ## Project Layout
 
@@ -86,6 +90,9 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 │   ├── hittable.odin       Sphere/Quad, AABB, recursive + flat BVH
 │   ├── material.odin       Lambertian, Metallic, Dielectric scatter
 │   ├── vector3.odin        Vec3 math, ray, ray_color_linear
+│   ├── render_backend.odin RenderBackendApi vtable, RenderBackend, backend helpers
+│   ├── cpu_backend.odin    CPU tile renderer as a RenderBackend
+│   ├── gpu_backend_adapter.odin  Wraps GpuRendererApi as a RenderBackend
 │   ├── gpu_types.odin      GPUBackend, GPUSphere, LinearBVHNode, GPUCameraUniforms
 │   ├── gpu_backend.odin    OpenGL compute backend (Linux/Windows/macOS loaders)
 │   ├── gpu_renderer.odin   GpuRendererApi vtable + create_gpu_renderer factory
@@ -114,41 +121,56 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 
 ## Architecture
 
+### Render Backend Abstraction
+
+`raytrace/render_backend.odin` defines a unified `RenderBackendApi` vtable that
+both CPU and GPU renderers implement. The editor and headless paths use this
+interface exclusively — no backend-specific branching:
+
+```odin
+RenderBackendApi :: struct {
+    tick:           proc(state),              // advance one unit of work
+    readback:       proc(state, out: [][4]u8), // copy pixels (gamma-corrected RGBA)
+    final_readback: proc(state, out: [][4]u8), // blocking readback for last sample
+    get_progress:   proc(state) -> f32,        // 0.0–1.0
+    get_samples:    proc(state) -> (int, int), // (current, total)
+    get_timings:    proc(state) -> (i64, i64), // (dispatch_ns, readback_ns)
+    reset:          proc(state),               // restart without rebuild
+    finish:         proc(state, session),       // join/cleanup
+    destroy:        proc(state),               // free memory
+}
+```
+
+To add a new backend (e.g. Vulkan): implement these procs, declare a
+`MY_BACKEND_API :: RenderBackendApi{...}` constant, and add a branch in
+`start_render_auto()`. The editor needs zero changes.
+
 ### Render Session API
 
 Three procs in `raytrace/camera.odin` manage the non-blocking render lifecycle:
 
 | Proc | Role |
 |------|------|
-| `start_render_auto(cam, world, threads, use_gpu)` | Builds BVH, optionally tries GPU, spawns CPU threads. Returns immediately. |
-| `get_render_progress(session) -> f32` | Returns 0.0–1.0. Safe to call from any thread. |
-| `finish_render(session)` | Joins CPU threads **or** destroys GPU renderer; frees BVH. |
+| `start_render_auto(cam, world, threads, use_gpu)` | Builds BVH, creates the appropriate `RenderBackend`, returns immediately. |
+| `get_render_progress(session) -> f32` | Delegates to `backend_get_progress`. Returns 0.0–1.0. |
+| `finish_render(session)` | Delegates to `backend_finish`. Joins threads or destroys GPU state. |
 
-### GPU Renderer Vtable
+### GPU Renderer Vtable (internal)
 
-`raytrace/gpu_renderer.odin` defines a thin abstraction layer:
-
-```odin
-GpuRendererApi :: struct {
-    init:        proc(cam, world, bvh, total) -> (rawptr, bool),
-    dispatch:    proc(state),
-    readback:    proc(state, out: [][4]u8),
-    destroy:     proc(state),
-    get_samples: proc(state) -> (cur, tot: int),
-}
-```
-
-`create_gpu_renderer` is the platform-aware factory. It currently tries the OpenGL
-backend on Linux, Windows, and macOS; has commented stubs for future Metal (macOS)
-and DirectX 12 / Vulkan (Windows) backends.
+`raytrace/gpu_renderer.odin` defines a lower-level `GpuRendererApi` used by
+GPU-specific backends. `gpu_backend_adapter.odin` wraps it as a `RenderBackendApi`
+so the rest of the codebase only sees the unified interface.
 
 ### Platform Behavior
 
 | Platform | GPU today | Future |
 |----------|-----------|--------|
-| Linux | OpenGL 4.3 (GLX) | Vulkan |
+| Linux | OpenGL 4.3 (GLX) | Vulkan (`vendor:vulkan`) |
 | Windows | OpenGL 4.3 (WGL) | DirectX 12 / Vulkan |
 | macOS | CPU fallback (OpenGL capped at 4.1) | Metal |
+
+Odin ships with official Vulkan bindings (`import vk "vendor:vulkan"`). A Vulkan
+compute backend would implement `RenderBackendApi` and plug in alongside OpenGL.
 
 ### CPU Path
 

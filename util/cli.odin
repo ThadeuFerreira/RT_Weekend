@@ -15,7 +15,8 @@ Args :: struct {
 	ScenePath:         string,
 	SaveConfigPath:    string,
 	SaveScenePath:     string,
-	UseGPU:            bool,   // -gpu flag: use OpenGL compute-shader path
+	UseGPU:            bool,   // -gpu flag: use OpenGL compute-shader path (shorthand for -backend gpu)
+	Backend:           string, // -backend <cpu|gpu>: explicit backend selection
 	Headless:          bool,   // -headless: render without GUI and exit (requires -output/-out)
 	OutputPath:        string, // -output / -o / -out: headless PNG output path
 	ProfileOutputPath: string, // -profile-out <path>: profile JSON output path
@@ -30,7 +31,7 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 		if arg == "-help" || arg == "--help" {
 			fmt.println("Usage: raytracer [-w width] [-h height] [-s samples] [-n spheres] [-c threads]")
 			fmt.println("                [-config path] [-scene path] [-save-config path] [-save-scene path]")
-			fmt.println("                [-gpu] [-output path | -o path] [-headless] [-profile-out path]")
+			fmt.println("                [-gpu] [-backend cpu|gpu] [-output path | -o path] [-headless] [-profile-out path]")
 			fmt.println("  -output/-o: headless render to PNG (no window)")
 			return false
 		}
@@ -51,7 +52,7 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 		}
 		// Long-form options that take a path (string)
 		if len(arg) >= 2 && arg[0] == '-' {
-			if arg == "-config" || arg == "-scene" || arg == "-save-config" || arg == "-save-scene" || arg == "-output" || arg == "-o" || arg == "-out" || arg == "-profile-out" {
+			if arg == "-config" || arg == "-scene" || arg == "-save-config" || arg == "-save-scene" || arg == "-output" || arg == "-o" || arg == "-out" || arg == "-profile-out" || arg == "-backend" {
 				if i + 1 >= len(os.args) {
 					fmt.fprintf(os.stderr, "Missing path for %s\n", arg)
 					return false
@@ -65,6 +66,9 @@ parse_args_with_short_flags :: proc(args: ^Args) -> bool {
 				case "-save-scene":           args.SaveScenePath = path_val
 				case "-output", "-o", "-out": args.OutputPath = path_val
 				case "-profile-out":          args.ProfileOutputPath = path_val
+				case "-backend":
+					args.Backend = path_val
+					if path_val == "gpu" { args.UseGPU = true }
 				case:
 				}
 				continue

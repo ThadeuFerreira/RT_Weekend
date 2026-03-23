@@ -577,52 +577,46 @@ run_app :: proc(
             }
         }
 
-        // GPU path: dispatch one more sample per frame.
-        // In SingleShot mode (default), stop dispatching once total_samples is reached.
-        // Continuous mode restart is handled in the completion block below.
-        if app.r_session.use_gpu {
-            gpu_rend := app.r_session.gpu_renderer
-            if gpu_rend != nil && !rt.gpu_renderer_done(gpu_rend) {
-                gpu_dispatch_scope := util.trace_scope_begin("Gpu.Dispatch", "render")
-                defer util.trace_scope_end(gpu_dispatch_scope)
-                rt.gpu_renderer_dispatch(gpu_rend)
-            }
+        // ── Backend tick: advance one unit of rendering work per frame ──
+        if app.r_session.backend != nil && !rt.backend_done(app.r_session.backend) {
+            tick_scope := util.trace_scope_begin("Backend.Tick", "render")
+            defer util.trace_scope_end(tick_scope)
+            rt.backend_tick(app.r_session.backend)
         }
 
         // ── Render texture upload ─────────────────────────────────────────
         if app.show_intermediate_render && frame % 4 == 0 {
-            if app.r_session.use_gpu {
-                // Only readback while the renderer is alive (nil after finish_render).
-                if app.r_session.gpu_renderer != nil {
-                    out_bytes := transmute([][4]u8)(app.pixel_staging)
-                    rt.gpu_renderer_readback(app.r_session.gpu_renderer, out_bytes)
-                    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
-                }
-            } else {
-                upload_render_texture(&app)
+            if app.r_session.backend != nil {
+                out_bytes := transmute([][4]u8)(app.pixel_staging)
+                rt.backend_readback(app.r_session.backend, out_bytes)
+                rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
             }
         }
 
         if !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
             continuous_restart := false
-            if app.r_session.use_gpu {
-                gpu_rend := app.r_session.gpu_renderer
-                // Use final_readback to ensure the last sample is displayed (not N-1).
+            b := app.r_session.backend
+            if b != nil && b.mode == .Continuous {
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
-                rt.gpu_renderer_final_readback(gpu_rend, out_bytes)
+                rt.backend_final_readback(b, out_bytes)
                 rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
-
-                if gpu_rend.mode == .Continuous {
-                    // Restart accumulation without tearing down the backend.
-                    rt.gpu_renderer_restart(gpu_rend)
-                    continuous_restart = true
-                }
+                rt.backend_reset(b)
+                continuous_restart = true
             }
             if !continuous_restart {
+                // Final readback before finishing (GPU needs this for last sample).
+                if b != nil {
+                    out_bytes := transmute([][4]u8)(app.pixel_staging)
+                    rt.backend_final_readback(b, out_bytes)
+                    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+                }
                 rt.finish_render(app.r_session)
                 app.finished = true
-                if !app.r_session.use_gpu {
-                    upload_render_texture(&app)
+                // CPU backend: do a final readback after finish (threads joined, buffer complete).
+                if b != nil && b.kind == .CPU {
+                    out_bytes := transmute([][4]u8)(app.pixel_staging)
+                    rt.backend_readback(b, out_bytes)
+                    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
                 }
                 app_push_log(&app, fmt.aprintf("Done! (%.2fs)", app.elapsed_secs))
             }

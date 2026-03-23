@@ -60,6 +60,42 @@
             "group": "test"
         },
         {
+            "label": "run-linux-gpu",
+            "type": "shell",
+            "command": "./build/debug",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "gpu"],
+            "dependsOn": "build-linux",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "run-linux-vulkan",
+            "type": "shell",
+            "command": "./build/debug",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "vulkan"],
+            "dependsOn": "build-linux",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "run-windows-gpu",
+            "type": "shell",
+            "command": ".\\build\\debug.exe",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "gpu"],
+            "dependsOn": "build-windows",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "run-windows-vulkan",
+            "type": "shell",
+            "command": ".\\build\\debug.exe",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "vulkan"],
+            "dependsOn": "build-windows",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
             "label": "build-windows-release",
             "type": "shell",
             "command": "odin",
@@ -107,10 +143,46 @@
             "group": "test"
         },
         {
+            "label": "run-linux-release-gpu",
+            "type": "shell",
+            "command": "./build/release",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "gpu"],
+            "dependsOn": "build-linux-release",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "run-linux-release-vulkan",
+            "type": "shell",
+            "command": "./build/release",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "vulkan"],
+            "dependsOn": "build-linux-release",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
             "label": "run-windows-release",
             "type": "shell",
             "command": ".\\build\\release.exe",
             "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4"],
+            "dependsOn": "build-windows-release",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "run-windows-release-gpu",
+            "type": "shell",
+            "command": ".\\build\\release.exe",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "gpu"],
+            "dependsOn": "build-windows-release",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "run-windows-release-vulkan",
+            "type": "shell",
+            "command": ".\\build\\release.exe",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "vulkan"],
             "dependsOn": "build-windows-release",
             "problemMatcher": [],
             "group": "test"

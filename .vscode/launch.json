@@ -106,6 +106,32 @@
             "miDebuggerPath": "/usr/bin/gdb"
         },
         {
+            "name": "Debug (Linux) Vulkan",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "vulkan"],
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "TRACE_OUTPUT_FILE", "value": "build" }
+            ],
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug (Linux) Large Vulkan",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux",
+            "program": "${workspaceFolder}/build/debug",
+            "args": ["-w", "1600", "-h", "900", "-s", "100", "-c", "8", "-backend", "vulkan"],
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "TRACE_OUTPUT_FILE", "value": "build" }
+            ],
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
             "name": "Release (Linux)",
             "type": "cppdbg",
             "request": "launch",
@@ -122,6 +148,16 @@
             "preLaunchTask": "build-linux-release",
             "program": "${workspaceFolder}/build/release",
             "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-gpu"],
+            "cwd": "${workspaceFolder}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Release (Linux) Vulkan",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "build-linux-release",
+            "program": "${workspaceFolder}/build/release",
+            "args": ["-w", "400", "-h", "225", "-s", "10", "-c", "4", "-backend", "vulkan"],
             "cwd": "${workspaceFolder}",
             "miDebuggerPath": "/usr/bin/gdb"
         },
