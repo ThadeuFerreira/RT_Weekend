@@ -173,6 +173,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
 
 App :: struct {
     e_panel_vis:   ImguiPanelVis,
+    e_reset_layout: bool,
 
     render_tex:    rl.Texture2D,
     pixel_staging: []rl.Color,
@@ -505,6 +506,8 @@ run_app :: proc(
         content_browser = true,
         outliner        = true,
     }
+
+    app.e_reset_layout = !os.exists("imgui.ini")
 
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)

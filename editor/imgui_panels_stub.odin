@@ -64,6 +64,10 @@ imgui_draw_main_menu_bar :: proc(app: ^App) {
         if imgui.MenuItem("ImGui Metrics",   nil, app.e_panel_vis.imgui_metrics)    {
             app.e_panel_vis.imgui_metrics = !app.e_panel_vis.imgui_metrics
         }
+        imgui.Separator()
+        if imgui.MenuItem("Reset Layout") {
+            app.e_reset_layout = true
+        }
         imgui.EndMenu()
     }
 
@@ -833,7 +837,11 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
 // imgui_draw_all_panels draws the DockSpace, menu bar, and all panel windows.
 // Call this between imgui_rl_new_frame() and imgui_rl_render().
 imgui_draw_all_panels :: proc(app: ^App) {
-    imgui.DockSpaceOverViewport({}, nil, {.PassthruCentralNode})
+    dockspace_id := imgui.DockSpaceOverViewport({}, nil, {.PassthruCentralNode})
+    if app.e_reset_layout {
+        imgui_build_default_layout(dockspace_id)
+        app.e_reset_layout = false
+    }
     imgui_draw_main_menu_bar(app)
 
     // While a floating panel is being dragged by its title bar, make all windows
@@ -866,4 +874,53 @@ imgui_draw_all_panels :: proc(app: ^App) {
     if app.e_panel_vis.imgui_metrics {
         imgui.ShowMetricsWindow(&app.e_panel_vis.imgui_metrics)
     }
+}
+
+// imgui_build_default_layout creates a UE5/Godot-inspired docking layout using
+// the DockBuilder API.  Called on first launch (no imgui.ini) or View → Reset Layout.
+imgui_build_default_layout :: proc(dockspace_id: imgui.ID) {
+    imgui.DockBuilderRemoveNodeChildNodes(dockspace_id)
+
+    vp := imgui.GetMainViewport()
+    imgui.DockBuilderSetNodeSize(dockspace_id, vp.Size)
+    imgui.DockBuilderSetNodePos(dockspace_id, vp.Pos)
+
+    // Split root: left sidebar (18%) | center+right
+    left_id, center_right_id: imgui.ID
+    imgui.DockBuilderSplitNode(dockspace_id, .Left, 0.18, &left_id, &center_right_id)
+
+    // Split center+right: center | right sidebar (27% of remainder ≈ 22% total)
+    right_id, center_id: imgui.ID
+    imgui.DockBuilderSplitNode(center_right_id, .Right, 0.27, &right_id, &center_id)
+
+    // Split left: top (outliner) | bottom 40% (content browser)
+    left_bottom_id, left_top_id: imgui.ID
+    imgui.DockBuilderSplitNode(left_id, .Down, 0.40, &left_bottom_id, &left_top_id)
+
+    // Split center: top (viewport) | bottom 30% (console/stats/etc)
+    center_bottom_id, center_top_id: imgui.ID
+    imgui.DockBuilderSplitNode(center_id, .Down, 0.30, &center_bottom_id, &center_top_id)
+
+    // Split right: top (details/camera) | bottom 35% (camera preview/texture view)
+    right_bottom_id, right_top_id: imgui.ID
+    imgui.DockBuilderSplitNode(right_id, .Down, 0.35, &right_bottom_id, &right_top_id)
+
+    // Dock windows into nodes
+    imgui.DockBuilderDockWindow("World Outliner",  left_top_id)
+    imgui.DockBuilderDockWindow("Content Browser", left_bottom_id)
+
+    imgui.DockBuilderDockWindow("Viewport",        center_top_id)
+
+    imgui.DockBuilderDockWindow("Console",         center_bottom_id)
+    imgui.DockBuilderDockWindow("Stats",           center_bottom_id)
+    imgui.DockBuilderDockWindow("System Info",     center_bottom_id)
+    imgui.DockBuilderDockWindow("Render Preview",  center_bottom_id)
+
+    imgui.DockBuilderDockWindow("Details",         right_top_id)
+    imgui.DockBuilderDockWindow("Camera",          right_top_id)
+
+    imgui.DockBuilderDockWindow("Camera Preview",  right_bottom_id)
+    imgui.DockBuilderDockWindow("Texture View",    right_bottom_id)
+
+    imgui.DockBuilderFinish(dockspace_id)
 }
