@@ -15,7 +15,7 @@ debug-gl:
 
 debug-vk:
 	mkdir -p build
-	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -define:GPU_USE_VULKAN=true -out:build/debug_vk
+	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -define:GPU_USE_VULKAN=true -define:IMGUI_COORD_DEBUG=true -out:build/debug_vk
 
 release:
 	mkdir -p build
