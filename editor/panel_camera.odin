@@ -71,7 +71,7 @@ draw_camera_panel_drag_field :: proc(app: ^App, label: cstring, value: f32, box:
 draw_camera_panel_content :: proc(app: ^App, content: rl.Rectangle) {
 	e_cam    := &app.e_camera_panel
 	c_params := &app.c_camera_params
-	mouse := rl.GetMousePosition()
+	mouse := imgui_rl_mouse_pos()
 
 	rl.DrawRectangleRec(content, rl.Color{25, 28, 40, 240})
 	rl.DrawRectangleLinesEx(content, 1, BORDER_COLOR)

@@ -395,9 +395,12 @@ run_app :: proc(
     WIN_H :: i32(1280)
 
     rl.SetTraceLogLevel(.WARNING)
+    rl.SetConfigFlags(rl.ConfigFlags{
+        rl.ConfigFlag.WINDOW_RESIZABLE,
+        rl.ConfigFlag.WINDOW_HIGHDPI,
+    })
     rl.InitWindow(WIN_W, WIN_H, "Ray Tracer — Live Preview")
     defer rl.CloseWindow()
-    rl.SetWindowState(rl.ConfigFlags{rl.ConfigFlag.WINDOW_RESIZABLE})
     rl.SetWindowMinSize(640, 360)
     rl.SetTargetFPS(60)
 

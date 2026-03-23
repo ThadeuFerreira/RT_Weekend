@@ -92,7 +92,7 @@ file_modal_update :: proc(app: ^App) {
         dx := (sw - dialog_w) * 0.5
         dy := (sh - dialog_h) * 0.5
         btn_ok, btn_cancel := modal_button_rects(dx, dy, dialog_w, dialog_h)
-        mouse := rl.GetMousePosition()
+        mouse := imgui_rl_mouse_pos()
         if rl.CheckCollisionPointRec(mouse, btn_ok) {
             file_modal_confirm(app)
         } else if rl.CheckCollisionPointRec(mouse, btn_cancel) {
@@ -258,7 +258,7 @@ file_modal_draw :: proc(app: ^App) {
 
     // Buttons (hover highlight only — clicks handled in file_modal_update)
     btn_ok, btn_cancel := modal_button_rects(dx, dy, dialog_w, dialog_h)
-    mouse      := rl.GetMousePosition()
+    mouse      := imgui_rl_mouse_pos()
     ok_hov     := rl.CheckCollisionPointRec(mouse, btn_ok)
     cancel_hov := rl.CheckCollisionPointRec(mouse, btn_cancel)
 
