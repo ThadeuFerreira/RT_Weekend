@@ -80,7 +80,16 @@ vulkan_context_init_window :: proc(title: cstring, width, height: c.int) -> (ctx
 	ctx.graphics_queue_family = gfam
 	ctx.present_queue_family = pfam
 
-	dev, d_ok := create_logical_device(phys, gfam, pfam, nil)
+	cfam, cfam_ok := find_compute_queue_family(phys)
+	if !cfam_ok {
+		fmt.eprintln("vk_ctx: no compute queue family")
+		vulkan_context_destroy(&ctx)
+		return ctx, false
+	}
+	ctx.compute_queue_family = cfam
+
+	families := [?]u32{gfam, pfam, cfam}
+	dev, d_ok := create_logical_device(phys, families[:], nil)
 	if !d_ok {
 		vulkan_context_destroy(&ctx)
 		return ctx, false
@@ -89,6 +98,7 @@ vulkan_context_init_window :: proc(title: cstring, width, height: c.int) -> (ctx
 
 	vk.GetDeviceQueue(dev, gfam, 0, &ctx.graphics_queue)
 	vk.GetDeviceQueue(dev, pfam, 0, &ctx.present_queue)
+	vk.GetDeviceQueue(dev, cfam, 0, &ctx.compute_queue)
 
 	if !create_command_pool_and_sync(dev, gfam, &ctx) {
 		vulkan_context_destroy(&ctx)
