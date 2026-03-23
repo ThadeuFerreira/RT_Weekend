@@ -224,9 +224,14 @@ imgui_draw_stats_panel :: proc(app: ^App) {
             imgui.ProgressBar(progress, imgui.Vec2{-1, 0})
             imgui.Text("%.1f%%", f64(progress) * 100)
             imgui.Separator()
-            mode := "GPU" if app.r_session.use_gpu else "CPU"
-            imgui.Text("Mode:     %s", mode)
-            imgui.Text("Elapsed:  %.2fs", app.elapsed_secs)
+            mode_label := rt.backend_kind_label(app.r_session.backend.kind) if app.r_session.backend != nil else "CPU"
+            imgui.Text("Mode:     %s", strings.clone_to_cstring(mode_label, context.temp_allocator))
+            if app.finished {
+                done_elapsed_col := imgui.Vec4{100.0 / 255.0, 220.0 / 255.0, 120.0 / 255.0, 1.0}
+                imgui.TextColored(done_elapsed_col, "Elapsed:  %.2fs", app.elapsed_secs)
+            } else {
+                imgui.Text("Elapsed:  %.2fs", app.elapsed_secs)
+            }
             imgui.Text("Threads:  %d", app.num_threads)
             imgui.Text("Res:      %dx%d @ %d spp",
                 app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel)
@@ -269,6 +274,9 @@ imgui_draw_system_info_panel :: proc(app: ^App) {
         imgui.Text("CPU:       %s", app.system_info.CPU.Name)
         imgui.Text("CPU cores: %d/%d", app.system_info.CPU.Cores, app.system_info.CPU.LogicalCores)
         imgui.Text("RAM:       %#.1M", app.system_info.RAM.Total)
+        imgui.Separator()
+        backend_label := rt.backend_kind_label(app.r_session.backend.kind) if app.r_session != nil && app.r_session.backend != nil else "None"
+        imgui.Text("Render:    %s", strings.clone_to_cstring(backend_label, context.temp_allocator))
         for gpu in app.system_info.GPUs {
             imgui.Separator()
             imgui.Text("GPU:       %s", gpu.Model)

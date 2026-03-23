@@ -100,9 +100,12 @@ RenderSession :: struct {
     thread_rendering_breakdowns: [dynamic]ThreadRenderingBreakdown,
     num_threads:                 int,
     start_time:                  time.Time,
-    // GPU renderer — nil when using the CPU path.
+    // GPU renderer — nil when using the CPU path.  Kept for backward compat;
+    // new code should use `backend` instead.
     gpu_renderer:                ^GpuRenderer,
     use_gpu:                     bool,
+    // Unified render backend — replaces direct use_gpu/gpu_renderer branching.
+    backend:                     ^RenderBackend,
     last_profile:                RenderProfileSummary,
     trace_render_scope:          util.TraceScope,
 }
@@ -406,6 +409,7 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
     stop_timer(&session.timing.thread_creation)
     util.trace_scope_end(thread_create_trace)
     session.trace_render_scope = util.trace_scope_begin("Render.Work", "render")
+    session.backend = create_cpu_backend(session)
 
     return session
 }
@@ -415,6 +419,10 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
 // Must only be called after finish_render returns.
 free_session :: proc(session: ^RenderSession) {
     if session == nil { return }
+    if session.backend != nil {
+        backend_destroy(session.backend)
+        session.backend = nil
+    }
     delete(session.pixel_buffer.pixels)
     delete(session.work_queue.tiles)
     free(session)
@@ -428,6 +436,10 @@ get_render_profile :: proc(session: ^RenderSession) -> ^RenderProfileSummary {
 }
 
 get_render_progress :: proc(session: ^RenderSession) -> f32 {
+    if session.backend != nil {
+        return backend_get_progress(session.backend)
+    }
+    // Legacy path (should not be reached in normal use).
     if session.use_gpu {
         r := session.gpu_renderer
         if r == nil { return 1.0 }
@@ -450,6 +462,12 @@ get_render_progress :: proc(session: ^RenderSession) -> f32 {
 //
 // GPU path: no threads to join. Destroys the GPU renderer and frees BVH memory.
 finish_render :: proc(session: ^RenderSession) {
+    // New unified path: delegate to backend.
+    if session.backend != nil {
+        backend_finish(session.backend, session)
+        return
+    }
+    // Legacy GPU path (kept for backward compat during migration).
     if session.use_gpu {
         util.trace_scope_end(session.trace_render_scope)
         stop_timer(&session.timing.total)
@@ -655,6 +673,7 @@ start_render_auto :: proc(
         session.gpu_renderer = renderer
         session.use_gpu      = true
         session.trace_render_scope = util.trace_scope_begin("Render.Work", "render")
+        session.backend = create_gpu_backend_adapter(renderer, session)
         when VERBOSE_OUTPUT {
             fmt.println("[GPU] Init OK — GPU rendering enabled")
         }

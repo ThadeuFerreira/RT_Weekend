@@ -43,6 +43,17 @@ bg_preset_item_rect :: proc(popover: rl.Rectangle, idx: int) -> rl.Rectangle {
 	}
 }
 
+// draw_world_axis draws RGB axis lines at the origin so users can identify
+// coordinate directions (X=red, Y=green, Z=blue).  Length scales with scene.
+draw_world_axis :: proc(ev: ^EditViewState) {
+	_, radius, _ := scene_scale_recommendations(ev.scene_mgr)
+	size := max(radius * 0.5, 1.0)
+	origin := rl.Vector3{0, 0, 0}
+	rl.DrawLine3D(origin, origin + {size, 0, 0}, rl.RED)
+	rl.DrawLine3D(origin, origin + {0, size, 0}, rl.GREEN)
+	rl.DrawLine3D(origin, origin + {0, 0, size}, rl.BLUE)
+}
+
 draw_adaptive_infinite_grid :: proc(ev: ^EditViewState) {
 	if ev == nil || !ev.grid_visible { return }
 	center, radius, _ := scene_scale_recommendations(ev.scene_mgr)
@@ -131,6 +142,7 @@ render_viewport_to_texture :: proc(app: ^App, width, height: i32) {
 		draw_volume_cube_wireframe(v, ev.selection_kind == .Volume && ev.selected_idx == i)
 	}
 	draw_viewport_camera_gizmos(app, ev)
+	draw_world_axis(ev)
 	rl.EndMode3D()
 	rl.EndTextureMode()
 }
