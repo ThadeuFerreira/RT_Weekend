@@ -123,6 +123,6 @@ create_gpu_backend_adapter :: proc(renderer: ^GpuRenderer, session: ^RenderSessi
     b := new(RenderBackend)
     b.api   = GPU_ADAPTER_API
     b.state = s
-    b.kind  = .OpenGL_Compute
+    b.kind  = renderer.kind
     return b
 }

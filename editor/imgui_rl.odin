@@ -57,10 +57,22 @@ imgui_rl_shutdown :: proc() {
 imgui_rl_new_frame :: proc() {
     io := imgui.GetIO()
 
-    // --- display size & timing ---
+    // --- display size, framebuffer scale, and timing ---
+    // ImGui uses logical/window coordinates for layout and mouse hit-testing.
+    // OpenGL rendering happens in framebuffer pixels, so propagate the ratio explicitly
+    // for HiDPI backends (Wayland, Retina, scaled displays) to avoid draw/input drift.
+    screen_w := max(rl.GetScreenWidth(), 1)
+    screen_h := max(rl.GetScreenHeight(), 1)
+    render_w := max(rl.GetRenderWidth(), 1)
+    render_h := max(rl.GetRenderHeight(), 1)
+
     io.DisplaySize = imgui.Vec2{
-        f32(rl.GetScreenWidth()),
-        f32(rl.GetScreenHeight()),
+        f32(screen_w),
+        f32(screen_h),
+    }
+    io.DisplayFramebufferScale = imgui.Vec2{
+        f32(render_w) / f32(screen_w),
+        f32(render_h) / f32(screen_h),
     }
     io.DeltaTime = max(rl.GetFrameTime(), 0.000001)
 

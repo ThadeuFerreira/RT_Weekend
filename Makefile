@@ -1,4 +1,4 @@
-.PHONY: debug release run run_gpu test test-release test-all imgui shaders vk-smoke
+.PHONY: debug debug-gl debug-vk release run run_gpu run_gpu_vk test test-release test-all imgui shaders vk-smoke
 
 # Build Dear ImGui static library from the odin-imgui submodule.
 # Run once after cloning, or after updating the submodule.
@@ -8,6 +8,14 @@ imgui:
 debug:
 	mkdir -p build
 	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -out:build/debug
+
+debug-gl:
+	mkdir -p build
+	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -define:GPU_USE_VULKAN=false -out:build/debug_gl
+
+debug-vk:
+	mkdir -p build
+	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -define:GPU_USE_VULKAN=true -out:build/debug_vk
 
 release:
 	mkdir -p build
@@ -25,6 +33,9 @@ run: debug
 
 run_gpu: debug
 	./build/debug -gpu
+
+run_gpu_vk: debug-vk
+	./build/debug_vk -gpu
 
 test: debug
 	chmod +x tests/run_tests.sh && ./tests/run_tests.sh debug

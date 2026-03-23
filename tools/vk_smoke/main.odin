@@ -181,7 +181,7 @@ main :: proc() {
 }
 
 // run_compute_test exercises the full pipeline: create pipeline, allocate buffers,
-// write descriptors, dispatch 1 sample, read back, verify the blue stub output.
+// write descriptors, dispatch 1 sample, and verify a non-zero ray-traced output.
 run_compute_test :: proc(ctx: ^vk_ctx.VulkanContext) -> bool {
 	W :: u32(16)
 	H :: u32(16)
@@ -198,23 +198,21 @@ run_compute_test :: proc(ctx: ^vk_ctx.VulkanContext) -> bool {
 	fmt.println("  compute: pipeline created OK")
 
 	// 2. Allocate buffers.
-	// UBO: camera uniforms (128 bytes, std140).
+	// UBO: camera uniforms (128 bytes, std140), must match GPUCameraUniforms.
 	CameraUBO :: struct #packed {
-		origin:         [3]f32, _pad0: f32,
+		camera_center:  [3]f32, _pad0: f32,
 		pixel00_loc:    [3]f32, _pad1: f32,
 		pixel_delta_u:  [3]f32, _pad2: f32,
 		pixel_delta_v:  [3]f32, _pad3: f32,
-		defocus_disk_u: [3]f32, _pad4: f32,
-		defocus_disk_v: [3]f32, _pad5: f32,
-		background:     [3]f32, _pad6: f32,
+		defocus_disk_u: [3]f32, defocus_angle: f32,
+		defocus_disk_v: [3]f32, _pad4: f32,
 		width:          i32,
 		height:         i32,
 		max_depth:      i32,
 		total_samples:  i32,
 		current_sample: i32,
-		defocus_angle:  f32,
-		shutter_open:   f32,
-		shutter_close:  f32,
+		_pad:           [3]i32,
+		background:     [3]f32, _pad5: f32,
 	}
 	cam := CameraUBO{
 		width          = i32(W),
@@ -310,18 +308,18 @@ run_compute_test :: proc(ctx: ^vk_ctx.VulkanContext) -> bool {
 
 	// 5. Read back and verify.
 	pixels := (^[PIXEL_COUNT][4]f32)(output.mapped)
-	// The stub shader writes vec4(0.2, 0.4, 0.8, 0.0) to every pixel.
+	// Full shader traces against an empty scene and returns background.
 	pass := true
 	for i in 0 ..< PIXEL_COUNT {
 		p := pixels[i]
-		if abs(p[0] - 0.2) > 0.01 || abs(p[1] - 0.4) > 0.01 || abs(p[2] - 0.8) > 0.01 {
+		if p[0] <= 0.0 || p[1] <= 0.0 || p[2] <= 0.0 {
 			fmt.eprintf("  compute: pixel %d mismatch: (%.3f, %.3f, %.3f)\n", i, p[0], p[1], p[2])
 			pass = false
 			break
 		}
 	}
 	if pass {
-		fmt.println("  compute: readback verified OK — all pixels match expected blue")
+		fmt.println("  compute: readback verified OK — output is non-zero")
 	}
 	return pass
 }
