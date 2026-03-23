@@ -110,5 +110,10 @@ vulkan_context_init_window :: proc(
 		return ctx, false
 	}
 
+	if !create_compute_command_pool(&ctx) {
+		vulkan_context_destroy(&ctx)
+		return ctx, false
+	}
+
 	return ctx, true
 }

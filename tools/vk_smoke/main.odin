@@ -273,38 +273,25 @@ run_compute_test :: proc(ctx: ^vk_ctx.VulkanContext) -> bool {
 	vk_ctx.write_raytrace_descriptors(ctx.device, pipeline.descriptor_set, buffers)
 	fmt.println("  compute: buffers + descriptors OK")
 
-	// 4. Record and submit a compute dispatch.
-	cmd_alloc := vk.CommandBufferAllocateInfo {
-		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
-		commandPool        = ctx.command_pool,
-		level              = .PRIMARY,
-		commandBufferCount = 1,
+	// 4. Record and submit a compute dispatch using sync utilities.
+	cmd, cmd_ok := vk_ctx.begin_one_shot(ctx.device, ctx.compute_command_pool)
+	if !cmd_ok { return false }
+
+	vk_ctx.dispatch_compute_synced(cmd, vk_ctx.DispatchSyncConfig{
+		ctx          = ctx,
+		pipeline     = &pipeline,
+		groups_x     = u32(math.ceil(f32(W) / 8.0)),
+		groups_y     = u32(math.ceil(f32(H) / 8.0)),
+		groups_z     = 1,
+		output_buffer = output.buffer,
+		output_size   = OUT_SIZE,
+		readback_host = true,
+	})
+
+	if !vk_ctx.end_one_shot_and_submit(ctx.device, ctx.compute_command_pool, ctx.compute_queue, cmd) {
+		return false
 	}
-	cmd: vk.CommandBuffer
-	if vk.AllocateCommandBuffers(ctx.device, &cmd_alloc, &cmd) != .SUCCESS { return false }
-	defer vk.FreeCommandBuffers(ctx.device, ctx.command_pool, 1, &cmd)
-
-	begin := vk.CommandBufferBeginInfo {
-		sType = .COMMAND_BUFFER_BEGIN_INFO,
-		flags = {.ONE_TIME_SUBMIT},
-	}
-	if vk.BeginCommandBuffer(cmd, &begin) != .SUCCESS { return false }
-
-	vk.CmdBindPipeline(cmd, .COMPUTE, pipeline.pipeline)
-	vk.CmdBindDescriptorSets(cmd, .COMPUTE, pipeline.pipeline_layout, 0, 1, &pipeline.descriptor_set, 0, nil)
-	vk.CmdDispatch(cmd, u32(math.ceil(f32(W) / 8.0)), u32(math.ceil(f32(H) / 8.0)), 1)
-
-	if vk.EndCommandBuffer(cmd) != .SUCCESS { return false }
-
-	if vk.ResetFences(ctx.device, 1, &ctx.fence) != .SUCCESS { return false }
-	submit := vk.SubmitInfo {
-		sType              = .SUBMIT_INFO,
-		commandBufferCount = 1,
-		pCommandBuffers    = &cmd,
-	}
-	if vk.QueueSubmit(ctx.compute_queue, 1, &submit, ctx.fence) != .SUCCESS { return false }
-	vk.WaitForFences(ctx.device, 1, &ctx.fence, true, ~u64(0))
-	fmt.println("  compute: dispatch OK")
+	fmt.println("  compute: dispatch OK (with sync barriers)")
 
 	// 5. Read back and verify.
 	pixels := (^[PIXEL_COUNT][4]f32)(output.mapped)
