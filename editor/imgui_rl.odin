@@ -58,27 +58,32 @@ imgui_rl_new_frame :: proc() {
     io := imgui.GetIO()
 
     // --- display size, framebuffer scale, and timing ---
-    // ImGui uses logical/window coordinates for layout and mouse hit-testing.
-    // OpenGL rendering happens in framebuffer pixels, so propagate the ratio explicitly
-    // for HiDPI backends (Wayland, Retina, scaled displays) to avoid draw/input drift.
-    screen_w := max(rl.GetScreenWidth(), 1)
-    screen_h := max(rl.GetScreenHeight(), 1)
-    render_w := max(rl.GetRenderWidth(), 1)
-    render_h := max(rl.GetRenderHeight(), 1)
+    // On Wayland with fractional scaling, Raylib reports physical pixel sizes for
+    // both GetScreenWidth and GetRenderWidth (they match), but mouse coordinates
+    // arrive in logical (unscaled) space.  Use GetWindowScaleDPI to compute the
+    // logical display size and set the framebuffer scale accordingly so ImGui's
+    // layout, hit-testing, and OpenGL rendering all use consistent coordinates.
+    dpi := rl.GetWindowScaleDPI()
+    dpi_x := max(dpi.x, 1.0)
+    dpi_y := max(dpi.y, 1.0)
 
-    io.DisplaySize = imgui.Vec2{
-        f32(screen_w),
-        f32(screen_h),
-    }
-    io.DisplayFramebufferScale = imgui.Vec2{
-        f32(render_w) / f32(screen_w),
-        f32(render_h) / f32(screen_h),
-    }
+    screen_w := f32(max(rl.GetScreenWidth(), 1))
+    screen_h := f32(max(rl.GetScreenHeight(), 1))
+    render_w := f32(max(rl.GetRenderWidth(), 1))
+    render_h := f32(max(rl.GetRenderHeight(), 1))
+
+    // Logical display size: what ImGui uses for layout and mouse hit-testing.
+    // Framebuffer scale: ratio from logical to actual GL framebuffer pixels.
+    logical_w := screen_w / dpi_x
+    logical_h := screen_h / dpi_y
+    io.DisplaySize = imgui.Vec2{logical_w, logical_h}
+    io.DisplayFramebufferScale = imgui.Vec2{render_w / logical_w, render_h / logical_h}
+
     io.DeltaTime = max(rl.GetFrameTime(), 0.000001)
 
-    // --- mouse position ---
+    // --- mouse position (Raylib returns logical coordinates on Wayland) ---
     mp := rl.GetMousePosition()
-    imgui.IO_AddMousePosEvent(io, mp.x, mp.y)
+    imgui.IO_AddMousePosEvent(io, mp.x / dpi_x, mp.y / dpi_y)
 
     // --- mouse buttons (0=left, 1=right, 2=middle) ---
     imgui.IO_AddMouseButtonEvent(io, 0, rl.IsMouseButtonDown(.LEFT))
