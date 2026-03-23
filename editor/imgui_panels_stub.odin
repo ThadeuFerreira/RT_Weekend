@@ -226,7 +226,12 @@ imgui_draw_stats_panel :: proc(app: ^App) {
             imgui.Separator()
             mode_label := rt.backend_kind_label(app.r_session.backend.kind) if app.r_session.backend != nil else "CPU"
             imgui.Text("Mode:     %s", strings.clone_to_cstring(mode_label, context.temp_allocator))
-            imgui.Text("Elapsed:  %.2fs", app.elapsed_secs)
+            if app.finished {
+                done_elapsed_col := imgui.Vec4{100.0 / 255.0, 220.0 / 255.0, 120.0 / 255.0, 1.0}
+                imgui.TextColored(done_elapsed_col, "Elapsed:  %.2fs", app.elapsed_secs)
+            } else {
+                imgui.Text("Elapsed:  %.2fs", app.elapsed_secs)
+            }
             imgui.Text("Threads:  %d", app.num_threads)
             imgui.Text("Res:      %dx%d @ %d spp",
                 app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel)

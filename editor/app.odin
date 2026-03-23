@@ -543,7 +543,9 @@ run_app :: proc(
         frame_scope := util.trace_scope_begin("Frame", "game")
         frame += 1
 
-        app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
+        if !app.finished {
+            app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
+        }
 
         // ── Input phase (priority order) ──────────────────────────────────
         keyboard_update(&app.keyboard)
@@ -614,6 +616,7 @@ run_app :: proc(
                     rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
                 }
                 rt.finish_render(app.r_session)
+                app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
                 app.finished = true
                 // CPU backend: do a final readback after finish (threads joined, buffer complete).
                 if b != nil && b.kind == .CPU {
