@@ -25,6 +25,8 @@ import vk "vendor:vulkan"
 import "RT_Weekend:vk_ctx"
 
 RAYTRACE_VK_SPV :: #load("../../assets/shaders/raytrace_vk.comp.spv")
+HELLO_TRIANGLE_VERT_SPV :: #load("../../assets/shaders/hello_triangle_vk.vert.spv")
+HELLO_TRIANGLE_FRAG_SPV :: #load("../../assets/shaders/hello_triangle_vk.frag.spv")
 
 main :: proc() {
 	mode := "headless"
@@ -120,6 +122,21 @@ main :: proc() {
 		os.exit(1)
 	}
 	fmt.println("vk_smoke: swapchain OK")
+
+	vert_spv := HELLO_TRIANGLE_VERT_SPV
+	frag_spv := HELLO_TRIANGLE_FRAG_SPV
+	tri, tri_ok := vk_ctx.create_triangle_renderer(
+		&ctx,
+		&sc,
+		vert_spv[:],
+		frag_spv[:],
+	)
+	defer vk_ctx.destroy_triangle_renderer(ctx.device, &tri)
+	if !tri_ok {
+		fmt.eprintln("vk_smoke: hello-triangle pipeline creation failed")
+		os.exit(1)
+	}
+	fmt.println("vk_smoke: hello-triangle pipeline OK")
 	pump_events := true
 	if glfw.GetPlatform() == glfw.PLATFORM_WAYLAND && !terminal.is_terminal(os.stdin) {
 		// Some launchers run GUI apps with stdin redirected (/dev/null), which can break
@@ -141,9 +158,8 @@ main :: proc() {
 
 	frame_count := 0
 	for {
-		// Clear to cornflower blue.
-		if !vk_ctx.swapchain_present_clear(&ctx, &sc, 0.39, 0.58, 0.93) {
-			fmt.eprintln("vk_smoke: present failed")
+		if !vk_ctx.swapchain_present_triangle(&ctx, &sc, &tri) {
+			fmt.eprintln("vk_smoke: triangle present failed")
 			break
 		}
 		frame_count += 1
