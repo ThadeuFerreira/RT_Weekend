@@ -7,6 +7,31 @@ import "core:fmt"
 import glfw "vendor:glfw"
 import vk "vendor:vulkan"
 
+when ODIN_OS == .Linux {
+	foreign import libvulkan "system:vulkan"
+	@(default_calling_convention = "system")
+	foreign libvulkan {
+		@(link_name = "vkGetInstanceProcAddr")
+		vkGetInstanceProcAddr_raw :: proc(instance: vk.Instance, pName: cstring) -> rawptr ---
+	}
+}
+when ODIN_OS == .Windows {
+	foreign import vulkan1 "system:vulkan-1.lib"
+	@(default_calling_convention = "system")
+	foreign vulkan1 {
+		@(link_name = "vkGetInstanceProcAddr")
+		vkGetInstanceProcAddr_raw :: proc(instance: vk.Instance, pName: cstring) -> rawptr ---
+	}
+}
+when ODIN_OS == .Darwin {
+	foreign import libvulkan "system:vulkan"
+	@(default_calling_convention = "system")
+	foreign libvulkan {
+		@(link_name = "vkGetInstanceProcAddr")
+		vkGetInstanceProcAddr_raw :: proc(instance: vk.Instance, pName: cstring) -> rawptr ---
+	}
+}
+
 // When true (default in debug builds), enable validation layers and VK_EXT_debug_utils.
 VK_VALIDATION :: #config(VK_VALIDATION, ODIN_DEBUG)
 
@@ -151,6 +176,23 @@ vk_load_vulkan :: proc(headless := false, window_platform: c.int = glfw.ANY_PLAT
 	if vk.EnumerateInstanceExtensionProperties(nil, &ext_count, nil) != .SUCCESS {
 		fmt.eprintln("vk_ctx: vkEnumerateInstanceExtensionProperties failed (Vulkan loader broken?)")
 		glfw.Terminate()
+		return false
+	}
+	return true
+}
+
+// vk_load_vulkan_direct loads Vulkan global procedures directly from the Vulkan
+// loader without initializing GLFW. Use this inside processes where another
+// windowing layer already owns GLFW state (e.g. Raylib editor process).
+vk_load_vulkan_direct :: proc() -> bool {
+	vk.load_proc_addresses_global(rawptr(vkGetInstanceProcAddr_raw))
+	if vk.GetInstanceProcAddr == nil {
+		fmt.eprintln("vk_ctx: vkGetInstanceProcAddr is null after direct load")
+		return false
+	}
+	ext_count: u32
+	if vk.EnumerateInstanceExtensionProperties(nil, &ext_count, nil) != .SUCCESS {
+		fmt.eprintln("vk_ctx: vkEnumerateInstanceExtensionProperties failed (Vulkan loader broken?)")
 		return false
 	}
 	return true

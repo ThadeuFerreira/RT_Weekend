@@ -100,7 +100,7 @@ make_cstring_temp :: proc(s: string) -> cstring {
 @(private="package") draw_edit_view_context_menu :: proc(app: ^App, ev: ^EditViewState) {
 	items := ctx_menu_build_items(app, ev)
 	rect  := ctx_menu_screen_rect(app, ev)
-	mouse := rl.GetMousePosition()
+	mouse := imgui_rl_mouse_pos()
 
 	rl.DrawRectangleRec(rect, PANEL_BG_COLOR)
 	rl.DrawRectangleLinesEx(rect, 1, BORDER_COLOR)

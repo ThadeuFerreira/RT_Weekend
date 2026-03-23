@@ -1,74 +1,476 @@
 #version 450
 
-// Stub Vulkan compute shader for the ray tracer.
-// Matches the OpenGL raytrace.comp binding layout; writes a solid blue to the
-// output buffer so the pipeline can be validated end-to-end before the full
-// ray tracing logic is ported.
-
 layout(local_size_x = 8, local_size_y = 8) in;
 
-// Binding 0 — camera / frame uniforms (std140).
+const int MAT_LAMBERTIAN    = 0;
+const int MAT_METALLIC      = 1;
+const int MAT_DIELECTRIC    = 2;
+const int MAT_DIFFUSE_LIGHT = 3;
+const int MAT_ISOTROPIC     = 4;
+
+const int TEX_CONSTANT = 0;
+const int TEX_CHECKER  = 1;
+const int TEX_IMAGE    = 2;
+const int TEX_NOISE    = 3;
+const int TEX_MARBLE   = 4;
+
+const int LEAF_SPHERE = -1;
+const int LEAF_QUAD   = -2;
+const int LEAF_VOLUME = -3;
+
 layout(set = 0, binding = 0, std140) uniform CameraBlock {
-    vec3  origin;           float _pad0;
-    vec3  pixel00_loc;      float _pad1;
-    vec3  pixel_delta_u;    float _pad2;
-    vec3  pixel_delta_v;    float _pad3;
-    vec3  defocus_disk_u;   float _pad4;
-    vec3  defocus_disk_v;   float _pad5;
-    vec3  background;       float _pad6;
-    int   width;
-    int   height;
-    int   max_depth;
-    int   total_samples;
-    int   current_sample;
-    float defocus_angle;
-    float shutter_open;
-    float shutter_close;
+    vec4 camera_center;
+    vec4 pixel00_loc;
+    vec4 pixel_delta_u;
+    vec4 pixel_delta_v;
+    vec4 defocus_disk_u;
+    vec4 defocus_disk_v;
+    int  width;
+    int  height;
+    int  max_depth;
+    int  total_samples;
+    int  current_sample;
+    int  _pad0, _pad1, _pad2;
+    vec4 background;
 };
 
-// Binding 1 — spheres (read-only, std430).
-layout(set = 0, binding = 1, std430) readonly buffer SphereBlock {
-    int sphere_header[4];
-    // GPUSphere array follows (stride 144 bytes).
-    float sphere_data[];
+struct Ray { vec3 origin; float _pad0; vec3 dir; float time; };
+struct Sphere {
+    Ray   center;
+    float radius;
+    float _pad_r[3];
+    vec3  albedo;
+    int   mat_type;
+    float fuzz_or_ior;
+    float _pad[3];
+    int   tex_type;
+    float tex_scale;
+    float _pad_tex[2];
+    vec3  tex_even;
+    float _pad_even;
+    vec3  tex_odd;
+    float _pad_odd;
+    int   tex_index;
+    float _pad_stride[3];
+};
+struct BVHNode { vec3 aabb_min; int right_or_obj_idx; vec3 aabb_max; int left_idx; };
+struct Quad {
+    vec3  Q; float _pad0;
+    vec3  u; float _pad1;
+    vec3  v; float _pad2;
+    vec3  w; float _pad3;
+    vec3  normal; float _pad4;
+    float D; int mat_type; float _pad5[2];
+    vec3  albedo; float _pad6;
+    float fuzz_or_ior; int tex_type; float tex_scale; float _pad7[2];
+    float _pad_align_tex[3];
+    vec3  tex_even; float _pad8;
+    vec3  tex_odd;  float _pad9;
+};
+struct Volume {
+    float density; float _pad_d[3];
+    vec3  albedo;  float _pad_a;
+    int   quad_start;
+    int   _pad_stride[3];
+};
+struct HitRecord {
+    vec3 p, normal;
+    float t;
+    bool front_face;
+    float u, v;
+    int mat_type;
+    vec3 albedo;
+    float fuzz_or_ior;
+    float ray_time;
+    int tex_type;
+    float tex_scale;
+    vec3 tex_even;
+    vec3 tex_odd;
+    int tex_index;
 };
 
-// Binding 2 — BVH nodes (read-only, std430).
+layout(set = 0, binding = 1, std430) readonly buffer SpheresBlock {
+    int sphere_count;
+    int _sphere_pad[3];
+    Sphere spheres[];
+};
 layout(set = 0, binding = 2, std430) readonly buffer BVHBlock {
-    int bvh_header[4];
-    // LinearBVHNode array follows (stride 32 bytes).
-    float bvh_data[];
+    int bvh_count;
+    int _bvh_pad[3];
+    BVHNode bvh_nodes[];
 };
-
-// Binding 3 — accumulation output (read-write, std430).
 layout(set = 0, binding = 3, std430) buffer OutputBlock {
     vec4 pixels[];
 };
-
-// Binding 4 — quads (read-only, std430).
-layout(set = 0, binding = 4, std430) readonly buffer QuadBlock {
-    int quad_header[4];
-    float quad_data[];
+layout(set = 0, binding = 4, std430) readonly buffer QuadsBlock {
+    int quad_count;
+    int _quad_pad[3];
+    Quad quads[];
+};
+layout(set = 0, binding = 5, std430) readonly buffer VolumesBlock {
+    int volume_count;
+    int _vol_pad[3];
+    Volume volumes[];
+};
+layout(set = 0, binding = 6, std430) readonly buffer VolumeQuadsBlock {
+    int volume_quad_count;
+    int _vq_pad[3];
+    Quad volume_quads[];
 };
 
-// Binding 5 — volumes (read-only, std430).
-layout(set = 0, binding = 5, std430) readonly buffer VolumeBlock {
-    int volume_header[4];
-    float volume_data[];
-};
+const int _perm[256] = int[256](
+    151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
+    247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,
+    74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,
+    65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,
+    52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,
+    119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,
+    218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,
+    184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180
+);
 
-// Binding 6 — volume quads (read-only, std430).
-layout(set = 0, binding = 6, std430) readonly buffer VolumeQuadBlock {
-    int volume_quad_header[4];
-    float volume_quad_data[];
-};
+float perlin_fade(float t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
+float perlin_grad(int h, float x, float y, float z) {
+    h &= 15;
+    float u = (h < 8) ? x : y;
+    float v = (h < 4) ? y : ((h == 12 || h == 14) ? x : z);
+    return (((h & 1) != 0) ? -u : u) + (((h & 2) != 0) ? -v : v);
+}
+int perm(int i) { return _perm[i & 255]; }
+float perlin_noise_3d(vec3 p) {
+    int ix = int(floor(p.x)) & 255;
+    int iy = int(floor(p.y)) & 255;
+    int iz = int(floor(p.z)) & 255;
+    float fx = fract(p.x), fy = fract(p.y), fz = fract(p.z);
+    float u = perlin_fade(fx), v = perlin_fade(fy), w = perlin_fade(fz);
+    int A = perm(ix) + iy, AA = perm(A) + iz, AB = perm(A + 1) + iz;
+    int B = perm(ix + 1) + iy, BA = perm(B) + iz, BB = perm(B + 1) + iz;
+    float x0 = mix(perlin_grad(perm(AA), fx, fy, fz), perlin_grad(perm(BA), fx - 1, fy, fz), u);
+    float x1 = mix(perlin_grad(perm(AB), fx, fy - 1, fz), perlin_grad(perm(BB), fx - 1, fy - 1, fz), u);
+    float x2 = mix(perlin_grad(perm(AA + 1), fx, fy, fz - 1), perlin_grad(perm(BA + 1), fx - 1, fy, fz - 1), u);
+    float x3 = mix(perlin_grad(perm(AB + 1), fx, fy - 1, fz - 1), perlin_grad(perm(BB + 1), fx - 1, fy - 1, fz - 1), u);
+    return mix(mix(x0, x1, v), mix(x2, x3, v), w);
+}
+float perlin_fbm(vec3 p) { float r = 0.0, a = 1.0; for (int i = 0; i < 6; i++) { r += a * perlin_noise_3d(p); a *= 0.5; p *= 2.0; } return r; }
+float perlin_turbulence(vec3 p, int depth) { float a = 0.0, w = 1.0; for (int i = 0; i < depth; i++) { a += w * abs(perlin_noise_3d(p)); w *= 0.5; p *= 2.0; } return a; }
+
+uint pcg_hash(uint v) { v = v * 747796405u + 2891336453u; uint word = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u; return (word >> 22u) ^ word; }
+uint pcg(inout uint state) { state = state * 747796405u + 2891336453u; uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u; return (word >> 22u) ^ word; }
+float rand(inout uint seed) { return float(pcg(seed)) / float(0xFFFFFFFFu); }
+vec2 rand2(inout uint seed) { float a = rand(seed), b = rand(seed); return vec2(a, b); }
+vec3 rand_unit_vec3(inout uint seed) {
+    for (int i = 0; i < 16; i++) {
+        vec3 p = vec3(rand(seed), rand(seed), rand(seed)) * 2.0 - 1.0;
+        float lsq = dot(p, p);
+        if (lsq <= 1.0 && lsq > 1e-8) return p / sqrt(lsq);
+    }
+    return vec3(0, 1, 0);
+}
+vec2 rand_in_unit_disk(inout uint seed) {
+    for (int i = 0; i < 16; i++) {
+        vec2 p = rand2(seed) * 2.0 - 1.0;
+        if (dot(p, p) < 1.0) return p;
+    }
+    return vec2(0);
+}
+
+vec3 ray_at(Ray r, float t) { return r.origin + t * r.dir; }
+vec3 sphere_center_at(Sphere s, float t) { return (s._pad[0] == 0.0) ? s.center.origin : (s.center.origin + t * s.center.dir); }
+void set_face_normal(inout HitRecord rec, Ray r, vec3 outward_normal) { rec.front_face = dot(r.dir, outward_normal) < 0.0; rec.normal = rec.front_face ? outward_normal : -outward_normal; }
+vec2 sphere_get_uv(vec3 p) {
+    float theta = acos(-p.y);
+    float phi = atan(-p.z, p.x) + 3.14159265359;
+    return vec2(phi / (2.0 * 3.14159265359), theta / 3.14159265359);
+}
+
+bool hit_sphere(Sphere s, Ray r, float t_min, float t_max, out HitRecord rec) {
+    vec3  center = sphere_center_at(s, r.time);
+    vec3  oc = center - r.origin;
+    float a = dot(r.dir, r.dir);
+    float h = dot(r.dir, oc);
+    float c = dot(oc, oc) - s.radius * s.radius;
+    float d = h * h - a * c;
+    if (d < 0.0) return false;
+    float sq = sqrt(d);
+    float root = (h - sq) / a;
+    if (root < t_min || root > t_max) { root = (h + sq) / a; if (root < t_min || root > t_max) return false; }
+    rec.t = root;
+    rec.p = ray_at(r, rec.t);
+    vec3 outward = (rec.p - center) / s.radius;
+    set_face_normal(rec, r, outward);
+    vec2 uv = sphere_get_uv(outward);
+    rec.u = uv.x; rec.v = uv.y;
+    rec.mat_type = s.mat_type;
+    rec.albedo = s.albedo;
+    rec.fuzz_or_ior = s.fuzz_or_ior;
+    rec.ray_time = r.time;
+    rec.tex_type = s.tex_type;
+    rec.tex_scale = s.tex_scale;
+    rec.tex_even = s.tex_even;
+    rec.tex_odd = s.tex_odd;
+    rec.tex_index = s.tex_index;
+    return true;
+}
+
+bool is_interior_quad(float alpha, float beta, out HitRecord rec) {
+    if (alpha < 0.0 || alpha > 1.0 || beta < 0.0 || beta > 1.0) return false;
+    rec.u = alpha;
+    rec.v = beta;
+    return true;
+}
+bool hit_quad_t(Ray r, vec3 Q, vec3 u, vec3 v, vec3 normal, float D, vec3 w, float t_min, float t_max, out float t_hit) {
+    float denom = dot(normal, r.dir);
+    if (abs(denom) < 1e-8) return false;
+    float t = (D - dot(normal, r.origin)) / denom;
+    if (t < t_min || t > t_max) return false;
+    vec3 p = ray_at(r, t);
+    vec3 planar = p - Q;
+    float alpha = dot(w, cross(planar, v));
+    float beta = dot(w, cross(u, planar));
+    if (alpha < 0.0 || alpha > 1.0 || beta < 0.0 || beta > 1.0) return false;
+    t_hit = t;
+    return true;
+}
+bool hit_quad(Quad q, Ray r, float t_min, float t_max, out HitRecord rec) {
+    float denom = dot(q.normal, r.dir);
+    if (abs(denom) < 1e-8) return false;
+    float t = (q.D - dot(q.normal, r.origin)) / denom;
+    if (t < t_min || t > t_max) return false;
+    vec3 p = ray_at(r, t);
+    vec3 planar = p - q.Q;
+    float alpha = dot(q.w, cross(planar, q.v));
+    float beta = dot(q.w, cross(q.u, planar));
+    if (!is_interior_quad(alpha, beta, rec)) return false;
+    rec.t = t;
+    rec.p = p;
+    set_face_normal(rec, r, q.normal);
+    rec.mat_type = q.mat_type;
+    rec.albedo = q.albedo;
+    rec.fuzz_or_ior = q.fuzz_or_ior;
+    rec.ray_time = r.time;
+    rec.tex_type = q.tex_type;
+    rec.tex_scale = q.tex_scale;
+    rec.tex_even = q.tex_even;
+    rec.tex_odd = q.tex_odd;
+    rec.tex_index = 0;
+    return true;
+}
+
+bool volume_boundary_interval(int vol_idx, Ray r, float t_min, float t_max, out float t_entry, out float t_exit) {
+    if (vol_idx < 0 || vol_idx >= volume_count) return false;
+    int start = volumes[vol_idx].quad_start;
+    if (start < 0 || start + 6 > volume_quad_count) return false;
+    float hits[6];
+    int n = 0;
+    for (int i = 0; i < 6 && n < 6; i++) {
+        float th;
+        Quad q = volume_quads[start + i];
+        if (hit_quad_t(r, q.Q, q.u, q.v, q.normal, q.D, q.w, t_min, 1e30, th)) hits[n++] = th;
+    }
+    if (n == 0) return false;
+    if (n == 1) { t_exit = hits[0]; t_entry = max(t_min, 0.001); return true; }
+    float lo = hits[0], hi = hits[0];
+    for (int i = 1; i < n; i++) { lo = min(lo, hits[i]); hi = max(hi, hits[i]); }
+    t_entry = lo; t_exit = hi; return true;
+}
+bool hit_volume(int vol_idx, Ray r, float t_min, float t_max, float closest, inout uint seed, out HitRecord rec) {
+    float t_entry, t_exit;
+    if (!volume_boundary_interval(vol_idx, r, t_min, t_max, t_entry, t_exit)) return false;
+    t_entry = max(t_entry, t_min);
+    t_exit = min(t_exit, t_max);
+    if (t_entry >= t_exit) return false;
+    Volume vol = volumes[vol_idx];
+    float seg_len = t_exit - t_entry;
+    float u = rand(seed);
+    if (u >= 1.0 - 1e-7) return false;
+    float hit_dist = -log(1.0 - u) / vol.density;
+    if (hit_dist >= seg_len) return false;
+    float t_scatter = t_entry + hit_dist;
+    if (t_scatter >= closest) return false;
+    rec.p = ray_at(r, t_scatter);
+    rec.t = t_scatter;
+    rec.normal = rand_unit_vec3(seed);
+    rec.front_face = true;
+    rec.u = 0.0; rec.v = 0.0;
+    rec.mat_type = MAT_ISOTROPIC;
+    rec.albedo = vol.albedo;
+    rec.fuzz_or_ior = 0.0;
+    rec.ray_time = r.time;
+    rec.tex_type = TEX_CONSTANT;
+    rec.tex_scale = 1.0;
+    rec.tex_even = rec.albedo;
+    rec.tex_odd = rec.albedo;
+    rec.tex_index = 0;
+    return true;
+}
+
+const float AABB_EPS = 1e-4;
+bool aabb_hit_fast(vec3 aabb_min, vec3 aabb_max, vec3 dir, vec3 inv_dir, vec3 origin, float t_min, float t_max) {
+    vec3 bmin = aabb_min, bmax = aabb_max, size = bmax - bmin;
+    if (size.x < AABB_EPS) { bmin.x -= AABB_EPS; bmax.x += AABB_EPS; }
+    if (size.y < AABB_EPS) { bmin.y -= AABB_EPS; bmax.y += AABB_EPS; }
+    if (size.z < AABB_EPS) { bmin.z -= AABB_EPS; bmax.z += AABB_EPS; }
+    vec3 t0 = (bmin - origin) * inv_dir;
+    vec3 t1 = (bmax - origin) * inv_dir;
+    vec3 t_lo = min(t0, t1), t_hi = max(t0, t1);
+    float t_enter = max(max(t_lo.x, t_lo.y), t_lo.z);
+    float t_exit = min(min(t_hi.x, t_hi.y), t_hi.z);
+    return !(t_exit < t_min || t_enter > t_max);
+}
+
+bool bvh_hit_scene(Ray r, float t_min, float t_max, inout uint seed, out HitRecord closest_rec) {
+    float closest = t_max;
+    bool hit_anything = false;
+    vec3 inv_dir = 1.0 / r.dir;
+    int stack[64];
+    int sp = 0;
+    stack[sp++] = 0;
+    while (sp > 0) {
+        int idx = stack[--sp];
+        if (idx < 0 || idx >= bvh_count) continue;
+        BVHNode node = bvh_nodes[idx];
+        if (!aabb_hit_fast(node.aabb_min, node.aabb_max, r.dir, inv_dir, r.origin, t_min, closest)) continue;
+        if (node.left_idx == LEAF_SPHERE) {
+            int obj_idx = -(node.right_or_obj_idx + 1);
+            if (obj_idx >= 0 && obj_idx < sphere_count) {
+                HitRecord rec;
+                if (hit_sphere(spheres[obj_idx], r, t_min, closest, rec)) { closest = rec.t; closest_rec = rec; hit_anything = true; }
+            }
+        } else if (node.left_idx == LEAF_QUAD) {
+            int obj_idx = -(node.right_or_obj_idx + 1);
+            if (obj_idx >= 0 && obj_idx < quad_count) {
+                HitRecord rec;
+                if (hit_quad(quads[obj_idx], r, t_min, closest, rec)) { closest = rec.t; closest_rec = rec; hit_anything = true; }
+            }
+        } else if (node.left_idx == LEAF_VOLUME) {
+            int vol_idx = -(node.right_or_obj_idx + 1);
+            if (vol_idx >= 0 && volume_count > 0) {
+                HitRecord rec;
+                if (hit_volume(vol_idx, r, t_min, t_max, closest, seed, rec)) { closest = rec.t; closest_rec = rec; hit_anything = true; }
+            }
+        } else {
+            if (node.right_or_obj_idx >= 0 && sp < 63) stack[sp++] = node.right_or_obj_idx;
+            if (node.left_idx >= 0 && sp < 63) stack[sp++] = node.left_idx;
+        }
+    }
+    return hit_anything;
+}
+
+vec3 texture_value_lambertian(HitRecord rec) {
+    if (rec.tex_type == TEX_CHECKER) {
+        float safe_scale = abs(rec.tex_scale) > 1e-8 ? rec.tex_scale : 1.0;
+        float inv_scale = 1.0 / safe_scale;
+        int xi = int(floor(inv_scale * rec.p.x));
+        int yi = int(floor(inv_scale * rec.p.y));
+        int zi = int(floor(inv_scale * rec.p.z));
+        int parity = ((xi + yi + zi) % 2 + 2) % 2;
+        return parity == 0 ? rec.tex_even : rec.tex_odd;
+    }
+    if (rec.tex_type == TEX_NOISE) {
+        float safe_scale = abs(rec.tex_scale) > 1e-6 ? rec.tex_scale : 1.0;
+        float n = perlin_fbm(rec.p * safe_scale);
+        float val = clamp(0.5 * (1.0 + n), 0.0, 1.0);
+        return vec3(val);
+    }
+    if (rec.tex_type == TEX_MARBLE) {
+        float safe_scale = abs(rec.tex_scale) > 1e-6 ? rec.tex_scale : 1.0;
+        float turb = perlin_turbulence(rec.p, 7);
+        float val = clamp(0.5 * (1.0 + sin(safe_scale * rec.p.z + 10.0 * turb)), 0.0, 1.0);
+        return vec3(val);
+    }
+    if (rec.tex_type == TEX_IMAGE) {
+        return rec.albedo; // Vulkan compute MVP: image textures fallback to stored albedo.
+    }
+    return rec.albedo;
+}
+bool scatter_lambertian(HitRecord rec, inout uint seed, out vec3 attenuation, out Ray scattered) {
+    vec3 scatter_dir = rec.normal + rand_unit_vec3(seed);
+    if (dot(scatter_dir, scatter_dir) < 1e-12) scatter_dir = rec.normal;
+    scattered = Ray(rec.p, 0.0, scatter_dir, rec.ray_time);
+    attenuation = texture_value_lambertian(rec);
+    return true;
+}
+bool scatter_metallic(vec3 albedo, float fuzz, Ray r_in, HitRecord rec, inout uint seed, out vec3 attenuation, out Ray scattered) {
+    vec3 reflected = normalize(reflect(normalize(r_in.dir), rec.normal)) + fuzz * rand_unit_vec3(seed);
+    scattered = Ray(rec.p, 0.0, reflected, rec.ray_time);
+    attenuation = albedo;
+    return dot(scattered.dir, rec.normal) > 0.0;
+}
+float schlick(float cosine, float ref_idx) {
+    float r0 = (1.0 - ref_idx) / (1.0 + ref_idx);
+    r0 *= r0;
+    return r0 + (1.0 - r0) * pow(1.0 - cosine, 5.0);
+}
+bool scatter_isotropic(vec3 albedo, HitRecord rec, inout uint seed, out vec3 attenuation, out Ray scattered) {
+    scattered = Ray(rec.p, 0.0, rand_unit_vec3(seed), rec.ray_time);
+    attenuation = albedo;
+    return true;
+}
+bool scatter_dielectric(float ior, Ray r_in, HitRecord rec, inout uint seed, out vec3 attenuation, out Ray scattered) {
+    attenuation = vec3(1.0);
+    float ri = rec.front_face ? (1.0 / ior) : ior;
+    vec3 unit_dir = normalize(r_in.dir);
+    float cos_theta = min(dot(-unit_dir, rec.normal), 1.0);
+    float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+    bool cannot_refract = ri * sin_theta > 1.0;
+    vec3 dir = (cannot_refract || schlick(cos_theta, ri) > rand(seed)) ? reflect(unit_dir, rec.normal) : refract(unit_dir, rec.normal, ri);
+    scattered = Ray(rec.p, 0.0, dir, rec.ray_time);
+    return true;
+}
+vec3 material_emitted(HitRecord rec) { return rec.mat_type == MAT_DIFFUSE_LIGHT ? rec.albedo : vec3(0.0); }
+
+vec3 path_trace(Ray r, inout uint seed) {
+    vec3 throughput = vec3(1.0), colour = vec3(0.0);
+    for (int depth = 0; depth < max_depth; depth++) {
+        HitRecord rec;
+        if (bvh_hit_scene(r, 0.001, 1e30, seed, rec)) {
+            colour += throughput * material_emitted(rec);
+            vec3 attenuation;
+            Ray scattered;
+            bool did_scatter = false;
+            switch (rec.mat_type) {
+                case MAT_LAMBERTIAN:    did_scatter = scatter_lambertian(rec, seed, attenuation, scattered); break;
+                case MAT_METALLIC:      did_scatter = scatter_metallic(rec.albedo, rec.fuzz_or_ior, r, rec, seed, attenuation, scattered); break;
+                case MAT_DIELECTRIC:    did_scatter = scatter_dielectric(rec.fuzz_or_ior, r, rec, seed, attenuation, scattered); break;
+                case MAT_DIFFUSE_LIGHT: did_scatter = false; break;
+                case MAT_ISOTROPIC:     did_scatter = scatter_isotropic(rec.albedo, rec, seed, attenuation, scattered); break;
+                default:                did_scatter = false; break;
+            }
+            if (!did_scatter) return colour;
+            throughput *= attenuation;
+            r = scattered;
+        } else {
+            colour += throughput * background.rgb;
+            return colour;
+        }
+    }
+    return colour;
+}
 
 void main() {
-    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
-    if (px.x >= width || px.y >= height) return;
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= width || pixel.y >= height) return;
+    int pixel_idx = pixel.y * width + pixel.x;
+    uint pixel_index = uint(pixel_idx);
+    uint sample_index = uint(current_sample);
+    uint seed = pcg_hash(pixel_index ^ (sample_index * 2654435761u));
+    pcg(seed); pcg(seed);
 
-    int idx = px.y * width + px.x;
+    vec2 jitter = rand2(seed) - 0.5;
+    float fx = float(pixel.x) + jitter.x;
+    float fy = float(pixel.y) + jitter.y;
+    vec3 pixel_sample = pixel00_loc.xyz + fx * pixel_delta_u.xyz + fy * pixel_delta_v.xyz;
 
-    // Stub: accumulate a recognizable blue so we can verify the pipeline works.
-    pixels[idx] += vec4(0.2, 0.4, 0.8, 0.0);
+    vec3 ray_origin;
+    float defocus_angle = defocus_disk_u.w;
+    if (defocus_angle <= 0.0) {
+        ray_origin = camera_center.xyz;
+    } else {
+        vec2 disk = rand_in_unit_disk(seed);
+        ray_origin = camera_center.xyz + disk.x * defocus_disk_u.xyz + disk.y * defocus_disk_v.xyz;
+    }
+
+    Ray primary = Ray(ray_origin, 0.0, pixel_sample - ray_origin, rand(seed));
+    vec3 colour = path_trace(primary, seed);
+    pixels[pixel_idx] += vec4(colour, 0.0);
 }

@@ -78,7 +78,7 @@ save_changes_modal_update :: proc(app: ^App) {
         dx := (sw - dialog_w) * 0.5
         dy := (sh - dialog_h) * 0.5
         btn_save, btn_save_as, btn_cancel, btn_continue := save_changes_button_rects(dx, dy, dialog_w, dialog_h)
-        mouse := rl.GetMousePosition()
+        mouse := imgui_rl_mouse_pos()
         save_enabled := len(app.current_scene_path) > 0
         if save_enabled && rl.CheckCollisionPointRec(mouse, btn_save) {
             save_changes_modal_apply(app, .Save)
@@ -153,7 +153,7 @@ save_changes_modal_draw :: proc(app: ^App) {
     }
 
     btn_save, btn_save_as, btn_cancel, btn_continue := save_changes_button_rects(dx, dy, dialog_w, dialog_h)
-    mouse := rl.GetMousePosition()
+    mouse := imgui_rl_mouse_pos()
     save_enabled := len(app.current_scene_path) > 0
     save_hov     := save_enabled && rl.CheckCollisionPointRec(mouse, btn_save)
     save_as_hov  := rl.CheckCollisionPointRec(mouse, btn_save_as)
@@ -223,7 +223,7 @@ confirm_load_modal_update :: proc(app: ^App) {
         dy := (sh - dialog_h) * 0.5
 
         btn_save_load, btn_load, btn_cancel := confirm_button_rects(dx, dy, dialog_w, dialog_h)
-        mouse := rl.GetMousePosition()
+        mouse := imgui_rl_mouse_pos()
         // Save & Load only when dirty (so user can save before replacing); disabled when scene is clean
         save_enabled := app.e_scene_dirty
 
@@ -277,7 +277,7 @@ confirm_load_modal_draw :: proc(app: ^App) {
     rl.DrawText( "This cannot be undone.", i32(dx) + 12, i32(dy) + 54, 12, CONTENT_TEXT_COLOR)
 
     // Buttons: Save & Load enabled only when dirty; Load and Cancel always available
-    mouse := rl.GetMousePosition()
+    mouse := imgui_rl_mouse_pos()
     save_enabled := app.e_scene_dirty
     btn_save_load, btn_load, btn_cancel := confirm_button_rects(dx, dy, dialog_w, dialog_h)
 

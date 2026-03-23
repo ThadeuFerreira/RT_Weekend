@@ -309,7 +309,7 @@ op_try_start_drag :: proc(
 draw_details_content :: proc(app: ^App, content: rl.Rectangle) {
 	ev    := &app.e_edit_view
 	st    := &app.e_details
-	mouse := rl.GetMousePosition()
+	mouse := imgui_rl_mouse_pos()
 
 	if ev.selection_kind == .None {
 		rl.DrawText( "No object select",

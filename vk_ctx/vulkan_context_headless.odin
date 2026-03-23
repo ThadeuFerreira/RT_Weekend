@@ -6,13 +6,24 @@ import vk "vendor:vulkan"
 
 // vulkan_context_init_headless creates an instance without a window or surface (GLFW is used only
 // to load Vulkan entry points). Suitable for offscreen / compute-only work.
-vulkan_context_init_headless :: proc() -> (ctx: VulkanContext, ok: bool) {
+//
+// use_null_platform=true is ideal for standalone headless tools.
+// use_null_platform=false avoids forcing GLFW's null platform in GUI apps that share the process.
+vulkan_context_init_headless :: proc(use_null_platform := true, use_glfw_loader := true) -> (ctx: VulkanContext, ok: bool) {
 	ctx = {}
-	if !vk_load_vulkan(headless = true) {
-		fmt.eprintln("vk_ctx: vk_load_vulkan failed")
-		return ctx, false
+	if use_glfw_loader {
+		if !vk_load_vulkan(headless = use_null_platform) {
+			fmt.eprintln("vk_ctx: vk_load_vulkan failed")
+			return ctx, false
+		}
+		ctx.glfw_owned = true
+	} else {
+		if !vk_load_vulkan_direct() {
+			fmt.eprintln("vk_ctx: vk_load_vulkan_direct failed")
+			return ctx, false
+		}
+		ctx.glfw_owned = false
 	}
-	ctx.glfw_owned = true
 
 	use_validation := VK_VALIDATION && validation_layer_available()
 
