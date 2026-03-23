@@ -8,7 +8,7 @@ import vk "vendor:vulkan"
 // to load Vulkan entry points). Suitable for offscreen / compute-only work.
 vulkan_context_init_headless :: proc() -> (ctx: VulkanContext, ok: bool) {
 	ctx = {}
-	if !vk_load_vulkan() {
+	if !vk_load_vulkan(headless = true) {
 		fmt.eprintln("vk_ctx: vk_load_vulkan failed")
 		return ctx, false
 	}

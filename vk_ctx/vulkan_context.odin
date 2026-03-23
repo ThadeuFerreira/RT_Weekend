@@ -117,7 +117,11 @@ validation_layer_available :: proc() -> bool {
 // vk_load_vulkan initializes GLFW (for Vulkan entry points) and loads global Vulkan procs.
 // Call once before creating an instance. Fails cleanly if GLFW cannot use Vulkan or the loader
 // does not respond (missing libvulkan / ICD, broken install).
-vk_load_vulkan :: proc() -> bool {
+// When headless is true, GLFW is initialized with PLATFORM_NULL so no display server is required.
+vk_load_vulkan :: proc(headless := false) -> bool {
+	if headless {
+		glfw.InitHint(glfw.PLATFORM, glfw.PLATFORM_NULL)
+	}
 	if !glfw.Init() {
 		fmt.eprintln("vk_ctx: glfw.Init failed")
 		return false
@@ -381,13 +385,21 @@ create_instance :: proc(
 		append_cstring_unique(&merged, vk.KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)
 	}
 
+	// Negotiate API version: use the highest the loader supports, falling back to 1.0.
+	api_version: u32 = vk.API_VERSION_1_0
+	if vk.EnumerateInstanceVersion != nil {
+		loader_version: u32
+		if vk.EnumerateInstanceVersion(&loader_version) == .SUCCESS {
+			api_version = loader_version
+		}
+	}
 	app_info := vk.ApplicationInfo {
 		sType              = .APPLICATION_INFO,
 		pApplicationName   = app_name,
 		applicationVersion = vk.MAKE_VERSION(1, 0, 0),
 		pEngineName        = cstring("vk_ctx"),
 		engineVersion      = vk.MAKE_VERSION(1, 0, 0),
-		apiVersion         = vk.API_VERSION_1_2,
+		apiVersion         = api_version,
 	}
 	layer_names: [dynamic]cstring
 	defer delete(layer_names)
