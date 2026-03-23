@@ -1,4 +1,4 @@
-.PHONY: debug release run run_gpu test test-release test-all imgui vk-smoke
+.PHONY: debug release run run_gpu test test-release test-all imgui shaders vk-smoke
 
 # Build Dear ImGui static library from the odin-imgui submodule.
 # Run once after cloning, or after updating the submodule.
@@ -34,6 +34,14 @@ test-release: release
 
 test-all: debug release
 	chmod +x tests/run_tests.sh && ./tests/run_tests.sh all
+
+# Compile Vulkan GLSL shaders to SPIR-V.
+# Run after modifying assets/shaders/raytrace_vk.comp or hello_triangle_vk.{vert,frag}.
+# The .spv files are committed so builds don't require the Vulkan SDK.
+shaders:
+	glslangValidator -V assets/shaders/raytrace_vk.comp -o assets/shaders/raytrace_vk.comp.spv
+	glslangValidator -V -S vert assets/shaders/hello_triangle_vk.vert -o assets/shaders/hello_triangle_vk.vert.spv
+	glslangValidator -V -S frag assets/shaders/hello_triangle_vk.frag -o assets/shaders/hello_triangle_vk.frag.spv
 
 # Vulkan bootstrap smoke test (package vk_ctx + GLFW; not linked into main app).
 vk-smoke:

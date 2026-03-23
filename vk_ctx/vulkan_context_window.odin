@@ -9,14 +9,18 @@ import vk "vendor:vulkan"
 // vulkan_context_init_window creates a GLFW window (NO_API), a Vulkan surface, and a full
 // VulkanContext with separate present queue when required. Linux / Windows / macOS when GLFW + WSI
 // are available; swapchain is not created here.
-vulkan_context_init_window :: proc(title: cstring, width, height: c.int) -> (ctx: VulkanContext, ok: bool) {
+vulkan_context_init_window :: proc(
+	title: cstring,
+	width, height: c.int,
+	window_platform: c.int = glfw.ANY_PLATFORM,
+) -> (ctx: VulkanContext, ok: bool) {
 	ctx = {}
 	when ODIN_OS == .JS {
 		fmt.eprintln("vk_ctx: window mode unsupported on JS")
 		return ctx, false
 	}
 
-	if !vk_load_vulkan() {
+	if !vk_load_vulkan(window_platform = window_platform) {
 		fmt.eprintln("vk_ctx: vk_load_vulkan failed")
 		return ctx, false
 	}
@@ -80,7 +84,17 @@ vulkan_context_init_window :: proc(title: cstring, width, height: c.int) -> (ctx
 	ctx.graphics_queue_family = gfam
 	ctx.present_queue_family = pfam
 
-	dev, d_ok := create_logical_device(phys, gfam, pfam, nil)
+	cfam, cfam_ok := find_compute_queue_family(phys)
+	if !cfam_ok {
+		fmt.eprintln("vk_ctx: no compute queue family")
+		vulkan_context_destroy(&ctx)
+		return ctx, false
+	}
+	ctx.compute_queue_family = cfam
+
+	families := [?]u32{gfam, pfam, cfam}
+	dev_exts := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
+	dev, d_ok := create_logical_device(phys, families[:], dev_exts[:])
 	if !d_ok {
 		vulkan_context_destroy(&ctx)
 		return ctx, false
@@ -89,6 +103,7 @@ vulkan_context_init_window :: proc(title: cstring, width, height: c.int) -> (ctx
 
 	vk.GetDeviceQueue(dev, gfam, 0, &ctx.graphics_queue)
 	vk.GetDeviceQueue(dev, pfam, 0, &ctx.present_queue)
+	vk.GetDeviceQueue(dev, cfam, 0, &ctx.compute_queue)
 
 	if !create_command_pool_and_sync(dev, gfam, &ctx) {
 		vulkan_context_destroy(&ctx)

@@ -82,7 +82,7 @@ The **`vk_ctx`** package (`vendor:vulkan` + `vendor:glfw`) bootstraps a minimal 
 make vk-smoke
 ./build/vk_smoke --headless          # instance / device / queues / pool
 ./build/vk_smoke --headless --clear  # + one-shot clear-color image submit
-./build/vk_smoke --window            # GLFW surface (poll until window closed)
+./build/vk_smoke --window [--platform=auto|x11|wayland] [--frames=N] # present Vulkan hello-triangle
 ```
 
 Requires a system **Vulkan loader** (`libvulkan`) and **GLFW** (Odin’s `vendor/glfw` links the system or static library). `vk_load_vulkan` checks `glfw.VulkanSupported()`, that `vkGetInstanceProcAddr` is non-null after loading, and that `vkEnumerateInstanceExtensionProperties` succeeds, so missing loaders/ICDs fail with an error instead of crashing later.

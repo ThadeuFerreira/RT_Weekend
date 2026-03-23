@@ -1,0 +1,74 @@
+#version 450
+
+// Stub Vulkan compute shader for the ray tracer.
+// Matches the OpenGL raytrace.comp binding layout; writes a solid blue to the
+// output buffer so the pipeline can be validated end-to-end before the full
+// ray tracing logic is ported.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Binding 0 — camera / frame uniforms (std140).
+layout(set = 0, binding = 0, std140) uniform CameraBlock {
+    vec3  origin;           float _pad0;
+    vec3  pixel00_loc;      float _pad1;
+    vec3  pixel_delta_u;    float _pad2;
+    vec3  pixel_delta_v;    float _pad3;
+    vec3  defocus_disk_u;   float _pad4;
+    vec3  defocus_disk_v;   float _pad5;
+    vec3  background;       float _pad6;
+    int   width;
+    int   height;
+    int   max_depth;
+    int   total_samples;
+    int   current_sample;
+    float defocus_angle;
+    float shutter_open;
+    float shutter_close;
+};
+
+// Binding 1 — spheres (read-only, std430).
+layout(set = 0, binding = 1, std430) readonly buffer SphereBlock {
+    int sphere_header[4];
+    // GPUSphere array follows (stride 144 bytes).
+    float sphere_data[];
+};
+
+// Binding 2 — BVH nodes (read-only, std430).
+layout(set = 0, binding = 2, std430) readonly buffer BVHBlock {
+    int bvh_header[4];
+    // LinearBVHNode array follows (stride 32 bytes).
+    float bvh_data[];
+};
+
+// Binding 3 — accumulation output (read-write, std430).
+layout(set = 0, binding = 3, std430) buffer OutputBlock {
+    vec4 pixels[];
+};
+
+// Binding 4 — quads (read-only, std430).
+layout(set = 0, binding = 4, std430) readonly buffer QuadBlock {
+    int quad_header[4];
+    float quad_data[];
+};
+
+// Binding 5 — volumes (read-only, std430).
+layout(set = 0, binding = 5, std430) readonly buffer VolumeBlock {
+    int volume_header[4];
+    float volume_data[];
+};
+
+// Binding 6 — volume quads (read-only, std430).
+layout(set = 0, binding = 6, std430) readonly buffer VolumeQuadBlock {
+    int volume_quad_header[4];
+    float volume_quad_data[];
+};
+
+void main() {
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    if (px.x >= width || px.y >= height) return;
+
+    int idx = px.y * width + px.x;
+
+    // Stub: accumulate a recognizable blue so we can verify the pipeline works.
+    pixels[idx] += vec4(0.2, 0.4, 0.8, 0.0);
+}

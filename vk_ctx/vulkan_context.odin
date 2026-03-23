@@ -18,8 +18,10 @@ VulkanContext :: struct {
 	device:                  vk.Device,
 	graphics_queue_family:   u32,
 	present_queue_family:    u32,
+	compute_queue_family:    u32,
 	graphics_queue:          vk.Queue,
 	present_queue:           vk.Queue,
+	compute_queue:           vk.Queue,
 	command_pool:            vk.CommandPool,
 	surface:                 vk.SurfaceKHR,
 	fence:                   vk.Fence,
@@ -118,12 +120,20 @@ validation_layer_available :: proc() -> bool {
 // Call once before creating an instance. Fails cleanly if GLFW cannot use Vulkan or the loader
 // does not respond (missing libvulkan / ICD, broken install).
 // When headless is true, GLFW is initialized with PLATFORM_NULL so no display server is required.
-vk_load_vulkan :: proc(headless := false) -> bool {
+// For window mode, pass a GLFW platform hint (ANY/X11/WAYLAND/etc.) when needed.
+vk_load_vulkan :: proc(headless := false, window_platform: c.int = glfw.ANY_PLATFORM) -> bool {
 	if headless {
 		glfw.InitHint(glfw.PLATFORM, glfw.PLATFORM_NULL)
+	} else {
+		glfw.InitHint(glfw.PLATFORM, window_platform)
 	}
 	if !glfw.Init() {
-		fmt.eprintln("vk_ctx: glfw.Init failed")
+		desc, _ := glfw.GetError()
+		if len(desc) > 0 {
+			fmt.eprintf("vk_ctx: glfw.Init failed: %s\n", desc)
+		} else {
+			fmt.eprintln("vk_ctx: glfw.Init failed")
+		}
 		return false
 	}
 	if !glfw.VulkanSupported() {
@@ -178,6 +188,32 @@ find_graphics_queue_family :: proc(phys: vk.PhysicalDevice) -> (u32, bool) {
 	vk.GetPhysicalDeviceQueueFamilyProperties(phys, &count, raw_data(props))
 	for i in 0 ..< count {
 		if .GRAPHICS in props[i].queueFlags {
+			return u32(i), true
+		}
+	}
+	return 0, false
+}
+
+// find_compute_queue_family returns the first queue family with COMPUTE_BIT.
+// Prefers a dedicated compute family (without GRAPHICS) for async compute; falls back to
+// any family with COMPUTE.
+find_compute_queue_family :: proc(phys: vk.PhysicalDevice) -> (u32, bool) {
+	count: u32
+	vk.GetPhysicalDeviceQueueFamilyProperties(phys, &count, nil)
+	if count == 0 {
+		return 0, false
+	}
+	props := make([]vk.QueueFamilyProperties, count, context.temp_allocator)
+	vk.GetPhysicalDeviceQueueFamilyProperties(phys, &count, raw_data(props))
+	// First pass: dedicated compute (COMPUTE but not GRAPHICS).
+	for i in 0 ..< count {
+		if .COMPUTE in props[i].queueFlags && .GRAPHICS not_in props[i].queueFlags {
+			return u32(i), true
+		}
+	}
+	// Second pass: any family with COMPUTE.
+	for i in 0 ..< count {
+		if .COMPUTE in props[i].queueFlags {
 			return u32(i), true
 		}
 	}
@@ -276,8 +312,7 @@ setup_debug_messenger :: proc(instance: vk.Instance, out_messenger: ^vk.DebugUti
 
 create_logical_device :: proc(
 	phys: vk.PhysicalDevice,
-	graphics_family: u32,
-	present_family: u32,
+	queue_families: []u32,
 	device_extensions: []cstring,
 ) -> (vk.Device, bool) {
 	merged: [dynamic]cstring
@@ -291,31 +326,27 @@ create_logical_device :: proc(
 		append_cstring_unique(&merged, vk.KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
 	}
 
+	// Collect unique queue families.
 	priorities := [1]f32{1.0}
-	queue_infos: [2]vk.DeviceQueueCreateInfo
+	queue_infos: [4]vk.DeviceQueueCreateInfo
 	queue_count: int
-	if graphics_family == present_family {
-		queue_infos[0] = {
-			sType            = .DEVICE_QUEUE_CREATE_INFO,
-			queueFamilyIndex = graphics_family,
-			queueCount       = 1,
-			pQueuePriorities = raw_data(priorities[:]),
+	for fam in queue_families {
+		already := false
+		for j in 0 ..< queue_count {
+			if queue_infos[j].queueFamilyIndex == fam {
+				already = true
+				break
+			}
 		}
-		queue_count = 1
-	} else {
-		queue_infos[0] = {
-			sType            = .DEVICE_QUEUE_CREATE_INFO,
-			queueFamilyIndex = graphics_family,
-			queueCount       = 1,
-			pQueuePriorities = raw_data(priorities[:]),
+		if !already {
+			queue_infos[queue_count] = {
+				sType            = .DEVICE_QUEUE_CREATE_INFO,
+				queueFamilyIndex = fam,
+				queueCount       = 1,
+				pQueuePriorities = raw_data(priorities[:]),
+			}
+			queue_count += 1
 		}
-		queue_infos[1] = {
-			sType            = .DEVICE_QUEUE_CREATE_INFO,
-			queueFamilyIndex = present_family,
-			queueCount       = 1,
-			pQueuePriorities = raw_data(priorities[:]),
-		}
-		queue_count = 2
 	}
 	features: vk.PhysicalDeviceFeatures
 	dci := vk.DeviceCreateInfo {
@@ -350,7 +381,8 @@ create_command_pool_and_sync :: proc(
 	}
 	fence_info := vk.FenceCreateInfo {
 		sType = .FENCE_CREATE_INFO,
-		flags = {},
+		// Start signaled so the first frame wait does not deadlock.
+		flags = {.SIGNALED},
 	}
 	if vk.CreateFence(device, &fence_info, nil, &out_ctx.fence) != .SUCCESS {
 		return false
