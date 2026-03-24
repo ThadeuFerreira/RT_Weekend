@@ -74,6 +74,7 @@ main :: proc() {
 			os.exit(1)
 		}
 		fmt.println("vk_smoke: headless Vulkan context OK")
+		vk_ctx.print_vk_debug_config()
 		vk_ctx.print_vulkan_context_gpu_info(&ctx)
 		if do_clear {
 			if vk_ctx.headless_submit_clear_color_test(&ctx) {
@@ -104,6 +105,7 @@ main :: proc() {
 		os.exit(1)
 	}
 	fmt.println("vk_smoke: window + surface OK")
+	vk_ctx.print_vk_debug_config()
 	platform := glfw.GetPlatform()
 	switch platform {
 	case glfw.PLATFORM_WAYLAND: fmt.println("  GLFW platform: Wayland")
@@ -195,6 +197,8 @@ run_compute_test :: proc(ctx: ^vk_ctx.VulkanContext) -> bool {
 		return false
 	}
 	defer vk_ctx.destroy_vulkan_compute_pipeline(ctx.device, &pipeline)
+	vk_ctx.set_pipeline_name(ctx.device, pipeline.pipeline, "pipeline/raytrace_compute")
+	vk_ctx.set_descriptor_set_name(ctx.device, pipeline.descriptor_set, "desc/raytrace")
 	fmt.println("  compute: pipeline created OK")
 
 	// 2. Allocate buffers.
