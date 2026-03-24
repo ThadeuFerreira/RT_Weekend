@@ -14,8 +14,8 @@ package raytrace
 RenderBackendKind :: enum {
     CPU,
     OpenGL_Compute,
+    Vulkan_Compute,
     // Future:
-    // Vulkan_Compute,
     // Metal_Compute,
     // DX12_Compute,
 }
@@ -123,8 +123,9 @@ backend_done :: proc(b: ^RenderBackend) -> bool {
 
 backend_kind_label :: proc(kind: RenderBackendKind) -> string {
     switch kind {
-    case .CPU:            return "CPU"
-    case .OpenGL_Compute: return "GPU (OpenGL)"
+    case .CPU:             return "CPU"
+    case .OpenGL_Compute:  return "GPU (OpenGL)"
+    case .Vulkan_Compute:  return "GPU (Vulkan)"
     }
     return "Unknown"
 }

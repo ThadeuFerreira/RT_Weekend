@@ -20,9 +20,27 @@ package editor
 // state into ImGui's event queue each frame.
 
 import "core:c"
+import "core:fmt"
 import rl "vendor:raylib"
 import imgui "RT_Weekend:vendor/odin-imgui"
 import imgui_impl_opengl3 "RT_Weekend:vendor/odin-imgui/imgui_impl_opengl3"
+
+IMGUI_COORD_DEBUG :: #config(IMGUI_COORD_DEBUG, false)
+
+@(private)
+_imgui_dbg_prev: struct {
+    valid:     bool,
+    screen_w:  c.int,
+    screen_h:  c.int,
+    render_w:  c.int,
+    render_h:  c.int,
+    dpi_x:     f32,
+    dpi_y:     f32,
+    disp_w:    f32,
+    disp_h:    f32,
+    fb_x:      f32,
+    fb_y:      f32,
+}
 
 // imgui_rl_setup creates the ImGui context, enables docking and keyboard
 // navigation, and initialises the OpenGL 3 rendering backend.
@@ -57,16 +75,65 @@ imgui_rl_shutdown :: proc() {
 imgui_rl_new_frame :: proc() {
     io := imgui.GetIO()
 
-    // --- display size & timing ---
-    io.DisplaySize = imgui.Vec2{
-        f32(rl.GetScreenWidth()),
-        f32(rl.GetScreenHeight()),
-    }
+    // --- display size, framebuffer scale, and timing ---
+    // Keep ImGui in Raylib's window/screen coordinate space.
+    // FramebufferScale bridges that space to the actual GL framebuffer size on HiDPI.
+    screen_w_i := max(rl.GetScreenWidth(), 1)
+    screen_h_i := max(rl.GetScreenHeight(), 1)
+    render_w_i := max(rl.GetRenderWidth(), 1)
+    render_h_i := max(rl.GetRenderHeight(), 1)
+    screen_w := f32(screen_w_i)
+    screen_h := f32(screen_h_i)
+    render_w := f32(render_w_i)
+    render_h := f32(render_h_i)
+
+    io.DisplaySize = imgui.Vec2{screen_w, screen_h}
+    io.DisplayFramebufferScale = imgui.Vec2{render_w / screen_w, render_h / screen_h}
+
     io.DeltaTime = max(rl.GetFrameTime(), 0.000001)
 
     // --- mouse position ---
     mp := rl.GetMousePosition()
     imgui.IO_AddMousePosEvent(io, mp.x, mp.y)
+
+    when IMGUI_COORD_DEBUG {
+        dpi := rl.GetWindowScaleDPI()
+        cur_disp := io.DisplaySize
+        cur_fb := io.DisplayFramebufferScale
+        changed :=
+            !_imgui_dbg_prev.valid ||
+            _imgui_dbg_prev.screen_w != screen_w_i || _imgui_dbg_prev.screen_h != screen_h_i ||
+            _imgui_dbg_prev.render_w != render_w_i || _imgui_dbg_prev.render_h != render_h_i ||
+            abs(_imgui_dbg_prev.dpi_x - dpi.x) > 0.01 || abs(_imgui_dbg_prev.dpi_y - dpi.y) > 0.01 ||
+            abs(_imgui_dbg_prev.disp_w - cur_disp.x) > 0.5 || abs(_imgui_dbg_prev.disp_h - cur_disp.y) > 0.5 ||
+            abs(_imgui_dbg_prev.fb_x - cur_fb.x) > 0.01 || abs(_imgui_dbg_prev.fb_y - cur_fb.y) > 0.01
+        if changed {
+            mp_img := imgui.GetMousePos()
+            fmt.eprintf(
+                "[imgui-coord] screen=%dx%d render=%dx%d dpi=%.3fx%.3f io_display=%.1fx%.1f io_fb=%.3fx%.3f mouse_rl=%.1f,%.1f mouse_img=%.1f,%.1f\n",
+                screen_w_i, screen_h_i,
+                render_w_i, render_h_i,
+                dpi.x, dpi.y,
+                cur_disp.x, cur_disp.y,
+                cur_fb.x, cur_fb.y,
+                mp.x, mp.y,
+                mp_img.x, mp_img.y,
+            )
+            _imgui_dbg_prev = {
+                valid = true,
+                screen_w = screen_w_i,
+                screen_h = screen_h_i,
+                render_w = render_w_i,
+                render_h = render_h_i,
+                dpi_x = dpi.x,
+                dpi_y = dpi.y,
+                disp_w = cur_disp.x,
+                disp_h = cur_disp.y,
+                fb_x = cur_fb.x,
+                fb_y = cur_fb.y,
+            }
+        }
+    }
 
     // --- mouse buttons (0=left, 1=right, 2=middle) ---
     imgui.IO_AddMouseButtonEvent(io, 0, rl.IsMouseButtonDown(.LEFT))
@@ -210,6 +277,13 @@ imgui_rl_want_capture_mouse :: proc() -> bool {
 // ownership of keyboard input (e.g. text widget focused).
 imgui_rl_want_capture_keyboard :: proc() -> bool {
     return imgui.GetIO().WantCaptureKeyboard
+}
+
+// imgui_rl_mouse_pos returns the mouse position in ImGui's current coordinate space.
+// Use this for editor hit-tests that compare against ImGui rects.
+imgui_rl_mouse_pos :: proc() -> rl.Vector2 {
+    mp := imgui.GetMousePos()
+    return rl.Vector2{mp.x, mp.y}
 }
 
 // _rl_imgui_key is an internal helper that reports a single Raylib key's

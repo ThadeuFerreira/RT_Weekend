@@ -1,4 +1,4 @@
-.PHONY: debug release run run_gpu test test-release test-all imgui
+.PHONY: debug debug-gl debug-vk release run run_gpu run_gpu_vk test test-release test-all imgui shaders vk-smoke
 
 # Build Dear ImGui static library from the odin-imgui submodule.
 # Run once after cloning, or after updating the submodule.
@@ -8,6 +8,14 @@ imgui:
 debug:
 	mkdir -p build
 	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -out:build/debug
+
+debug-gl:
+	mkdir -p build
+	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -define:GPU_USE_VULKAN=false -out:build/debug_gl
+
+debug-vk:
+	mkdir -p build
+	odin build . -collection:RT_Weekend=. -debug -define:TRACE_CAPTURE_ENABLED=true -define:TRACK_ALLOCATIONS=true -define:GPU_USE_VULKAN=true -define:IMGUI_COORD_DEBUG=true -out:build/debug_vk
 
 release:
 	mkdir -p build
@@ -26,6 +34,9 @@ run: debug
 run_gpu: debug
 	./build/debug -gpu
 
+run_gpu_vk: debug-vk
+	./build/debug_vk -gpu
+
 test: debug
 	chmod +x tests/run_tests.sh && ./tests/run_tests.sh debug
 
@@ -34,3 +45,16 @@ test-release: release
 
 test-all: debug release
 	chmod +x tests/run_tests.sh && ./tests/run_tests.sh all
+
+# Compile Vulkan GLSL shaders to SPIR-V.
+# Run after modifying assets/shaders/raytrace_vk.comp or hello_triangle_vk.{vert,frag}.
+# The .spv files are committed so builds don't require the Vulkan SDK.
+shaders:
+	glslangValidator -V assets/shaders/raytrace_vk.comp -o assets/shaders/raytrace_vk.comp.spv
+	glslangValidator -V -S vert assets/shaders/hello_triangle_vk.vert -o assets/shaders/hello_triangle_vk.vert.spv
+	glslangValidator -V -S frag assets/shaders/hello_triangle_vk.frag -o assets/shaders/hello_triangle_vk.frag.spv
+
+# Vulkan bootstrap smoke test (package vk_ctx + GLFW; not linked into main app).
+vk-smoke:
+	mkdir -p build
+	odin build tools/vk_smoke -collection:RT_Weekend=. -debug -out:build/vk_smoke

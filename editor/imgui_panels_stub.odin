@@ -443,7 +443,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         // ── Input ─────────────────────────────────────────────────────────
         rects: EditViewRects
         rects.vp_rect = vp_rect
-        mouse       := rl.GetMousePosition()
+        mouse       := imgui_rl_mouse_pos()
         lmb         := rl.IsMouseButtonDown(.LEFT)
         lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
         any_active  := ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0

@@ -4,6 +4,7 @@ package raytrace
 // total_samples (SingleShot) or automatically resets and keeps accumulating
 // (Continuous).  Default is SingleShot, matching the CPU path behaviour.
 GpuRenderMode :: enum { SingleShot, Continuous }
+GPU_USE_VULKAN :: #config(GPU_USE_VULKAN, false)
 
 // GpuRendererApi is a vtable for a GPU rendering backend.
 //
@@ -27,6 +28,7 @@ GpuRenderer :: struct {
     api:   GpuRendererApi,
     state: rawptr,
     mode:  GpuRenderMode, // SingleShot = stop after total_samples; Continuous = loop forever
+    kind:  RenderBackendKind,
 }
 
 // Helper procs — callers use these, never the vtable directly.
@@ -88,14 +90,27 @@ create_gpu_renderer :: proc(
     //     if state, ok := DX12_RENDERER_API.init(cam, world, spheres, quads, bvh, total); ok { ... }
     // }
 
-    // OpenGL backend — works on Linux (GLX), Windows (WGL), and macOS
-    // (fails gracefully at 4.1 cap with a printed message).
-    when ODIN_OS == .Linux || ODIN_OS == .Windows || ODIN_OS == .Darwin {
-        if state, ok := OPENGL_RENDERER_API.init(cam, world, spheres, quads, bvh, volumes, volume_quads, total, image_list); ok {
-            r := new(GpuRenderer)
-            r.api   = OPENGL_RENDERER_API
-            r.state = state
-            return r
+    when GPU_USE_VULKAN {
+        when ODIN_OS == .Linux {
+            if state, ok := VULKAN_RENDERER_API.init(cam, world, spheres, quads, bvh, volumes, volume_quads, total, image_list); ok {
+                r := new(GpuRenderer)
+                r.api   = VULKAN_RENDERER_API
+                r.state = state
+                r.kind  = .Vulkan_Compute
+                return r
+            }
+        }
+    } else {
+        // OpenGL backend — works on Linux (GLX), Windows (WGL), and macOS
+        // (fails gracefully at 4.1 cap with a printed message).
+        when ODIN_OS == .Linux || ODIN_OS == .Windows || ODIN_OS == .Darwin {
+            if state, ok := OPENGL_RENDERER_API.init(cam, world, spheres, quads, bvh, volumes, volume_quads, total, image_list); ok {
+                r := new(GpuRenderer)
+                r.api   = OPENGL_RENDERER_API
+                r.state = state
+                r.kind  = .OpenGL_Compute
+                return r
+            }
         }
     }
 

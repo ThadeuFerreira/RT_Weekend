@@ -75,6 +75,22 @@ exists. If not, install Odin from [odin-lang.org](https://odin-lang.org/) with t
 ### GPU path (Linux + X11 GLX only)
 The GPU compute-shader backend is **Linux-only**: it uses `glXGetProcAddressARB` to load OpenGL. On macOS or Windows, `gpu_backend_init` returns failure and the renderer uses the CPU path. No separate build flag — the same binary falls back automatically.
 
+### Vulkan scaffolding (`vk_ctx`, optional)
+The **`vk_ctx`** package (`vendor:vulkan` + `vendor:glfw`) bootstraps a minimal Vulkan stack for future GPU work. It is **not** linked into the main Raylib app. Build the smoke binary from the repo root:
+
+```bash
+make vk-smoke
+./build/vk_smoke --headless          # instance / device / queues / pool
+./build/vk_smoke --headless --clear  # + one-shot clear-color image submit
+./build/vk_smoke --window [--platform=auto|x11|wayland] [--frames=N] # present Vulkan hello-triangle
+```
+
+Requires a system **Vulkan loader** (`libvulkan`) and **GLFW** (Odin’s `vendor/glfw` links the system or static library). `vk_load_vulkan` checks `glfw.VulkanSupported()`, that `vkGetInstanceProcAddr` is non-null after loading, and that `vkEnumerateInstanceExtensionProperties` succeeds, so missing loaders/ICDs fail with an error instead of crashing later.
+
+If the loader advertises **VK_KHR_portability_enumeration**, `create_instance` enables it and sets **VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR** so portability ICDs (e.g. MoltenVK) are enumerated; **VK_KHR_portability_subset** is enabled on the logical device when the GPU supports it.
+
+Optional **validation layers** (`vulkan-validation-layers` on many distros): enabled in debug builds when `VK_LAYER_KHRONOS_validation` is present (`-define:VK_VALIDATION=false` to force off). See `tools/vk_smoke/main.odin` for flags.
+
 ### UI assets (SDF font and shader)
 - **`assets/fonts/Inter-Regular.ttf`** — Inter (OFL-licensed, Arial-like) used for UI text when SDF font loading succeeds. Sourced from [rsms/inter](https://github.com/rsms/inter).
 - **`assets/shaders/sdf.fs`** — Raylib SDF fragment shader (GLSL 330) for signed-distance-field text rendering.
@@ -94,6 +110,7 @@ Layout is Godot-inspired: **core** (shared types), **raytrace** (renderer only),
 - **`raytrace/`** (package `raytrace`) — path tracer only: camera, BVH, materials, vector/ray math, pixel buffer, profiling, `scene_build`. No scene file I/O. See [raytrace/AGENTS.md](raytrace/AGENTS.md).
 - **`persistence/`** (package `persistence`) — scene/config persistence: `load_scene`/`save_scene`, `load_config`/`save_config`; types `RenderConfig`, `EditorLayout`, etc. Depends on core and raytrace. See [persistence/AGENTS.md](persistence/AGENTS.md).
 - **`editor/`** (package `editor`) — Raylib window, panels, menus, layout, widgets, fonts. Exports `run_app`. Depends on core, util, raytrace, persistence. See [editor/AGENTS.md](editor/AGENTS.md).
+- **`vk_ctx/`** (package `vk_ctx`) — optional Vulkan instance/device/queues/command pool + sync; used by `tools/vk_smoke` only. Not a dependency of `raytrace` or `editor`.
 
 ## Architecture Overview
 
