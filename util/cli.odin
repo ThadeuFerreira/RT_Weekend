@@ -15,7 +15,7 @@ Args :: struct {
 	ScenePath:         string,
 	SaveConfigPath:    string,
 	SaveScenePath:     string,
-	UseGPU:            bool,   // -gpu flag: use OpenGL compute-shader path (shorthand for -backend gpu)
+	UseGPU:            bool,   // -gpu flag: use Vulkan compute-shader path (shorthand for -backend gpu)
 	Backend:           string, // -backend <cpu|gpu>: explicit backend selection
 	Headless:          bool,   // -headless: render without GUI and exit (requires -output/-out)
 	OutputPath:        string, // -output / -o / -out: headless PNG output path

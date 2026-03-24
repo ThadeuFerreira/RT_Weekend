@@ -1,6 +1,6 @@
 # `raytrace/` — GPU Path
 
-This package is the core path tracer; it supports both a **CPU** (multi-threaded) and a **GPU** (OpenGL compute shader) path. Both produce the same image.
+This package is the core path tracer; it supports both a **CPU** (multi-threaded) and a **GPU** (Vulkan compute shader) path. Both produce the same image.
 
 **For build/run, architecture (path tracing, BVH, materials, camera, CPU pipeline), and file map, see [CLAUDE.md](../CLAUDE.md) at the repo root.**
 
@@ -27,21 +27,24 @@ This README describes only the **GPU path** — pipeline, data layout, and how i
 ui.run_app (use_gpu=true)
   └─ rt.start_render_auto
        ├─ build_bvh + flatten_bvh      — BVH built once on CPU
-       └─ gpu_backend_init             — compile shader, upload buffers
+       └─ _vk_backend_init             — create Vulkan context, pipeline, upload buffers
             ├─ UBO  binding=0 : GPUCameraUniforms  (camera parameters)
             ├─ SSBO binding=1 : [count][GPUSphere…] (sphere data)
             ├─ SSBO binding=2 : [count][LinearBVHNode…] (flat BVH)
-            └─ SSBO binding=3 : [vec4…] (output accumulation; .rgb used, .a unused)
+            ├─ SSBO binding=3 : [vec4…] (output accumulation; .rgb used, .a unused)
+            ├─ SSBO binding=4 : [count][GPUQuad…] (quad data)
+            ├─ SSBO binding=5 : [count][GPUVolume…] (volume data)
+            └─ SSBO binding=6 : [count][GPUQuad…] (volume boundary quads)
 
 each frame:
-  gpu_backend_dispatch → DispatchCompute(W/8, H/8, 1)
-    └─ raytrace.comp (one invocation per pixel)
+  _vk_dispatch → vkCmdDispatch(W/8, H/8, 1)
+    └─ raytrace_vk.comp (one invocation per pixel)
          └─ path_trace(primary_ray, seed)
               └─ accumulate colour into pixels[idx]
 
 every 4 frames:
-  gpu_backend_readback
-    ├─ GetBufferSubData → read vec4 per pixel
+  _vk_readback
+    ├─ read vec4 per pixel from host-visible buffer
     ├─ divide by current_sample
     ├─ sqrt gamma correction
     └─ write [][4]u8 → UpdateTexture
@@ -59,8 +62,11 @@ Progressive accumulation: one sample per dispatch. The output SSBO stores runnin
 | 1 | SSBO (std430) | `[4]i32` header + `[]GPUSphere` |
 | 2 | SSBO (std430) | `[4]i32` header + `[]LinearBVHNode` |
 | 3 | SSBO (std430) | `[]vec4` — one per pixel; .rgb = accumulated linear colour, .a unused |
+| 4 | SSBO (std430) | `[4]i32` header + `[]GPUQuad` |
+| 5 | SSBO (std430) | `[4]i32` header + `[]GPUVolume` |
+| 6 | SSBO (std430) | `[4]i32` header + `[]GPUQuad` (volume boundary faces) |
 
-**Why vec4 for output?** std430 alignment: a vec3 array would require explicit padding to 16-byte boundaries. Using vec4 keeps the layout simple; alpha is intentionally unused. See `gpu_backend.odin` and `OutputBlock` in `raytrace.comp`.
+**Why vec4 for output?** std430 alignment: a vec3 array would require explicit padding to 16-byte boundaries. Using vec4 keeps the layout simple; alpha is intentionally unused. See `gpu_backend_vulkan.odin` and `OutputBlock` in `raytrace_vk.comp`.
 
 ---
 
@@ -74,25 +80,26 @@ The GPU uses **PCG** (Permuted Congruential Generator) so each invocation has it
 uint seed = pcg_hash(pixel_index ^ (sample_index * 2654435761u));
 ```
 
-`pcg_hash(v)` runs one round of PCG mixing on `v`; the shader then warms up the RNG with two discarded values before use. See the comment block above `pcg_hash` in `raytrace.comp`.
+`pcg_hash(v)` runs one round of PCG mixing on `v`; the shader then warms up the RNG with two discarded values before use. See the comment block above `pcg_hash` in `raytrace_vk.comp`.
 
 ---
 
 ## 4. Iterative path tracing and BVH
 
-GLSL has no recursion. The CPU’s recursive `ray_color_linear` becomes an explicit loop in `path_trace` (GPU): a `for (depth …)` loop with `throughput *= attenuation` and `r = scattered`.
+GLSL has no recursion. The CPU's recursive `ray_color_linear` becomes an explicit loop in `path_trace` (GPU): a `for (depth …)` loop with `throughput *= attenuation` and `r = scattered`.
 
-**BVH traversal** is stack-based: `int stack[64]`. Max depth 64 is sufficient for a balanced BVH with up to ~10^18 leaves; if exceeded, nodes are silently skipped (missing geometry). See `bvh_hit_scene` in `raytrace.comp`.
+**BVH traversal** is stack-based: `int stack[64]`. Max depth 64 is sufficient for a balanced BVH with up to ~10^18 leaves; if exceeded, nodes are silently skipped (missing geometry). See `bvh_hit_scene` in `raytrace_vk.comp`.
 
 ---
 
 ## 5. Data layout: CPU ↔ GPU
 
-The flat `LinearBVHNode` array from `flatten_bvh` is uploaded as-is. `GPUSphere` is built from the Odin `Object` slice by `scene_to_gpu_spheres`. Sizes and layout must match the GLSL definitions exactly (see `gpu_types.odin` and the `#assert(size_of(...))` checks).
+The flat `LinearBVHNode` array from `flatten_bvh` is uploaded as-is. `GPUSphere` is built from the Odin `Object` slice by `scene_to_gpu_spheres`. Sizes and layout must match the GLSL definitions exactly (see `gpu_types.odin`).
 
 | Odin struct | Size | GLSL |
 |-------------|------|------|
-| `GPUSphere` | 48 B | `Sphere` in `SpheresBlock` |
+| `GPUSphere` | 144 B | `Sphere` in `SpheresBlock` |
+| `GPUQuad` | 176 B | `Quad` in `QuadsBlock` |
 | `LinearBVHNode` | 32 B | `BVHNode` in `BVHBlock` |
 | `GPUCameraUniforms` | 128 B | `CameraBlock` (UBO, std140) |
 
@@ -104,12 +111,12 @@ SSBO headers: first 16 bytes are `[4]i32 { count, 0, 0, 0 }` so the following ar
 
 | | CPU path | GPU path |
 |--|----------|----------|
-| **Startup** | Fast | ~100 ms shader compile |
+| **Startup** | Fast | ~100 ms Vulkan context + pipeline creation |
 | **Progressive** | No | Yes (one sample per frame) |
 | **Low spp** (<10) | Often faster | Overhead dominates |
 | **High spp** (>50) | Slower | Much faster |
-| **Geometry** | Any `Object` type | Spheres only (for now) |
-| **Platform** | Any | Linux + GLX (see CLAUDE.md) |
+| **Geometry** | Any `Object` type | Spheres, Quads, Volumes |
+| **Platform** | Any | Linux (Vulkan required) |
 
 Use the GPU path for interactive previews with many samples; use the CPU path for quick tests or when debugging materials.
 
@@ -117,7 +124,7 @@ Use the GPU path for interactive previews with many samples; use the CPU path fo
 
 ## 7. Extending the GPU path
 
-- **New material (e.g. emissive):** Add a `MAT_*` constant in `gpu_types.odin` and a matching `const int` + `case` in `raytrace.comp`; use `GPUSphere._pad` or extend the struct (then keep layout in sync with GLSL).
+- **New material (e.g. emissive):** Add a `MAT_*` constant in `gpu_types.odin` and a matching `const int` + `case` in `raytrace_vk.comp`; use `GPUSphere._pad` or extend the struct (then keep layout in sync with GLSL).
 - **Textures:** Add an SSBO of texels + a metadata SSBO; add `texture_id` (e.g. in `_pad[0]`) and a `sample_texture(…)` in the shader.
 - **Triangles:** Reuse the linear BVH sentinel scheme: e.g. `left_idx == -2` for triangle leaves, `right_or_obj_idx = -(triangle_index + 1)`. Add a `TrianglesBlock` SSBO and `intersect_triangle` in the shader.
 
@@ -128,7 +135,6 @@ For full extension notes (emissive, textures, triangle meshes, SAH, importance s
 ## 8. References
 
 - **Peter Shirley, *Ray Tracing in One Weekend* series**: https://raytracing.github.io/
-- **PCG (O'Neill)**: https://www.pcg-random.org/ — RNG used in `raytrace.comp`
-- **OpenGL Compute Shaders**: https://www.khronos.org/opengl/wiki/Compute_Shader
-- **SSBOs**: https://www.khronos.org/opengl/wiki/Shader_Storage_Buffer_Object
-- **Odin `vendor:OpenGL`**: `$(odin root)/vendor/OpenGL/`
+- **PCG (O'Neill)**: https://www.pcg-random.org/ — RNG used in `raytrace_vk.comp`
+- **Vulkan Compute**: https://www.khronos.org/vulkan/
+- **Odin `vendor:vulkan`**: `$(odin root)/vendor/vulkan/`

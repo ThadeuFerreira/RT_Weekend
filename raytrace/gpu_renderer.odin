@@ -4,15 +4,8 @@ package raytrace
 // total_samples (SingleShot) or automatically resets and keeps accumulating
 // (Continuous).  Default is SingleShot, matching the CPU path behaviour.
 GpuRenderMode :: enum { SingleShot, Continuous }
-GPU_USE_VULKAN :: #config(GPU_USE_VULKAN, false)
 
-// GpuRendererApi is a vtable for a GPU rendering backend.
-//
-// To add a new backend (e.g. Metal, Vulkan, DX12):
-//   1. Define a backend-specific state struct.
-//   2. Implement the procs below for that struct.
-//   3. Declare a package-level constant MY_RENDERER_API :: GpuRendererApi{...}.
-//   4. Add a `when ODIN_OS == .Whatever` branch in create_gpu_renderer() to try it.
+// GpuRendererApi is a vtable for a GPU rendering backend (Vulkan compute).
 GpuRendererApi :: struct {
     init:           proc "odin" (cam: ^Camera, world: []Object, spheres: []GPUSphere, quads: []GPUQuad, bvh: []LinearBVHNode, volumes: []GPUVolume, volume_quads: []GPUQuad, total: int, image_list: []^Texture_Image) -> (rawptr, bool),
     dispatch:       proc "odin" (state: rawptr),
@@ -60,10 +53,8 @@ gpu_renderer_restart :: proc(r: ^GpuRenderer) {
     if r.api.reset != nil { r.api.reset(r.state) }
 }
 
-// create_gpu_renderer is the platform-aware factory.
-// world is the full scene (reserved for backends that need it); spheres, quads, volumes, volume_quads are GPU arrays;
-// bvh must be from flatten_bvh_for_gpu. image_list is the ordered image textures from
-// collect_image_textures_ordered (caller collects once). Returns nil if no GPU backend is available.
+// create_gpu_renderer tries to initialise the Vulkan compute backend.
+// Returns nil if no GPU backend is available.
 create_gpu_renderer :: proc(
     cam:          ^Camera,
     world:        []Object,
@@ -75,44 +66,12 @@ create_gpu_renderer :: proc(
     total:        int,
     image_list:   []^Texture_Image,
 ) -> ^GpuRenderer {
-    // ── macOS: future Metal backend goes here ─────────────────────────────────
-    // when ODIN_OS == .Darwin {
-    //     if state, ok := METAL_RENDERER_API.init(cam, world, spheres, quads, bvh, total); ok {
-    //         r := new(GpuRenderer)
-    //         r.api   = METAL_RENDERER_API
-    //         r.state = state
-    //         return r
-    //     }
-    // }
-
-    // ── Windows: future DirectX 12 / Vulkan backend goes here ─────────────────
-    // when ODIN_OS == .Windows {
-    //     if state, ok := DX12_RENDERER_API.init(cam, world, spheres, quads, bvh, total); ok { ... }
-    // }
-
-    when GPU_USE_VULKAN {
-        when ODIN_OS == .Linux {
-            if state, ok := VULKAN_RENDERER_API.init(cam, world, spheres, quads, bvh, volumes, volume_quads, total, image_list); ok {
-                r := new(GpuRenderer)
-                r.api   = VULKAN_RENDERER_API
-                r.state = state
-                r.kind  = .Vulkan_Compute
-                return r
-            }
-        }
-    } else {
-        // OpenGL backend — works on Linux (GLX), Windows (WGL), and macOS
-        // (fails gracefully at 4.1 cap with a printed message).
-        when ODIN_OS == .Linux || ODIN_OS == .Windows || ODIN_OS == .Darwin {
-            if state, ok := OPENGL_RENDERER_API.init(cam, world, spheres, quads, bvh, volumes, volume_quads, total, image_list); ok {
-                r := new(GpuRenderer)
-                r.api   = OPENGL_RENDERER_API
-                r.state = state
-                r.kind  = .OpenGL_Compute
-                return r
-            }
-        }
+    if state, ok := VULKAN_RENDERER_API.init(cam, world, spheres, quads, bvh, volumes, volume_quads, total, image_list); ok {
+        r := new(GpuRenderer)
+        r.api   = VULKAN_RENDERER_API
+        r.state = state
+        r.kind  = .Vulkan_Compute
+        return r
     }
-
     return nil
 }
