@@ -115,6 +115,17 @@ app_append_volumes_to_world :: proc(app: ^App, world: ^[dynamic]rt.Object) {
     }
 }
 
+// app_start_render_session starts a Vulkan render session and records an editor log on failure.
+app_start_render_session :: proc(app: ^App) -> bool {
+    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, true)
+    if app.r_session == nil {
+        app.finished = true
+        app_push_log(app, strings.clone("[GPU] Vulkan init failed; render session not started"))
+        return false
+    }
+    return true
+}
+
 // app_restart_render replaces the current world with new_world and starts a fresh render.
 // If a render is in progress, the restart is dropped so the main thread is not blocked
 // (finish_render would join workers and freeze the UI). Request restart again after the
@@ -137,7 +148,7 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
-    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    _ = app_start_render_session(app)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
@@ -167,7 +178,7 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
-    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    _ = app_start_render_session(app)
     app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
@@ -281,35 +292,6 @@ mark_scene_dirty :: proc(app: ^App) {
             app.e_edit_view.viewport_sphere_cache_dirty = true
         }
     }
-}
-
-upload_render_texture :: proc(app: ^App) {
-    session := app.r_session
-    if session == nil { return }
-
-    buf    := &session.pixel_buffer
-    camera := session.r_camera
-    clamp  := rt.Interval{0.0, 0.999}
-
-    for y in 0..<buf.height {
-        for x in 0..<buf.width {
-            raw := buf.pixels[y * buf.width + x] * camera.pixel_samples_scale
-
-            r := rt.linear_to_gamma(raw[0])
-            g := rt.linear_to_gamma(raw[1])
-            b := rt.linear_to_gamma(raw[2])
-
-            idx := y * buf.width + x
-            app.pixel_staging[idx] = rl.Color{
-                u8(rt.interval_clamp(clamp, r) * 255.0),
-                u8(rt.interval_clamp(clamp, g) * 255.0),
-                u8(rt.interval_clamp(clamp, b) * 255.0),
-                255,
-            }
-        }
-    }
-
-    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
 }
 
 // app_push_log appends a line to the log ring. Takes ownership of msg; callers must pass
@@ -489,7 +471,7 @@ run_app :: proc(
     }
     defer { rt.free_session(app.r_session) }
     defer { rt.free_world_volumes(app.r_world); delete(app.r_world); delete(app.e_volumes) }
-    defer { if app.image_texture_cache != nil { delete(app.image_texture_cache) } }
+    defer app_clear_image_texture_cache(&app)
     defer {
         delete(app.r_height_input)
         delete(app.r_samples_input)
@@ -532,11 +514,11 @@ run_app :: proc(
         app.ui_event_log_enabled = true
         cmd_action_benchmark_start(&app)
     }
-    app.r_session      = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    _ = app_start_render_session(&app)
     app.render_start = time.now()
 
     // Log the actual render mode after start_render_auto decides CPU vs GPU.
-    if app.r_session.use_gpu {
+    if app.r_session != nil && app.r_session.use_gpu {
         app_push_log(&app, strings.clone("[GPU] GPU rendering active"))
     }
 
@@ -586,14 +568,14 @@ run_app :: proc(
         }
 
         // ── Backend tick: advance one unit of rendering work per frame ──
-        if app.r_session.backend != nil && !rt.backend_done(app.r_session.backend) {
+        if app.r_session != nil && app.r_session.backend != nil && !rt.backend_done(app.r_session.backend) {
             tick_scope := util.trace_scope_begin("Backend.Tick", "render")
             defer util.trace_scope_end(tick_scope)
             rt.backend_tick(app.r_session.backend)
         }
 
         // ── Render texture upload ─────────────────────────────────────────
-        if app.show_intermediate_render && frame % 4 == 0 {
+        if app.r_session != nil && app.show_intermediate_render && frame % 4 == 0 {
             if app.r_session.backend != nil {
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
                 rt.backend_readback(app.r_session.backend, out_bytes)
@@ -601,7 +583,7 @@ run_app :: proc(
             }
         }
 
-        if !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
+        if app.r_session != nil && !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
             continuous_restart := false
             b := app.r_session.backend
             if b != nil && b.mode == .Continuous {

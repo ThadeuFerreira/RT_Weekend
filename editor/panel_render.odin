@@ -100,7 +100,7 @@ restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     app.r_render_pending = false
 
     // Start new render
-    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    _ = app_start_render_session(app)
     app_push_log(app, fmt.aprintf("Rendering at %dx%d with %d samples...", width, height, samples))
 }
 

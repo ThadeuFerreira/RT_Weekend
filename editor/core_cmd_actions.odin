@@ -46,7 +46,7 @@ cmd_action_file_new :: proc(app: ^App) {
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
-    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
+    _ = app_start_render_session(app)
     app.e_scene_dirty = false
     app_push_log(app, strings.clone("New scene (3 default spheres)"))
 }

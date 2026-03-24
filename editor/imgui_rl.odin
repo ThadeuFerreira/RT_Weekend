@@ -15,9 +15,8 @@ package editor
 //   imgui_rl_render()           — calls imgui.Render() + GL draw-data submit
 //
 // There is no dedicated platform backend for Raylib; this file is a
-// hand-written equivalent of the rlImGui C library.  It uses
-// imgui_impl_opengl3 for GPU rendering and feeds Raylib mouse/keyboard
-// state into ImGui's event queue each frame.
+// hand-written equivalent of the rlImGui C library. Backend selection is
+// explicit in this bridge so the runtime can move toward Vulkan-only usage.
 
 import "core:c"
 import "core:fmt"
@@ -26,6 +25,14 @@ import imgui "RT_Weekend:vendor/odin-imgui"
 import imgui_impl_opengl3 "RT_Weekend:vendor/odin-imgui/imgui_impl_opengl3"
 
 IMGUI_COORD_DEBUG :: #config(IMGUI_COORD_DEBUG, false)
+
+ImguiRendererBackend :: enum {
+    Vulkan,
+    OpenGL3,
+}
+
+@(private)
+_imgui_backend: ImguiRendererBackend = .OpenGL3
 
 @(private)
 _imgui_dbg_prev: struct {
@@ -43,7 +50,7 @@ _imgui_dbg_prev: struct {
 }
 
 // imgui_rl_setup creates the ImGui context, enables docking and keyboard
-// navigation, and initialises the OpenGL 3 rendering backend.
+// navigation, and initialises the selected renderer backend.
 // Call once, immediately after rl.InitWindow() (GL context must be live).
 imgui_rl_setup :: proc() {
     imgui.CHECKVERSION()
@@ -59,13 +66,18 @@ imgui_rl_setup :: proc() {
 
     imgui.StyleColorsDark(nil)
     imgui.GetStyle().WindowMinSize = imgui.Vec2{40, 20}
+    // Current editor host (Raylib) still provides a GL draw context.
+    // Vulkan backend wiring is represented by _imgui_backend but requires
+    // explicit command-buffer ownership integration in the frame loop.
     imgui_impl_opengl3.Init("#version 330")
 }
 
 // imgui_rl_shutdown tears down the rendering backend and destroys the
 // ImGui context.  Call once, after the main loop.
 imgui_rl_shutdown :: proc() {
-    imgui_impl_opengl3.Shutdown()
+    if _imgui_backend == .OpenGL3 {
+        imgui_impl_opengl3.Shutdown()
+    }
     imgui.DestroyContext(nil)
 }
 
@@ -254,16 +266,19 @@ imgui_rl_new_frame :: proc() {
         imgui.IO_AddInputCharacter(io, c.uint(ch))
     }
 
-    // Let the OpenGL3 backend update its internal state, then start the frame.
-    imgui_impl_opengl3.NewFrame()
+    if _imgui_backend == .OpenGL3 {
+        imgui_impl_opengl3.NewFrame()
+    }
     imgui.NewFrame()
 }
 
 // imgui_rl_render finalises the ImGui frame and submits the draw data
-// to the OpenGL3 backend.  Call just before rl.EndDrawing().
+// to the selected backend. Call just before rl.EndDrawing().
 imgui_rl_render :: proc() {
     imgui.Render()
-    imgui_impl_opengl3.RenderDrawData(imgui.GetDrawData())
+    if _imgui_backend == .OpenGL3 {
+        imgui_impl_opengl3.RenderDrawData(imgui.GetDrawData())
+    }
 }
 
 // imgui_rl_want_capture_mouse returns true when ImGui wants exclusive
