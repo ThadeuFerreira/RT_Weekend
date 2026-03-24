@@ -26,6 +26,9 @@ run: debug
 run_gpu: debug
 	./build/debug -gpu
 
+run_release: release
+	./build/release
+
 test: debug
 	chmod +x tests/run_tests.sh && ./tests/run_tests.sh debug
 
