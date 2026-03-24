@@ -61,7 +61,13 @@ vulkan_context_init_window :: proc(
 	ctx.instance = inst
 
 	if use_validation {
-		if !setup_debug_messenger(inst, &ctx.debug_messenger) {
+		success: bool
+		when VK_VERBOSE {
+			success = setup_debug_messenger_verbose(inst, &ctx.debug_messenger)
+		} else {
+			success = setup_debug_messenger(inst, &ctx.debug_messenger)
+		}
+		if !success {
 			fmt.eprintln("vk_ctx: setup_debug_messenger failed")
 		}
 	}
@@ -115,5 +121,6 @@ vulkan_context_init_window :: proc(
 		return ctx, false
 	}
 
+	label_context_objects(&ctx)
 	return ctx, true
 }
