@@ -1,13 +1,13 @@
 // input_keyboard.odin — Singleton-style keyboard state for the app.
-// Raylib key state is read once per frame in keyboard_update; the rest of the app
+// GLFW key state is read once per frame in keyboard_update; the rest of the app
 // uses KeyboardState only, so key handling is centralized and reusable.
 
 package editor
 
-import rl "vendor:raylib"
+import glfw "vendor:glfw"
 
 // KeyboardState holds the current frame's key state. Updated once per frame by keyboard_update.
-// Use this instead of calling rl.IsKeyDown / rl.IsKeyPressed directly so all keyboard handling
+// Use this instead of calling vk_is_key_down directly so all keyboard handling
 // goes through one place and can be reused (nudge, shortcuts, etc.).
 KeyboardState :: struct {
 	// Nudge (object move/radius): W/S, A/D, Q/E, +/- (and arrow/numpad aliases)
@@ -24,17 +24,17 @@ KeyboardState :: struct {
 	any_nudge: bool,
 }
 
-// keyboard_update reads Raylib key state and fills state. Call once per frame at the start of the input phase.
+// keyboard_update reads GLFW key state and fills state. Call once per frame at the start of the input phase.
 keyboard_update :: proc(state: ^KeyboardState) {
 	if state == nil { return }
-	state.nudge_neg_z      = rl.IsKeyDown(.W) || rl.IsKeyDown(.UP)
-	state.nudge_pos_z     = rl.IsKeyDown(.S) || rl.IsKeyDown(.DOWN)
-	state.nudge_neg_x     = rl.IsKeyDown(.A) || rl.IsKeyDown(.LEFT)
-	state.nudge_pos_x     = rl.IsKeyDown(.D) || rl.IsKeyDown(.RIGHT)
-	state.nudge_neg_y     = rl.IsKeyDown(.Q)
-	state.nudge_pos_y     = rl.IsKeyDown(.E)
-	state.nudge_radius_inc = rl.IsKeyDown(.EQUAL) || rl.IsKeyDown(.KP_ADD)
-	state.nudge_radius_dec = rl.IsKeyDown(.MINUS) || rl.IsKeyDown(.KP_SUBTRACT)
+	state.nudge_neg_z      = vk_is_key_down(glfw.KEY_W) || vk_is_key_down(glfw.KEY_UP)
+	state.nudge_pos_z     = vk_is_key_down(glfw.KEY_S) || vk_is_key_down(glfw.KEY_DOWN)
+	state.nudge_neg_x     = vk_is_key_down(glfw.KEY_A) || vk_is_key_down(glfw.KEY_LEFT)
+	state.nudge_pos_x     = vk_is_key_down(glfw.KEY_D) || vk_is_key_down(glfw.KEY_RIGHT)
+	state.nudge_neg_y     = vk_is_key_down(glfw.KEY_Q)
+	state.nudge_pos_y     = vk_is_key_down(glfw.KEY_E)
+	state.nudge_radius_inc = vk_is_key_down(glfw.KEY_EQUAL) || vk_is_key_down(glfw.KEY_KP_ADD)
+	state.nudge_radius_dec = vk_is_key_down(glfw.KEY_MINUS) || vk_is_key_down(glfw.KEY_KP_SUBTRACT)
 	state.any_nudge = state.nudge_neg_z || state.nudge_pos_z ||
 		state.nudge_neg_x || state.nudge_pos_x ||
 		state.nudge_neg_y || state.nudge_pos_y ||

@@ -48,7 +48,7 @@ cmd_action_file_new :: proc(app: ^App) {
     rt.init_camera(app.r_camera)
     _ = app_start_render_session(app)
     app.e_scene_dirty = false
-    app_push_log(app, strings.clone("New scene (3 default spheres)"))
+    app_push_log(app, "New scene (3 default spheres)")
 }
 
 // Single definition for fallback to text path modal when native dialog is unavailable. All when FILE_MODAL_FALLBACK branches live in this file. If another module needs this flag, move it to a shared build/config module.
@@ -82,10 +82,10 @@ cmd_action_file_save :: proc(app: ^App) -> bool {
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     if persistence.save_scene(app.current_scene_path, app.r_camera, world, app.e_volumes[:]) {
         app.e_scene_dirty = false
-        app_push_log(app, fmt.aprintf("Saved: %s", app.current_scene_path))
+        app_push_log(app, fmt.tprintf("Saved: %s", app.current_scene_path))
         return true
     }
-    app_push_log(app, fmt.aprintf("Save failed: %s", app.current_scene_path))
+    app_push_log(app, fmt.tprintf("Save failed: %s", app.current_scene_path))
     return false
 }
 
@@ -215,14 +215,14 @@ cmd_action_benchmark_start :: proc(app: ^App) {
     util.trace_set_metadata("render_path", path_mode)
     util.trace_start_capture()
     if util.trace_is_capturing() {
-        app_push_log(app, strings.clone("Visual benchmark capture started"))
+        app_push_log(app, "Visual benchmark capture started")
     }
 }
 
 cmd_action_benchmark_stop :: proc(app: ^App) {
     data, ok := util.trace_stop_capture()
     if !ok || len(data) == 0 {
-        app_push_log(app, strings.clone("No active visual benchmark capture"))
+        app_push_log(app, "No active visual benchmark capture")
         return
     }
     defer delete(data)
@@ -231,12 +231,12 @@ cmd_action_benchmark_stop :: proc(app: ^App) {
     defer delete(path)
     f, open_err := os.open(path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
     if open_err != os.ERROR_NONE {
-        app_push_log(app, fmt.aprintf("Trace write failed: %s", path))
+        app_push_log(app, fmt.tprintf("Trace write failed: %s", path))
         return
     }
     defer os.close(f)
     _, _ = os.write(f, data)
-    app_push_log(app, fmt.aprintf("Trace saved: %s", path))
+    app_push_log(app, fmt.tprintf("Trace saved: %s", path))
 }
 
 cmd_enabled_benchmark_start :: proc(app: ^App) -> bool {
@@ -263,82 +263,82 @@ apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
         sphere := a.before if is_undo else a.after
         SetSceneSphere(ev.scene_mgr, a.idx, sphere)
         if is_undo {
-            app_push_log(app, strings.clone("Undo: modify sphere"))
+            app_push_log(app, "Undo: modify sphere")
         } else {
-            app_push_log(app, strings.clone("Redo: modify sphere"))
+            app_push_log(app, "Redo: modify sphere")
         }
     case AddSphereAction:
         if is_undo {
             OrderedRemove(ev.scene_mgr, a.idx)
             ev.selection_kind = .None
             ev.selected_idx   = -1
-            app_push_log(app, strings.clone("Undo: add sphere"))
+            app_push_log(app, "Undo: add sphere")
         } else {
             InsertSphereAt(ev.scene_mgr, a.idx, a.sphere)
             ev.selection_kind = .Sphere
             ev.selected_idx   = a.idx
-            app_push_log(app, strings.clone("Redo: add sphere"))
+            app_push_log(app, "Redo: add sphere")
         }
     case DeleteSphereAction:
         if is_undo {
             InsertSphereAt(ev.scene_mgr, a.idx, a.sphere)
             ev.selection_kind = .Sphere
             ev.selected_idx   = a.idx
-            app_push_log(app, strings.clone("Undo: delete sphere"))
+            app_push_log(app, "Undo: delete sphere")
         } else {
             OrderedRemove(ev.scene_mgr, a.idx)
             ev.selection_kind = .None
             ev.selected_idx   = -1
-            app_push_log(app, strings.clone("Redo: delete sphere"))
+            app_push_log(app, "Redo: delete sphere")
         }
     case AddQuadAction:
         if is_undo {
             OrderedRemove(ev.scene_mgr, a.idx)
             ev.selection_kind = .None
             ev.selected_idx   = -1
-            app_push_log(app, strings.clone("Undo: add quad"))
+            app_push_log(app, "Undo: add quad")
         } else {
             InsertQuadAt(ev.scene_mgr, a.idx, a.quad)
             ev.selection_kind = .Quad
             ev.selected_idx   = a.idx
-            app_push_log(app, strings.clone("Redo: add quad"))
+            app_push_log(app, "Redo: add quad")
         }
     case DeleteQuadAction:
         if is_undo {
             InsertQuadAt(ev.scene_mgr, a.idx, a.quad)
             ev.selection_kind = .Quad
             ev.selected_idx   = a.idx
-            app_push_log(app, strings.clone("Undo: delete quad"))
+            app_push_log(app, "Undo: delete quad")
         } else {
             OrderedRemove(ev.scene_mgr, a.idx)
             ev.selection_kind = .None
             ev.selected_idx   = -1
-            app_push_log(app, strings.clone("Redo: delete quad"))
+            app_push_log(app, "Redo: delete quad")
         }
     case ModifyQuadAction:
         if is_undo {
             SetSceneQuad(ev.scene_mgr, a.idx, a.before)
-            app_push_log(app, strings.clone("Undo: move quad"))
+            app_push_log(app, "Undo: move quad")
         } else {
             SetSceneQuad(ev.scene_mgr, a.idx, a.after)
-            app_push_log(app, strings.clone("Redo: move quad"))
+            app_push_log(app, "Redo: move quad")
         }
     case ModifyCameraAction:
         if is_undo {
             app.c_camera_params = a.before
-            app_push_log(app, strings.clone("Undo: camera"))
+            app_push_log(app, "Undo: camera")
         } else {
             app.c_camera_params = a.after
-            app_push_log(app, strings.clone("Redo: camera"))
+            app_push_log(app, "Redo: camera")
         }
     case ModifyVolumeAction:
         if a.idx >= 0 && a.idx < len(app.e_volumes) {
             if is_undo {
                 app.e_volumes[a.idx] = a.before
-                app_push_log(app, strings.clone("Undo: volume"))
+                app_push_log(app, "Undo: volume")
             } else {
                 app.e_volumes[a.idx] = a.after
-                app_push_log(app, strings.clone("Redo: volume"))
+                app_push_log(app, "Redo: volume")
             }
         }
     case AddVolumeAction:
@@ -348,13 +348,13 @@ apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
             }
             ev.selection_kind = .None
             ev.selected_idx   = -1
-            app_push_log(app, strings.clone("Undo: add volume"))
+            app_push_log(app, "Undo: add volume")
         } else {
             insert_idx := clamp(a.idx, 0, len(app.e_volumes))
             inject_at(&app.e_volumes, insert_idx, a.volume)
             ev.selection_kind = .Volume
             ev.selected_idx   = insert_idx
-            app_push_log(app, strings.clone("Redo: add volume"))
+            app_push_log(app, "Redo: add volume")
         }
     case DeleteVolumeAction:
         if is_undo {
@@ -362,14 +362,14 @@ apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
             inject_at(&app.e_volumes, insert_idx, a.volume)
             ev.selection_kind = .Volume
             ev.selected_idx   = a.idx
-            app_push_log(app, strings.clone("Undo: delete volume"))
+            app_push_log(app, "Undo: delete volume")
         } else {
             if a.idx >= 0 && a.idx < len(app.e_volumes) {
                 ordered_remove(&app.e_volumes, a.idx)
             }
             ev.selection_kind = .None
             ev.selected_idx   = -1
-            app_push_log(app, strings.clone("Redo: delete volume"))
+            app_push_log(app, "Redo: delete volume")
         }
     }
 }
@@ -399,7 +399,7 @@ cmd_action_copy :: proc(app: ^App) {
     if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
         app.e_clipboard_sphere = sphere
         app.e_has_clipboard    = true
-        app_push_log(app, strings.clone("Copied sphere"))
+        app_push_log(app, "Copied sphere")
     }
 }
 
@@ -423,7 +423,7 @@ cmd_action_paste :: proc(app: ^App) {
     ev.selected_idx   = insert_idx
     edit_history_push(&app.edit_history, AddSphereAction{idx = insert_idx, sphere = sphere})
     mark_scene_dirty(app)
-    app_push_log(app, strings.clone("Pasted sphere"))
+    app_push_log(app, "Pasted sphere")
 }
 
 cmd_enabled_paste :: proc(app: ^App) -> bool {
@@ -443,7 +443,7 @@ cmd_action_duplicate :: proc(app: ^App) {
     ev.selected_idx   = insert_idx
     edit_history_push(&app.edit_history, AddSphereAction{idx = insert_idx, sphere = sphere})
     mark_scene_dirty(app)
-    app_push_log(app, strings.clone("Duplicated sphere"))
+    app_push_log(app, "Duplicated sphere")
 }
 
 cmd_enabled_duplicate :: proc(app: ^App) -> bool {
@@ -460,7 +460,7 @@ cmd_action_edit_view_align_camera :: proc(app: ^App) {
 cmd_action_edit_view_frame_geometry :: proc(app: ^App) {
     ev := &app.e_edit_view
     if !frame_editor_camera_horizontal(ev) {
-        app_push_log(app, strings.clone("Frame all geometry: no valid objects"))
+        app_push_log(app, "Frame all geometry: no valid objects")
     }
 }
 

@@ -7,6 +7,7 @@ import "core:fmt"
 import "core:math"
 import "core:strconv"
 import "core:strings"
+import glfw "vendor:glfw"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
@@ -118,7 +119,7 @@ _free_fly_apply_motion :: proc(ev: ^EditViewState, mouse_in_vp, rmb_down: bool) 
 	ev.nav_keys_consumed = false
 
 	// Mouse wheel (viewport-only); arrow/WASD/EQ keys work regardless of mouse position.
-	wheel := mouse_in_vp ? rl.GetMouseWheelMove() : 0
+	wheel := mouse_in_vp ? vk_get_wheel_delta() : 0
 	if wheel != 0 {
 		if wheel > 0 {
 			ev.speed_factor *= 1.18
@@ -134,24 +135,24 @@ _free_fly_apply_motion :: proc(ev: ^EditViewState, mouse_in_vp, rmb_down: bool) 
 	up := [3]f32{0, 1, 0}
 	move := [3]f32{0, 0, 0}
 
-	if (rmb_down && rl.IsKeyDown(.W)) || rl.IsKeyDown(.UP) { move += forward }
-	if (rmb_down && rl.IsKeyDown(.S)) || rl.IsKeyDown(.DOWN) { move -= forward }
-	if (rmb_down && rl.IsKeyDown(.D)) || rl.IsKeyDown(.RIGHT) { move += right }
-	if (rmb_down && rl.IsKeyDown(.A)) || rl.IsKeyDown(.LEFT) { move -= right }
-	if rl.IsKeyDown(.E) || rl.IsKeyDown(.PAGE_UP) { move += up }
-	if rl.IsKeyDown(.Q) || rl.IsKeyDown(.PAGE_DOWN) { move -= up }
+	if (rmb_down && vk_is_key_down(glfw.KEY_W)) || vk_is_key_down(glfw.KEY_UP) { move += forward }
+	if (rmb_down && vk_is_key_down(glfw.KEY_S)) || vk_is_key_down(glfw.KEY_DOWN) { move -= forward }
+	if (rmb_down && vk_is_key_down(glfw.KEY_D)) || vk_is_key_down(glfw.KEY_RIGHT) { move += right }
+	if (rmb_down && vk_is_key_down(glfw.KEY_A)) || vk_is_key_down(glfw.KEY_LEFT) { move -= right }
+	if vk_is_key_down(glfw.KEY_E) || vk_is_key_down(glfw.KEY_PAGE_UP) { move += up }
+	if vk_is_key_down(glfw.KEY_Q) || vk_is_key_down(glfw.KEY_PAGE_DOWN) { move -= up }
 
 	if rt.vector_length_squared(move) <= 1e-8 { return }
 	ev.nav_keys_consumed = true
 	move = _vec_norm(move)
 	modifier := f32(1.0)
-	if rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT) {
+	if vk_is_key_down(glfw.KEY_LEFT_SHIFT) || vk_is_key_down(glfw.KEY_RIGHT_SHIFT) {
 		modifier *= 4.0
 	}
-	if rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL) {
+	if vk_is_key_down(glfw.KEY_LEFT_CONTROL) || vk_is_key_down(glfw.KEY_RIGHT_CONTROL) {
 		modifier *= 0.2
 	}
-	step := move * ev.move_speed * ev.speed_factor * modifier * rl.GetFrameTime()
+	step := move * ev.move_speed * ev.speed_factor * modifier * vk_get_frame_time()
 	if ev.lock_axis_x { step[0] = 0 }
 	if ev.lock_axis_y { step[1] = 0 }
 	if ev.lock_axis_z { step[2] = 0 }
@@ -161,7 +162,7 @@ _free_fly_apply_motion :: proc(ev: ^EditViewState, mouse_in_vp, rmb_down: bool) 
 handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2) {
 	_ts := ui_trace_handler_begin("handle_context_menu_input"); defer ui_trace_handler_end(_ts)
 	app.input_consumed = true
-	if rl.IsMouseButtonPressed(.LEFT) {
+	if vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT) {
 		items := ctx_menu_build_items(app, ev)
 		rect  := ctx_menu_screen_rect(app, ev)
 		if rl.CheckCollisionPointRec(mouse, rect) {
@@ -182,7 +183,7 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 							if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
 								edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
 								mark_scene_dirty(app)
-								app_push_log(app, strings.clone("Add sphere"))
+								app_push_log(app, "Add sphere")
 							}
 							app.r_render_pending = true
 						case "Add Quad":
@@ -193,7 +194,7 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 							if new_quad, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
 								edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = new_quad})
 								mark_scene_dirty(app)
-								app_push_log(app, strings.clone("Add quad"))
+								app_push_log(app, "Add quad")
 							}
 							app.r_render_pending = true
 						case "Add Volume":
@@ -212,7 +213,7 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 							ev.selected_idx   = new_idx
 							edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
 							mark_scene_dirty(app)
-							app_push_log(app, strings.clone("Add volume"))
+							app_push_log(app, "Add volume")
 							app.r_render_pending = true
 						case "Delete":
 							if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
@@ -220,7 +221,7 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 								edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = del_vol})
 								ordered_remove(&app.e_volumes, ev.selected_idx)
 								mark_scene_dirty(app)
-								app_push_log(app, strings.clone("Delete volume"))
+								app_push_log(app, "Delete volume")
 								ev.selection_kind = .None
 								ev.selected_idx   = -1
 								app.r_render_pending = true
@@ -229,11 +230,11 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 								if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
 									edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
 									mark_scene_dirty(app)
-									app_push_log(app, strings.clone("Delete sphere"))
+									app_push_log(app, "Delete sphere")
 								} else if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
 									edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
 									mark_scene_dirty(app)
-									app_push_log(app, strings.clone("Delete quad"))
+									app_push_log(app, "Delete quad")
 								}
 								OrderedRemove(ev.scene_mgr, del_idx)
 								ev.selection_kind = .None
@@ -248,7 +249,7 @@ handle_context_menu_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vecto
 			}
 		}
 		ev.ctx_menu_open = false
-	} else if rl.IsKeyPressed(.ESCAPE) {
+	} else if vk_is_key_pressed(glfw.KEY_ESCAPE) {
 		ev.ctx_menu_open = false
 	}
 }
@@ -263,7 +264,7 @@ handle_cam_rot_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lm
 		})
 		mark_scene_dirty(app)
 		ev.cam_rot_drag_axis = -1
-		rl.SetMouseCursor(.DEFAULT)
+		vk_set_cursor(.Default)
 		app.r_render_pending = true
 	} else {
 		dx := mouse.x - ev.cam_rot_drag_start_x
@@ -324,7 +325,7 @@ handle_cam_prop_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, l
 		})
 		mark_scene_dirty(app)
 		ev.cam_prop_drag_idx = -1
-		rl.SetMouseCursor(.DEFAULT)
+		vk_set_cursor(.Default)
 		app.r_render_pending = true
 	} else {
 		delta := mouse.x - ev.cam_prop_drag_start_x
@@ -376,7 +377,7 @@ handle_sphere_prop_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2
 	if !lmb {
 		ui_log_drag_end(app, "SphereProp")
 		ev.prop_drag_idx = -1
-		rl.SetMouseCursor(.DEFAULT)
+		vk_set_cursor(.Default)
 	} else if ev.selection_kind == .Sphere && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
 		delta := mouse.x - ev.prop_drag_start_x
 		if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
@@ -405,7 +406,7 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 					idx = ev.selected_idx, before = ev.drag_before, after = sphere,
 				})
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Move sphere"))
+				app_push_log(app, "Move sphere")
 				app.r_render_pending = true
 			}
 		} else if ev.selection_kind == .Quad && ev.selected_idx >= 0 && ev.selected_idx < SceneManagerLen(ev.scene_mgr) {
@@ -415,7 +416,7 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 					idx = ev.selected_idx, before = ev.drag_before_quad, after = quad,
 				})
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Move quad"))
+				app_push_log(app, "Move quad")
 				app.r_render_pending = true
 			}
 		} else if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
@@ -424,7 +425,7 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 				idx = ev.selected_idx, before = ev.drag_before_volume, after = app.e_volumes[ev.selected_idx],
 			})
 			mark_scene_dirty(app)
-			app_push_log(app, strings.clone("Move volume"))
+			app_push_log(app, "Move volume")
 			app.r_render_pending = true
 		}
 	} else if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
@@ -459,21 +460,21 @@ handle_viewport_object_drag :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vec
 
 handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, rects: ^EditViewRects) {
 	_ts := ui_trace_handler_begin("handle_toolbar_input"); defer ui_trace_handler_end(_ts)
-	lmb := rl.IsMouseButtonDown(.LEFT)
-	lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
+	lmb := vk_is_mouse_down(glfw.MOUSE_BUTTON_LEFT)
+	lmb_pressed := vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT)
 
 	// Background color picker: ongoing drag or click to open/close/select
 	if ev.bg_drag_idx >= 0 {
 		if !lmb {
 			ev.bg_drag_idx = -1
-			rl.SetMouseCursor(.DEFAULT)
+			vk_set_cursor(.Default)
 		} else {
 			delta := mouse.x - ev.bg_drag_start_x
 			val := clamp(ev.bg_drag_start_val + delta * 0.002, 0, 1)
 			app.c_camera_params.background[ev.bg_drag_idx] = val
 			mark_scene_dirty(app)
 			app.r_render_pending = true
-			rl.SetMouseCursor(.RESIZE_EW)
+			vk_set_cursor(.ResizeEW)
 		}
 		return
 	}
@@ -535,7 +536,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 		in_btn_add  := rl.CheckCollisionPointRec(mouse, rects.btn_add)
 
 		if ev.add_dropdown_open {
-			if rl.IsMouseButtonPressed(.LEFT) {
+			if vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT) {
 				switch {
 				case rl.CheckCollisionPointRec(mouse, sphere_item):
 					ev.add_dropdown_open = false
@@ -546,7 +547,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 					if new_sphere, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
 						edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = new_sphere})
 						mark_scene_dirty(app)
-						app_push_log(app, strings.clone("Add sphere"))
+						app_push_log(app, "Add sphere")
 					}
 					app.r_render_pending = true
 				case rl.CheckCollisionPointRec(mouse, quad_item):
@@ -558,7 +559,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 					if new_quad, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
 						edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = new_quad})
 						mark_scene_dirty(app)
-						app_push_log(app, strings.clone("Add quad"))
+						app_push_log(app, "Add quad")
 					}
 					app.r_render_pending = true
 				case !in_dropdown && !in_btn_add:
@@ -573,14 +574,14 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 				if del_sphere, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
 					edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = del_sphere})
 					mark_scene_dirty(app)
-					app_push_log(app, strings.clone("Delete sphere"))
+					app_push_log(app, "Delete sphere")
 				}
 				OrderedRemove(ev.scene_mgr, del_idx)
 			} else if ev.selection_kind == .Quad {
 				if del_quad, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
 					edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = del_quad})
 					mark_scene_dirty(app)
-					app_push_log(app, strings.clone("Delete quad"))
+					app_push_log(app, "Delete quad")
 				}
 				OrderedRemove(ev.scene_mgr, del_idx)
 			} else if ev.selection_kind == .Volume && del_idx < len(app.e_volumes) {
@@ -588,7 +589,7 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 				edit_history_push(&app.edit_history, DeleteVolumeAction{idx = del_idx, volume = del_vol})
 				ordered_remove(&app.e_volumes, del_idx)
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Delete volume"))
+				app_push_log(app, "Delete volume")
 			}
 			ev.selection_kind = .None
 			ev.selected_idx   = -1
@@ -617,21 +618,21 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 			if !res_ok {
 				h, h_ok := strconv.parse_int(strings.trim_space(app.r_height_input))
 				if !h_ok || h <= 0 {
-					app_push_log(app, strings.clone("Invalid height. Must be a positive integer."))
+					app_push_log(app, "Invalid height. Must be a positive integer.")
 				} else {
 					if h < MIN_RENDER_HEIGHT {
-						app_push_log(app, fmt.aprintf("Warning: Height %d below minimum (%d)", h, MIN_RENDER_HEIGHT))
+						app_push_log(app, fmt.tprintf("Warning: Height %d below minimum (%d)", h, MIN_RENDER_HEIGHT))
 					} else if h > MAX_RENDER_HEIGHT {
-						app_push_log(app, fmt.aprintf("Warning: Height %d exceeds maximum (%d)", h, MAX_RENDER_HEIGHT))
+						app_push_log(app, fmt.tprintf("Warning: Height %d exceeds maximum (%d)", h, MAX_RENDER_HEIGHT))
 					}
 					if width < MIN_RENDER_WIDTH {
-						app_push_log(app, fmt.aprintf("Warning: Width %d below minimum (%d)", width, MIN_RENDER_WIDTH))
+						app_push_log(app, fmt.tprintf("Warning: Width %d below minimum (%d)", width, MIN_RENDER_WIDTH))
 					} else if width > MAX_RENDER_WIDTH {
-						app_push_log(app, fmt.aprintf("Warning: Width %d exceeds maximum (%d)", width, MAX_RENDER_WIDTH))
+						app_push_log(app, fmt.tprintf("Warning: Width %d exceeds maximum (%d)", width, MAX_RENDER_WIDTH))
 					}
 				}
 			} else if !samp_ok || samples <= 0 {
-				app_push_log(app, strings.clone("Invalid samples count. Must be a positive integer."))
+				app_push_log(app, "Invalid samples count. Must be a positive integer.")
 			} else {
 				restart_render_with_settings(app, width, height, samples)
 			}
@@ -645,10 +646,10 @@ handle_toolbar_input :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, r
 handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.Vector2, lmb_pressed: bool, rects: ^EditViewRects) {
 	_ts := ui_trace_handler_begin("handle_viewport_orbit_and_pick"); defer ui_trace_handler_end(_ts)
 	mouse_in_vp := rl.CheckCollisionPointRec(mouse, rects.vp_rect)
-	rmb_pressed := rl.IsMouseButtonPressed(.RIGHT)
-	rmb_down    := rl.IsMouseButtonDown(.RIGHT)
-	rmb_release := rl.IsMouseButtonReleased(.RIGHT)
-	if mouse_in_vp && rl.IsKeyPressed(.F) {
+	rmb_pressed := vk_is_mouse_pressed(glfw.MOUSE_BUTTON_RIGHT)
+	rmb_down    := vk_is_mouse_down(glfw.MOUSE_BUTTON_RIGHT)
+	rmb_release := vk_is_mouse_released(glfw.MOUSE_BUTTON_RIGHT)
+	if mouse_in_vp && vk_is_key_pressed(glfw.KEY_F) {
 		ev.camera_mode = ev.camera_mode == .FreeFly ? .Orbit : .FreeFly
 	}
 
@@ -701,7 +702,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 
 	if mouse_in_vp {
 		if ev.camera_mode != .FreeFly {
-			ev.orbit_distance -= rl.GetMouseWheelMove() * 0.8
+			ev.orbit_distance -= vk_get_wheel_delta() * 0.8
 		}
 	}
 
@@ -724,7 +725,7 @@ handle_viewport_orbit_and_pick :: proc(app: ^App, ev: ^EditViewState, mouse: rl.
 					ev.cam_drag_start_lookfrom = {cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
 					ev.cam_drag_start_lookat   = {cp.lookat[0], cp.lookat[1], cp.lookat[2]}
 					ui_log_drag_start(app, "CamRotation")
-					rl.SetMouseCursor(.RESIZE_ALL)
+					vk_set_cursor(.ResizeAll)
 				case pick_camera(ray, cam_lookfrom):
 					cp := &app.c_camera_params
 					ev.cam_drag_before_params  = app.c_camera_params

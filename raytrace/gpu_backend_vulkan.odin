@@ -181,6 +181,8 @@ _vk_dispatch :: proc(state: rawptr) {
     b := (^VulkanGPUBackend)(state)
     if b == nil { return }
     if b.current_sample >= b.total_samples { return }
+    // Re-bind global Vulkan dispatch to this compute device (see imgui_vk_end_frame comment).
+    vk.load_proc_addresses_device(b.ctx.device)
 
     t0 := time.now()
     defer {
@@ -303,6 +305,7 @@ _vk_reset :: proc(state: rawptr) {
 @(private)
 _vk_destroy :: proc(b: ^VulkanGPUBackend) {
     if b == nil { return }
+    vk.load_proc_addresses_device(b.ctx.device)
     if b.command_buffer != vk.CommandBuffer({}) && b.ctx.compute_command_pool != vk.CommandPool({}) {
         vk.FreeCommandBuffers(b.ctx.device, b.ctx.compute_command_pool, 1, &b.command_buffer)
         b.command_buffer = {}

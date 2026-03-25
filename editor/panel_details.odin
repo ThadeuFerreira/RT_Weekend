@@ -299,7 +299,7 @@ op_try_start_drag :: proc(
 		st.prop_drag_idx       = idx
 		st.prop_drag_start_x   = mouse.x
 		st.prop_drag_start_val = val
-		rl.SetMouseCursor(.RESIZE_EW)
+		vk_set_cursor(.ResizeEW)
 	}
 	return true
 }
@@ -613,7 +613,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 					ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 					app_restart_render_with_scene(app, ev.export_scratch[:])
 					st.prop_drag_idx = -1
-					rl.SetMouseCursor(.DEFAULT)
+					vk_set_cursor(.Default)
 				} else {
 					idx := (st.prop_drag_idx - OP_VOLUME_DRAG_BASE) / 4
 					sub := (st.prop_drag_idx - OP_VOLUME_DRAG_BASE) % 4
@@ -629,11 +629,11 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 						case 3: app.e_volumes[idx].albedo[2] = clamp(st.prop_drag_start_val + delta*0.005, 0, 1)
 						}
 					}
-					rl.SetMouseCursor(.RESIZE_EW)
+					vk_set_cursor(.ResizeEW)
 				}
 			} else {
 				st.prop_drag_idx = -1
-				rl.SetMouseCursor(.DEFAULT)
+				vk_set_cursor(.Default)
 			}
 			return
 		}
@@ -671,7 +671,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 				ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
 				app_restart_render_with_scene(app, ev.export_scratch[:])
 				st.prop_drag_idx = -1
-				rl.SetMouseCursor(.DEFAULT)
+				vk_set_cursor(.Default)
 			} else {
 				delta := mouse.x - st.prop_drag_start_x
 				sub := st.prop_drag_idx - OP_VOLUME_SELECTED_DRAG_BASE
@@ -702,7 +702,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 					v.box_max[1] = center[1] + half[1] * factor
 					v.box_max[2] = center[2] + half[2] * factor
 				}
-				rl.SetMouseCursor(.RESIZE_EW)
+				vk_set_cursor(.ResizeEW)
 			}
 			return
 		}
@@ -748,9 +748,9 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 					after  = app.c_camera_params,
 				})
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Camera property"))
+				app_push_log(app, "Camera property")
 				st.prop_drag_idx = -1
-				rl.SetMouseCursor(.DEFAULT)
+				vk_set_cursor(.Default)
 			} else {
 				delta := mouse.x - st.prop_drag_start_x
 				switch st.prop_drag_idx {
@@ -785,7 +785,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 					if c_params.shutter_close > 1 { c_params.shutter_close = 1 }
 					if c_params.shutter_close < c_params.shutter_open { c_params.shutter_open = c_params.shutter_close }
 				}
-				rl.SetMouseCursor(.RESIZE_EW)
+				vk_set_cursor(.ResizeEW)
 			}
 			return
 		}
@@ -806,7 +806,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 				}
 			}
 		}
-		if any_hovered { rl.SetMouseCursor(.RESIZE_EW) } else if rl.CheckCollisionPointRec(mouse, rect) { rl.SetMouseCursor(.DEFAULT) }
+		if any_hovered { vk_set_cursor(.ResizeEW) } else if rl.CheckCollisionPointRec(mouse, rect) { vk_set_cursor(.Default) }
 		return
 	}
 
@@ -839,7 +839,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 		if st.prop_drag_idx >= 0 && st.prop_drag_idx >= 20 && st.prop_drag_idx <= 23 {
 			if !lmb {
 				st.prop_drag_idx = -1
-				rl.SetMouseCursor(.DEFAULT)
+				vk_set_cursor(.Default)
 			} else {
 				delta := mouse.x - st.prop_drag_start_x
 				if is_emitter {
@@ -914,7 +914,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 				quad.material = rt.lambertian{albedo = rt.ConstantTexture{color = col}}
 				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Quad: Lambertian"))
+				app_push_log(app, "Quad: Lambertian")
 				return
 			}
 			if rl.CheckCollisionPointRec(mouse, mat_rects[1]) {
@@ -923,21 +923,21 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 				quad.material = rt.metallic{albedo = col, fuzz = 0.1}
 				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Quad: Metallic"))
+				app_push_log(app, "Quad: Metallic")
 				return
 			}
 			if rl.CheckCollisionPointRec(mouse, mat_rects[2]) {
 				quad.material = rt.dielectric{ref_idx = 1.5}
 				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Quad: Dielectric"))
+				app_push_log(app, "Quad: Dielectric")
 				return
 			}
 			if rl.CheckCollisionPointRec(mouse, mat_rects[3]) {
 				quad.material = rt.diffuse_light{emit = {2, 2, 2}}
 				SetSceneQuad(ev.scene_mgr, ev.selected_idx, quad)
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Quad: Emitter"))
+				app_push_log(app, "Quad: Emitter")
 				return
 			}
 		}
@@ -971,7 +971,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 		if op_try_start_drag(box_rgb[1], 21, col[1], st, mouse, lmb_pressed) { any_hov = true }
 		if op_try_start_drag(box_rgb[2], 22, col[2], st, mouse, lmb_pressed) { any_hov = true }
 		if op_try_start_drag(box_param, 23, param_val, st, mouse, lmb_pressed) { any_hov = true }
-		if any_hov { rl.SetMouseCursor(.RESIZE_EW) } else if rl.CheckCollisionPointRec(mouse, rect) { rl.SetMouseCursor(.DEFAULT) }
+		if any_hov { vk_set_cursor(.ResizeEW) } else if rl.CheckCollisionPointRec(mouse, rect) { vk_set_cursor(.Default) }
 		return
 	}
 
@@ -979,7 +979,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 	if ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) {
 		if st.prop_drag_idx >= 0 {
 			st.prop_drag_idx = -1
-			rl.SetMouseCursor(.DEFAULT)
+			vk_set_cursor(.Default)
 		}
 		return
 	}
@@ -998,10 +998,10 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 					after  = s_after,
 				})
 				mark_scene_dirty(app)
-				app_push_log(app, strings.clone("Sphere property"))
+				app_push_log(app, "Sphere property")
 			}
 			st.prop_drag_idx = -1
-			rl.SetMouseCursor(.DEFAULT)
+			vk_set_cursor(.Default)
 		} else {
 			delta := mouse.x - st.prop_drag_start_x
 			switch st.prop_drag_idx {
@@ -1043,7 +1043,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 				case core.ImageTexture:     {}
 				}
 			}
-			rl.SetMouseCursor(.RESIZE_EW)
+			vk_set_cursor(.ResizeEW)
 			// persist changes back to the scene manager
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 		}
@@ -1060,7 +1060,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			mark_scene_dirty(app)
-			app_push_log(app, strings.clone("Material: Lambertian"))
+			app_push_log(app, "Material: Lambertian")
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
@@ -1071,7 +1071,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			mark_scene_dirty(app)
-			app_push_log(app, strings.clone("Material: Metallic"))
+			app_push_log(app, "Material: Metallic")
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
@@ -1082,7 +1082,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			mark_scene_dirty(app)
-			app_push_log(app, strings.clone("Material: Dielectric"))
+			app_push_log(app, "Material: Dielectric")
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
@@ -1096,7 +1096,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			mark_scene_dirty(app)
-			app_push_log(app, strings.clone("Material: Light"))
+			app_push_log(app, "Material: Light")
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
@@ -1112,7 +1112,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 					mark_scene_dirty(app)
-					app_push_log(app, strings.clone("Texture: Solid"))
+					app_push_log(app, "Texture: Solid")
 				}
 				if g_app != nil { g_app.input_consumed = true }
 				return
@@ -1126,7 +1126,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 					mark_scene_dirty(app)
-					app_push_log(app, strings.clone("Texture: Noise"))
+					app_push_log(app, "Texture: Noise")
 				}
 				if g_app != nil { g_app.input_consumed = true }
 				return
@@ -1140,7 +1140,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 					SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 					edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 					mark_scene_dirty(app)
-					app_push_log(app, strings.clone("Texture: Marble"))
+					app_push_log(app, "Texture: Marble")
 				}
 				if g_app != nil { g_app.input_consumed = true }
 				return
@@ -1161,7 +1161,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 				SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 				edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 				mark_scene_dirty(app)
-				app_push_log(app, fmt.aprintf("Texture: %s", filepath.base(img_path)))
+				app_push_log(app, fmt.tprintf("Texture: %s", filepath.base(img_path)))
 			}
 			if g_app != nil { g_app.input_consumed = true }
 			return
@@ -1176,7 +1176,7 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 			SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
 			edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
 			mark_scene_dirty(app)
-			app_push_log(app, strings.clone("Texture cleared"))
+			app_push_log(app, "Texture cleared")
 			if g_app != nil { g_app.input_consumed = true }
 			return
 		}
@@ -1232,9 +1232,9 @@ update_details_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2,
 	}
 
 	if any_hovered {
-		rl.SetMouseCursor(.RESIZE_EW)
+		vk_set_cursor(.ResizeEW)
 	} else if rl.CheckCollisionPointRec(mouse, rect) {
-		rl.SetMouseCursor(.DEFAULT)
+		vk_set_cursor(.Default)
 	}
 }
 

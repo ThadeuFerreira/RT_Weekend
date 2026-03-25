@@ -51,7 +51,7 @@ ui_log_click :: #force_inline proc(app: ^App, component: string) {
 	when UI_EVENT_LOG_ENABLED {
 		util.trace_instant("Click", "ui.mouse")
 		if app != nil && app.ui_event_log_enabled {
-			app_push_log(app, fmt.aprintf("[ui] Click %s", component))
+			app_push_log(app, fmt.tprintf("[ui] Click %s", component))
 		}
 	}
 }
@@ -62,7 +62,7 @@ ui_log_drag_start :: #force_inline proc(app: ^App, component: string) {
 	when UI_EVENT_LOG_ENABLED {
 		util.trace_instant("DragStart", "ui.mouse")
 		if app != nil && app.ui_event_log_enabled {
-			app_push_log(app, fmt.aprintf("[ui] DragStart %s", component))
+			app_push_log(app, fmt.tprintf("[ui] DragStart %s", component))
 		}
 	}
 }
@@ -71,7 +71,7 @@ ui_log_drag_end :: #force_inline proc(app: ^App, component: string) {
 	when UI_EVENT_LOG_ENABLED {
 		util.trace_instant("DragEnd", "ui.mouse")
 		if app != nil && app.ui_event_log_enabled {
-			app_push_log(app, fmt.aprintf("[ui] DragEnd %s", component))
+			app_push_log(app, fmt.tprintf("[ui] DragEnd %s", component))
 		}
 	}
 }
@@ -82,7 +82,7 @@ ui_log_lifecycle :: #force_inline proc(app: ^App, component, event: string) {
 	when UI_EVENT_LOG_ENABLED {
 		util.trace_instant(event, "ui.lifecycle")
 		if app != nil {
-			app_push_log(app, fmt.aprintf("[ui] %s %s", event, component))
+			app_push_log(app, fmt.tprintf("[ui] %s %s", event, component))
 		}
 	}
 }

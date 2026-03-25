@@ -17,7 +17,7 @@ update_outliner_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2
 
 	// Scroll: handle wheel in update so input is not tied to draw order.
 	if rl.CheckCollisionPointRec(mouse, rect) {
-		wheel := rl.GetMouseWheelMove()
+		wheel := vk_get_wheel_delta()
 		if wheel != 0 {
 			st.scroll_y = outliner_scroll_after_wheel(st.scroll_y, f32(wheel), total_h, rect.height, OUTLINER_ROW_H)
 		}

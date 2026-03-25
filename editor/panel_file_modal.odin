@@ -54,7 +54,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     app_clear_image_texture_cache(app)
     cam, world, volumes, ok := persistence.load_scene(path, app.r_camera.image_width, app.r_camera.image_height, app.r_camera.samples_per_pixel, &app.image_texture_cache)
     if !ok {
-        app_push_log(app, fmt.aprintf("Import failed: %s", path))
+        app_push_log(app, fmt.tprintf("Import failed: %s", path))
         delete(path)
         return
     }
@@ -94,7 +94,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     _ = app_start_render_session(app)
-    app_push_log(app, fmt.aprintf("Imported: %s (%d objects)", path, len(app.r_world)))
+    app_push_log(app, fmt.tprintf("Imported: %s (%d objects)", path, len(app.r_world)))
 
     free(cam)
 }
@@ -120,10 +120,10 @@ file_save_as_path :: proc(app: ^App, path: string) -> bool {
         delete(app.current_scene_path)
         app.current_scene_path = path
         app.e_scene_dirty = false
-        app_push_log(app, fmt.aprintf("Saved as: %s", path))
+        app_push_log(app, fmt.tprintf("Saved as: %s", path))
         return true
     }
-    app_push_log(app, fmt.aprintf("Save failed: %s", path))
+    app_push_log(app, fmt.tprintf("Save failed: %s", path))
     delete(path)
     return false
 }

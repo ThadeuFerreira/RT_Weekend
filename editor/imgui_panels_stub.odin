@@ -11,11 +11,13 @@ import "core:fmt"
 import "core:math"
 import "core:strconv"
 import "core:strings"
+import "core:sync"
+import glfw "vendor:glfw"
+import rl "vendor:raylib"
 import "RT_Weekend:core"
 import "RT_Weekend:util"
 import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
-import rl "vendor:raylib"
 
 // imgui_draw_main_menu_bar renders the application main menu bar using Dear
 // ImGui.  All items wire to the existing command registry so enabled/checked
@@ -108,8 +110,8 @@ _imgui_u8_buffer_len :: proc(buf: []u8) -> int {
 }
 
 @(private)
-_imgui_show_texture :: proc(tex_id: u32, tex_w, tex_h: i32) {
-    if tex_id == 0 || tex_w <= 0 || tex_h <= 0 { return }
+_imgui_show_texture :: proc(tex_id: imgui.TextureID, tex_w, tex_h: i32) {
+    if tex_w <= 0 || tex_h <= 0 { return }
     avail := imgui.GetContentRegionAvail()
     if avail.x <= 1 || avail.y <= 1 { return }
 
@@ -121,7 +123,7 @@ _imgui_show_texture :: proc(tex_id: u32, tex_w, tex_h: i32) {
         draw_size.y = draw_size.x / aspect
     }
 
-    imgui.Image(imgui.TextureID(uintptr(tex_id)), draw_size, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
+    imgui.Image(tex_id, draw_size)
 }
 
 @(private)
@@ -171,9 +173,9 @@ imgui_draw_render_panel :: proc(app: ^App) {
         settings_h := _imgui_render_settings_height()
         image_h := max(avail.y - settings_h, 120)
         if imgui.BeginChild("RenderImage", imgui.Vec2{-1, image_h}, {.Borders}) {
-            tex_id := imgui.TextureID(uintptr(app.render_tex.id))
+            tex_id := imgui_vk_texture_id(&app.vk_render_tex)
             img_avail := imgui.GetContentRegionAvail()
-            aspect := f32(app.render_tex.width) / max(f32(app.render_tex.height), 1)
+            aspect := f32(app.vk_render_tex.width) / max(f32(app.vk_render_tex.height), 1)
             size := _imgui_fit_size(img_avail, aspect)
             imgui.Image(tex_id, size)
         }
@@ -248,9 +250,14 @@ imgui_draw_stats_panel :: proc(app: ^App) {
 imgui_draw_console_panel :: proc(app: ^App) {
     if !app.e_panel_vis.console { return }
     if imgui.Begin("Console", &app.e_panel_vis.console) {
+        sync.mutex_lock(&app.log_mu)
+        defer sync.mutex_unlock(&app.log_mu)
         // Oldest-first so newest entries appear at the bottom (standard console convention)
-        count := min(app.log_count, LOG_RING_SIZE)
-        start := (app.log_count - count) % LOG_RING_SIZE
+        count := app.log_len
+        start := app.log_write_idx - count
+        if start < 0 {
+            start += LOG_RING_SIZE
+        }
         for i in 0..<count {
             idx := (start + i) % LOG_RING_SIZE
             line := app.log_lines[idx]
@@ -318,7 +325,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                 if ns, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
                     edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = ns})
                     mark_scene_dirty(app)
-                    app_push_log(app, strings.clone("Add sphere"))
+                    app_push_log(app, "Add sphere")
                 }
                 app.r_render_pending = true
             }
@@ -330,7 +337,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                 if nq, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
                     edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = nq})
                     mark_scene_dirty(app)
-                    app_push_log(app, strings.clone("Add quad"))
+                    app_push_log(app, "Add quad")
                 }
                 app.r_render_pending = true
             }
@@ -350,7 +357,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                 ev.selected_idx   = new_idx
                 edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
                 mark_scene_dirty(app)
-                app_push_log(app, strings.clone("Add volume"))
+                app_push_log(app, "Add volume")
                 app.r_render_pending = true
             }
             imgui.EndPopup()
@@ -366,14 +373,14 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                 if ds, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
                     edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = ds})
                     mark_scene_dirty(app)
-                    app_push_log(app, strings.clone("Delete sphere"))
+                    app_push_log(app, "Delete sphere")
                 }
                 OrderedRemove(ev.scene_mgr, del_idx)
             case .Quad:
                 if dq, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
                     edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = dq})
                     mark_scene_dirty(app)
-                    app_push_log(app, strings.clone("Delete quad"))
+                    app_push_log(app, "Delete quad")
                 }
                 OrderedRemove(ev.scene_mgr, del_idx)
             case .Volume:
@@ -382,7 +389,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                     edit_history_push(&app.edit_history, DeleteVolumeAction{idx = del_idx, volume = dv})
                     ordered_remove(&app.e_volumes, del_idx)
                     mark_scene_dirty(app)
-                    app_push_log(app, strings.clone("Delete volume"))
+                    app_push_log(app, "Delete volume")
                 }
             case .None, .Camera:
             }
@@ -431,8 +438,18 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         // Render to texture here (not in app.odin) so the texture dimensions
         // always match the available panel area this frame — no one-frame stretch on resize.
         avail := imgui.GetContentRegionAvail()
-        render_viewport_to_texture(app, max(i32(avail.x), 1), max(i32(avail.y), 1))
-        tex_id := imgui.TextureID(uintptr(ev.viewport_tex.texture.id))
+        vp_w := max(i32(avail.x), 1)
+        vp_h := max(i32(avail.y), 1)
+        render_viewport_to_texture(app, vp_w, vp_h)
+        // Readback Raylib FBO → Vulkan texture for ImGui display
+        if ev.tex_w > 0 && ev.tex_h > 0 {
+            imgui_vk_ensure_texture(&app.vk_viewport_tex, ev.tex_w, ev.tex_h)
+            vp_img := rl.LoadImageFromTexture(ev.viewport_tex.texture)
+            imgui_vk_update_texture(&app.vk_viewport_tex, vp_img.data)
+            rl.UnloadImage(vp_img)
+        }
+        tex_id := imgui_vk_texture_id(&app.vk_viewport_tex)
+        // Raylib FBOs are Y-flipped; use uv0={0,1}, uv1={1,0}
         imgui.Image(tex_id, avail, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
 
         img_min := imgui.GetItemRectMin()
@@ -444,8 +461,8 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         rects: EditViewRects
         rects.vp_rect = vp_rect
         mouse       := imgui_rl_mouse_pos()
-        lmb         := rl.IsMouseButtonDown(.LEFT)
-        lmb_pressed := rl.IsMouseButtonPressed(.LEFT)
+        lmb         := vk_is_mouse_down(glfw.MOUSE_BUTTON_LEFT)
+        lmb_pressed := vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT)
         any_active  := ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0
 
         if hovered || any_active {
@@ -488,7 +505,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                             ev.selection_kind = .Sphere ; ev.selected_idx = new_idx
                             if ns, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
                                 edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = ns})
-                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Add sphere"))
+                                mark_scene_dirty(app) ; app_push_log(app, "Add sphere")
                             }
                             app.r_render_pending = true
                         case "Add Quad":
@@ -497,7 +514,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                             ev.selection_kind = .Quad ; ev.selected_idx = new_idx
                             if nq, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
                                 edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = nq})
-                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Add quad"))
+                                mark_scene_dirty(app) ; app_push_log(app, "Add quad")
                             }
                             app.r_render_pending = true
                         case "Add Volume":
@@ -508,7 +525,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                             new_idx := len(app.e_volumes) - 1
                             ev.selection_kind = .Volume ; ev.selected_idx = new_idx
                             edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
-                            mark_scene_dirty(app) ; app_push_log(app, strings.clone("Add volume"))
+                            mark_scene_dirty(app) ; app_push_log(app, "Add volume")
                             app.r_render_pending = true
                         case "Delete":
                             del_idx := ev.ctx_menu_hit_idx
@@ -516,17 +533,17 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                                 dv := app.e_volumes[ev.selected_idx]
                                 edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = dv})
                                 ordered_remove(&app.e_volumes, ev.selected_idx)
-                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Delete volume"))
+                                mark_scene_dirty(app) ; app_push_log(app, "Delete volume")
                                 ev.selection_kind = .None ; ev.selected_idx = -1
                             } else if ds, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
                                 edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = ds})
                                 OrderedRemove(ev.scene_mgr, del_idx)
-                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Delete sphere"))
+                                mark_scene_dirty(app) ; app_push_log(app, "Delete sphere")
                                 ev.selection_kind = .None ; ev.selected_idx = -1
                             } else if dq, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
                                 edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = dq})
                                 OrderedRemove(ev.scene_mgr, del_idx)
-                                mark_scene_dirty(app) ; app_push_log(app, strings.clone("Delete quad"))
+                                mark_scene_dirty(app) ; app_push_log(app, "Delete quad")
                                 ev.selection_kind = .None ; ev.selected_idx = -1
                             }
                             app.r_render_pending = true
@@ -645,7 +662,11 @@ imgui_draw_camera_preview_panel :: proc(app: ^App) {
         preview_h := max(i32(size.y), 1)
         render_camera_preview_to_texture(app, preview_w, preview_h)
         if app.preview_port_w > 0 && app.preview_port_h > 0 {
-            tex_id := imgui.TextureID(uintptr(app.preview_port_tex.texture.id))
+            imgui_vk_ensure_texture(&app.vk_preview_tex, app.preview_port_w, app.preview_port_h)
+            prev_img := rl.LoadImageFromTexture(app.preview_port_tex.texture)
+            imgui_vk_update_texture(&app.vk_preview_tex, prev_img.data)
+            rl.UnloadImage(prev_img)
+            tex_id := imgui_vk_texture_id(&app.vk_preview_tex)
             imgui.Image(tex_id, size, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
         } else {
             imgui.TextUnformatted("(camera preview unavailable)")
@@ -668,37 +689,29 @@ imgui_draw_texture_view_panel :: proc(app: ^App) {
             need_rebuild := !app.e_texture_view.valid || app.e_texture_view.last_sig != sig
 
             if need_rebuild {
-                if app.e_texture_view.valid {
-                    rl.UnloadTexture(app.e_texture_view.preview_tex)
-                    app.e_texture_view.valid = false
-                }
+                app.e_texture_view.valid = false
                 delete(app.e_texture_view.last_sig)
                 app.e_texture_view.last_sig = strings.clone(sig)
 
                 img, buf_to_free, ok := texture_view_build_image(app, tex)
                 if ok {
-                    // Capture dimensions before unload; rl.UnloadImage zeroes data pointer only,
-                    // but reading after is fragile (implementation-dependent)
                     w, h := img.width, img.height
-                    app.e_texture_view.preview_tex = rl.LoadTextureFromImage(img)
+                    if imgui_vk_ensure_texture(&app.vk_texview_tex, w, h) {
+                        imgui_vk_update_texture(&app.vk_texview_tex, img.data)
+                        app.e_texture_view.preview_w = w
+                        app.e_texture_view.preview_h = h
+                        app.e_texture_view.valid = true
+                    }
                     if buf_to_free != nil {
                         delete(buf_to_free)
                     } else {
                         rl.UnloadImage(img)
                     }
-                    if rl.IsTextureValid(app.e_texture_view.preview_tex) {
-                        app.e_texture_view.preview_w = w
-                        app.e_texture_view.preview_h = h
-                        app.e_texture_view.valid = true
-                    } else {
-                        rl.UnloadTexture(app.e_texture_view.preview_tex)
-                        app.e_texture_view.valid = false
-                    }
                 }
             }
 
             if app.e_texture_view.valid {
-                _imgui_show_texture(app.e_texture_view.preview_tex.id, app.e_texture_view.preview_w, app.e_texture_view.preview_h)
+                _imgui_show_texture(imgui_vk_texture_id(&app.vk_texview_tex), app.e_texture_view.preview_w, app.e_texture_view.preview_h)
             } else {
                 imgui.TextUnformatted("Texture unavailable")
             }
@@ -759,7 +772,7 @@ imgui_draw_content_browser_panel :: proc(app: ^App) {
             imgui.TextUnformatted(strings.clone_to_cstring(asset.path, context.temp_allocator))
             if imgui.BeginChild("Preview", imgui.Vec2{-1, 220}, {.Borders}) {
                 if asset.kind == .Texture && st.preview_valid {
-                    _imgui_show_texture(st.preview_tex.id, st.preview_w, st.preview_h)
+                    _imgui_show_texture(imgui_vk_texture_id(&st.vk_preview_tex), st.preview_w, st.preview_h)
                 } else if asset.kind == .Scene {
                     imgui.TextUnformatted("Scene asset")
                     imgui.TextUnformatted("Use Open Scene to load it into the editor.")

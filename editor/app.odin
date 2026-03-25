@@ -4,7 +4,9 @@ import "base:runtime"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:sync"
 import "core:time"
+import glfw "vendor:glfw"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 import "RT_Weekend:core"
@@ -101,7 +103,7 @@ app_ensure_image_cached :: proc(app: ^App, path: string) -> bool {
     img^ = rt.texture_image_init()
     if !rt.texture_image_load(img, path) {
         free(img)
-        app_push_log(app, fmt.aprintf("Image load failed: %s", path))
+        app_push_log(app, fmt.tprintf("Image load failed: %s", path))
         return false
     }
     app.image_texture_cache[path] = img
@@ -120,7 +122,7 @@ app_start_render_session :: proc(app: ^App) -> bool {
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, true)
     if app.r_session == nil {
         app.finished = true
-        app_push_log(app, strings.clone("[GPU] Vulkan init failed; render session not started"))
+        app_push_log(app, "[GPU] Vulkan init failed; render session not started")
         return false
     }
     return true
@@ -149,7 +151,7 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     _ = app_start_render_session(app)
-    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
+    app_push_log(app, fmt.tprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
 // app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
@@ -179,14 +181,17 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     _ = app_start_render_session(app)
-    app_push_log(app, fmt.aprintf("Re-rendering (%d objects)...", len(app.r_world)))
+    app_push_log(app, fmt.tprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
 App :: struct {
     e_panel_vis:   ImguiPanelVis,
     e_reset_layout: bool,
 
-    render_tex:    rl.Texture2D,
+    vk_render_tex:  ImguiVkTexture,
+    vk_viewport_tex: ImguiVkTexture,
+    vk_preview_tex:  ImguiVkTexture,
+    vk_texview_tex:  ImguiVkTexture,
     pixel_staging: []rl.Color,
 
     r_session:     ^rt.RenderSession,
@@ -217,7 +222,9 @@ App :: struct {
     r_render_pending:   bool,    // true when settings or scene changed
 
     log_lines:     [LOG_RING_SIZE]string,
-    log_count:     int,
+    log_write_idx: int,
+    log_len:       int,
+    log_mu:        sync.Mutex,
 
     finished:      bool,
     elapsed_secs:  f64,
@@ -294,20 +301,30 @@ mark_scene_dirty :: proc(app: ^App) {
     }
 }
 
-// app_push_log appends a line to the log ring. Takes ownership of msg; callers must pass
-// a heap-allocated string (e.g. fmt.aprintf, strings.concatenate, or strings.clone for literals).
-// Do not use the string after the call.
+// app_push_log appends a line to the console ring and mirrors it to stdout/stderr.
+// msg is borrowed input; app_push_log clones it for ring storage.
 app_push_log :: proc(app: ^App, msg: string) {
-    if app == nil {
-        delete(msg)
-        return
+    is_err := strings.has_prefix(msg, "[ERR]") || strings.has_prefix(msg, "[WARN]")
+    if is_err {
+        fmt.fprintln(os.stderr, msg)
+    } else {
+        fmt.println(msg)
     }
-    idx := app.log_count % LOG_RING_SIZE
-    if app.log_count >= LOG_RING_SIZE {
+
+    if app == nil { return }
+
+    sync.mutex_lock(&app.log_mu)
+    defer sync.mutex_unlock(&app.log_mu)
+
+    idx := app.log_write_idx
+    if app.log_len == LOG_RING_SIZE {
         delete(app.log_lines[idx])
+        app.log_lines[idx] = strings.clone(msg)
+    } else {
+        app.log_lines[idx] = strings.clone(msg)
+        app.log_len += 1
     }
-    app.log_lines[idx] = msg
-    app.log_count += 1
+    app.log_write_idx = (idx + 1) % LOG_RING_SIZE
 }
 
 apply_editor_view_config :: proc(ev: ^EditViewState, cfg: ^persistence.EditorViewConfig) {
@@ -353,6 +370,7 @@ build_editor_view_config_from_app :: proc(ev: ^EditViewState) -> ^persistence.Ed
 app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^rawptr) {
     context = runtime.default_context()
     if g_app == nil { return }
+    _ = args
     prefix: string
     #partial switch logLevel {
     case .INFO:    prefix = "[INFO] "
@@ -361,7 +379,26 @@ app_trace_log :: proc "c" (logLevel: rl.TraceLogLevel, text: cstring, args: ^raw
     case .DEBUG:   prefix = "[DBG]  "
     case: prefix = "       "
     }
-    app_push_log(g_app, strings.concatenate({prefix, string(text)}))
+
+    msg := string(text)
+    owns_msg := false
+
+    // Raylib forwards GLFW trace templates literally ("%i", "%s") in this callback.
+    // Expand those from GLFW's last-error state so logs stay human-readable.
+    if strings.contains(msg, "GLFW: Error:") && strings.contains(msg, "%i") && strings.contains(msg, "%s") {
+        desc, code := glfw.GetError()
+        if len(desc) > 0 {
+            msg = fmt.aprintf("GLFW: Error: %d Description: %s", code, desc)
+        } else {
+            msg = fmt.aprintf("GLFW: Error: %d", code)
+        }
+        owns_msg = true
+    }
+
+    app_push_log(g_app, fmt.tprintf("%s%s", prefix, msg))
+    if owns_msg {
+        delete(msg)
+    }
 }
 
 run_app :: proc(
@@ -376,29 +413,35 @@ run_app :: proc(
     WIN_W :: i32(1280)
     WIN_H :: i32(1280)
 
+    // Raylib first: GLFW + OpenGL context for the offscreen viewport. Initializing Raylib
+    // after the Vulkan/GLFW window was observed to invalidate swapchain/WSI state on some setups.
     rl.SetTraceLogLevel(.WARNING)
-    rl.SetConfigFlags(rl.ConfigFlags{
-        rl.ConfigFlag.WINDOW_RESIZABLE,
-        rl.ConfigFlag.WINDOW_HIGHDPI,
-    })
-    rl.InitWindow(WIN_W, WIN_H, "Ray Tracer — Live Preview")
+    rl.SetConfigFlags({.WINDOW_HIDDEN})
+    rl.InitWindow(1, 1, "offscreen")
     defer rl.CloseWindow()
-    rl.SetWindowMinSize(640, 360)
-    rl.SetTargetFPS(60)
 
-    // Dear ImGui — must be initialised after the OpenGL context is live.
-    imgui_rl_setup()
-    defer imgui_rl_shutdown()
+    // Vulkan ImGui window (visible) — separate GLFW window; must not be torn down by Raylib init order.
+    if !imgui_vk_init("Ray Tracer — Live Preview", WIN_W, WIN_H) {
+        fmt.eprintln("Failed to initialize Vulkan ImGui backend")
+        return
+    }
+    defer imgui_vk_shutdown()
 
-    img := rl.GenImageColor(i32(r_camera.image_width), i32(r_camera.image_height), rl.BLACK)
-    render_tex := rl.LoadTextureFromImage(img)
-    rl.UnloadImage(img)
-    defer rl.UnloadTexture(render_tex)
+    // Vulkan render texture for ray trace preview
+    vk_render_tex: ImguiVkTexture
+    {
+        t, ok := imgui_vk_create_texture(i32(r_camera.image_width), i32(r_camera.image_height))
+        if !ok {
+            fmt.eprintln("Failed to create Vulkan render texture")
+            return
+        }
+        vk_render_tex = t
+    }
 
     pixel_staging := make([]rl.Color, r_camera.image_width * r_camera.image_height)
 
     app := App{
-        render_tex          = render_tex,
+        vk_render_tex       = vk_render_tex,
         pixel_staging       = pixel_staging,
         include_ground_plane = true,
         show_intermediate_render = true,
@@ -412,6 +455,10 @@ run_app :: proc(
     app.prefer_gpu  = use_gpu
     app.system_info = util.get_system_info()
     defer delete(app.pixel_staging)
+    defer imgui_vk_destroy_texture(&app.vk_render_tex)
+    defer imgui_vk_destroy_texture(&app.vk_viewport_tex)
+    defer imgui_vk_destroy_texture(&app.vk_preview_tex)
+    defer imgui_vk_destroy_texture(&app.vk_texview_tex)
     defer { if len(app.current_scene_path) > 0 { delete(app.current_scene_path) } }
     defer edit_history_free(&app.edit_history)
     register_all_commands(&app)
@@ -451,7 +498,6 @@ run_app :: proc(
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer {
-        if app.e_texture_view.valid { rl.UnloadTexture(app.e_texture_view.preview_tex) }
         delete(app.e_texture_view.last_sig)
     }
     defer content_browser_free_state(&app.e_content_browser)
@@ -497,12 +543,12 @@ run_app :: proc(
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)
 
-    app_push_log(&app, fmt.aprintf("Scene: %dx%d, %d spp", r_camera.image_width, r_camera.image_height, r_camera.samples_per_pixel))
-    app_push_log(&app, fmt.aprintf("Threads: %d", num_threads))
+    app_push_log(&app, fmt.tprintf("Scene: %dx%d, %d spp", r_camera.image_width, r_camera.image_height, r_camera.samples_per_pixel))
+    app_push_log(&app, fmt.tprintf("Threads: %d", num_threads))
     if use_gpu {
-        app_push_log(&app, strings.clone("Starting render (GPU mode requested)..."))
+        app_push_log(&app, "Starting render (GPU mode requested)...")
     } else {
-        app_push_log(&app, strings.clone("Starting render..."))
+        app_push_log(&app, "Starting render...")
     }
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
@@ -519,12 +565,12 @@ run_app :: proc(
 
     // Log the actual render mode after start_render_auto decides CPU vs GPU.
     if app.r_session != nil && app.r_session.use_gpu {
-        app_push_log(&app, strings.clone("[GPU] GPU rendering active"))
+        app_push_log(&app, "[GPU] GPU rendering active")
     }
 
     frame := 0
 
-    for !rl.WindowShouldClose() && !app.should_exit {
+    for !imgui_vk_should_close() && !app.should_exit {
         frame_scope := util.trace_scope_begin("Frame", "game")
         frame += 1
 
@@ -539,31 +585,31 @@ run_app :: proc(
         // Note: Modals are now handled by ImGui in imgui_draw_all_panels().
         // Keyboard shortcuts stay blocked whenever ImGui wants keyboard focus.
         if !app.input_consumed && !imgui_rl_want_capture_keyboard() {
-            ctrl_held  := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
-            shift_held := rl.IsKeyDown(.LEFT_SHIFT)   || rl.IsKeyDown(.RIGHT_SHIFT)
+            ctrl_held  := vk_is_key_down(glfw.KEY_LEFT_CONTROL) || vk_is_key_down(glfw.KEY_RIGHT_CONTROL)
+            shift_held := vk_is_key_down(glfw.KEY_LEFT_SHIFT)   || vk_is_key_down(glfw.KEY_RIGHT_SHIFT)
 
             if !ctrl_held {
-                if rl.IsKeyPressed(.F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
-                if rl.IsKeyPressed(.L) { app.e_panel_vis.console = true }
-                if rl.IsKeyPressed(.S) { app.e_panel_vis.system_info = true }
-                if rl.IsKeyPressed(.E) { app.e_panel_vis.viewport = true }
-                if rl.IsKeyPressed(.C) { app.e_panel_vis.camera = true }
-                if rl.IsKeyPressed(.O) { app.e_panel_vis.details = true }
-                if rl.IsKeyPressed(.T) { app.e_panel_vis.texture_view = true }
-                if rl.IsKeyPressed(.B) {
+                if vk_is_key_pressed(glfw.KEY_F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
+                if vk_is_key_pressed(glfw.KEY_L) { app.e_panel_vis.console = true }
+                if vk_is_key_pressed(glfw.KEY_S) { app.e_panel_vis.system_info = true }
+                if vk_is_key_pressed(glfw.KEY_E) { app.e_panel_vis.viewport = true }
+                if vk_is_key_pressed(glfw.KEY_C) { app.e_panel_vis.camera = true }
+                if vk_is_key_pressed(glfw.KEY_O) { app.e_panel_vis.details = true }
+                if vk_is_key_pressed(glfw.KEY_T) { app.e_panel_vis.texture_view = true }
+                if vk_is_key_pressed(glfw.KEY_B) {
                     app.e_panel_vis.content_browser = true
                     app.e_content_browser.scan_requested = true
                 }
             }
 
             if ctrl_held {
-                if rl.IsKeyPressed(.Z) {
+                if vk_is_key_pressed(glfw.KEY_Z) {
                     if shift_held { cmd_execute(&app, CMD_REDO) } else { cmd_execute(&app, CMD_UNDO) }
                 }
-                if rl.IsKeyPressed(.Y) { cmd_execute(&app, CMD_REDO) }
-                if rl.IsKeyPressed(.C) { cmd_execute(&app, CMD_EDIT_COPY) }
-                if rl.IsKeyPressed(.V) { cmd_execute(&app, CMD_EDIT_PASTE) }
-                if rl.IsKeyPressed(.D) { cmd_execute(&app, CMD_EDIT_DUPLICATE) }
+                if vk_is_key_pressed(glfw.KEY_Y) { cmd_execute(&app, CMD_REDO) }
+                if vk_is_key_pressed(glfw.KEY_C) { cmd_execute(&app, CMD_EDIT_COPY) }
+                if vk_is_key_pressed(glfw.KEY_V) { cmd_execute(&app, CMD_EDIT_PASTE) }
+                if vk_is_key_pressed(glfw.KEY_D) { cmd_execute(&app, CMD_EDIT_DUPLICATE) }
             }
         }
 
@@ -574,12 +620,12 @@ run_app :: proc(
             rt.backend_tick(app.r_session.backend)
         }
 
-        // ── Render texture upload ─────────────────────────────────────────
+        // ── Render texture upload (Vulkan) ───────────────────────────────
         if app.r_session != nil && app.show_intermediate_render && frame % 4 == 0 {
             if app.r_session.backend != nil {
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
                 rt.backend_readback(app.r_session.backend, out_bytes)
-                rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+                imgui_vk_update_texture(&app.vk_render_tex, raw_data(app.pixel_staging))
             }
         }
 
@@ -589,7 +635,7 @@ run_app :: proc(
             if b != nil && b.mode == .Continuous {
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
                 rt.backend_final_readback(b, out_bytes)
-                rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+                imgui_vk_update_texture(&app.vk_render_tex, raw_data(app.pixel_staging))
                 rt.backend_reset(b)
                 continuous_restart = true
             }
@@ -598,7 +644,7 @@ run_app :: proc(
                 if b != nil {
                     out_bytes := transmute([][4]u8)(app.pixel_staging)
                     rt.backend_final_readback(b, out_bytes)
-                    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+                    imgui_vk_update_texture(&app.vk_render_tex, raw_data(app.pixel_staging))
                 }
                 rt.finish_render(app.r_session)
                 app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
@@ -607,26 +653,16 @@ run_app :: proc(
                 if b != nil && b.kind == .CPU {
                     out_bytes := transmute([][4]u8)(app.pixel_staging)
                     rt.backend_readback(b, out_bytes)
-                    rl.UpdateTexture(app.render_tex, raw_data(app.pixel_staging))
+                    imgui_vk_update_texture(&app.vk_render_tex, raw_data(app.pixel_staging))
                 }
-                app_push_log(&app, fmt.aprintf("Done! (%.2fs)", app.elapsed_secs))
+                app_push_log(&app, fmt.tprintf("Done! (%.2fs)", app.elapsed_secs))
             }
         }
 
-        // ── Draw phase ────────────────────────────────────────────────────
-        rl.BeginDrawing()
-        rl.ClearBackground(rl.Color{20, 20, 30, 255})
-
-        // Off-screen textures (viewport, camera preview) are rendered inside their
-        // respective panel procs — after imgui.GetContentRegionAvail() — so the
-        // texture size always matches the panel size that frame (no stretch on resize).
-
-        // Dear ImGui frame: DockSpace + menu bar + all panel stubs.
+        // ── Draw phase (Vulkan presentation) ─────────────────────────────
         imgui_rl_new_frame()
         imgui_draw_all_panels(&app)
         imgui_rl_render()
-
-        rl.EndDrawing()
 
         util.trace_scope_end(frame_scope)
         free_all(context.temp_allocator)
@@ -660,6 +696,8 @@ run_app :: proc(
     }
 
     g_app = nil
+    sync.mutex_lock(&app.log_mu)
+    defer sync.mutex_unlock(&app.log_mu)
     for i in 0..<LOG_RING_SIZE {
         if len(app.log_lines[i]) > 0 {
             delete(app.log_lines[i])

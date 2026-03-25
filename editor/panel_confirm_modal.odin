@@ -99,7 +99,7 @@ confirm_load_execute :: proc(app: ^App, save_first: bool) {
     modal := &app.e_confirm_load
     if !app.finished { return }
     if load_example_at(app, modal.scene_idx, save_first) {
-        app_push_log(app, fmt.aprintf("Loaded example: %s", modal.scene_label))
+        app_push_log(app, fmt.tprintf("Loaded example: %s", modal.scene_label))
         modal.active = false
     }
     // If load_example_at returned false, user cancelled Save As dialog; keep modal open
