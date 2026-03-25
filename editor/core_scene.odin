@@ -296,15 +296,19 @@ PickClosestObject :: proc(sm: ^SceneManager, ray: rl.Ray) -> (kind: EditViewSele
 }
 
 GetSceneSphere :: proc(sm: ^SceneManager, idx: int) -> (s: core.SceneSphere, ok: bool) {
-	if sm == nil { return core.SceneSphere{}, false }
-	if idx < 0 || idx >= len(sm.objects) { return core.SceneSphere{}, false }
-	switch s in sm.objects[idx] {
-	case core.SceneSphere:
-		return s, true
-	case rt.Quad:
-		return core.SceneSphere{}, false
+	if obj, got := GetSceneObject(sm, idx); got {
+		#partial switch s in obj {
+		case core.SceneSphere:
+			return s, true
+		}
 	}
 	return core.SceneSphere{}, false
+}
+
+GetSceneObject :: proc(sm: ^SceneManager, idx: int) -> (obj: EditorObject, ok: bool) {
+	if sm == nil { return EditorObject{}, false }
+	if idx < 0 || idx >= len(sm.objects) { return EditorObject{}, false }
+	return sm.objects[idx], true
 }
 
 SetSceneSphere :: proc(sm: ^SceneManager, idx: int, s: core.SceneSphere) {
@@ -330,13 +334,11 @@ InsertSphereAt :: proc(sm: ^SceneManager, idx: int, s: core.SceneSphere) {
 }
 
 GetSceneQuad :: proc(sm: ^SceneManager, idx: int) -> (q: rt.Quad, ok: bool) {
-	if sm == nil { return rt.Quad{}, false }
-	if idx < 0 || idx >= len(sm.objects) { return rt.Quad{}, false }
-	switch qu in sm.objects[idx] {
-	case rt.Quad:
-		return qu, true
-	case core.SceneSphere:
-		return rt.Quad{}, false
+	if obj, got := GetSceneObject(sm, idx); got {
+		#partial switch qu in obj {
+		case rt.Quad:
+			return qu, true
+		}
 	}
 	return rt.Quad{}, false
 }
