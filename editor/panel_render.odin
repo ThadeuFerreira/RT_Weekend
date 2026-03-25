@@ -76,11 +76,16 @@ restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     rt.free_session(app.r_session)
     app.r_session = nil
 
-    // Unload and recreate render texture
-    rl.UnloadTexture(app.render_tex)
-    img := rl.GenImageColor(i32(width), i32(height), rl.BLACK)
-    app.render_tex = rl.LoadTextureFromImage(img)
-    rl.UnloadImage(img)
+    // Recreate Vulkan render texture at new resolution
+    imgui_vk_destroy_texture(&app.vk_render_tex)
+    {
+        t, ok := imgui_vk_create_texture(i32(width), i32(height))
+        if !ok {
+            fmt.eprintln("Failed to recreate Vulkan render texture")
+            return
+        }
+        app.vk_render_tex = t
+    }
 
     // Reallocate pixel staging buffer
     delete(app.pixel_staging)
@@ -100,7 +105,7 @@ restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     app.r_render_pending = false
 
     // Start new render
-    app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, app.prefer_gpu)
-    app_push_log(app, fmt.aprintf("Rendering at %dx%d with %d samples...", width, height, samples))
+    _ = app_start_render_session(app)
+    app_push_log(app, fmt.tprintf("Rendering at %dx%d with %d samples...", width, height, samples))
 }
 

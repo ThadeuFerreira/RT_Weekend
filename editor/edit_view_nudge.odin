@@ -63,7 +63,7 @@ update_sphere_nudge :: proc(app: ^App, ev: ^EditViewState) {
 				after  = sphere,
 			})
 			mark_scene_dirty(app)
-			app_push_log(app, strings.clone("Nudge sphere"))
+			app_push_log(app, "Nudge sphere")
 			app.r_render_pending = true
 		}
 	}

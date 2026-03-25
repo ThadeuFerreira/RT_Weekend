@@ -23,6 +23,8 @@ main :: proc() {
     if !util.parse_args_with_short_flags(&args) {
         return
     }
+    // Vulkan-first policy for interactive/editor path.
+    args.UseGPU = true
 
     image_width := args.Width
     if image_width <= 0 {
@@ -78,7 +80,7 @@ main :: proc() {
         fmt.printf("  Image size: %dx%d pixels\n", image_width, image_height)
         fmt.printf("  Samples per pixel: %d\n", samples_per_pixel)
         fmt.printf("  Threads: %d\n", thread_count)
-        backend_name := args.Backend if len(args.Backend) > 0 else ("gpu" if args.UseGPU else "cpu")
+        backend_name := args.Backend if len(args.Backend) > 0 else "vulkan"
         fmt.printf("  Backend: %s\n", backend_name)
         util.print_system_info()
     }
@@ -145,9 +147,18 @@ main :: proc() {
                 image_width, image_height, samples_per_pixel, thread_count, args.OutputPath)
         }
 
-        // GPU headless: without a GL context, gpu_backend_init will fail and
-        // start_render_auto silently falls back to CPU — no extra handling needed.
         session := raytrace.start_render_auto(r_camera, r_world, thread_count, args.UseGPU)
+        if session == nil {
+            fmt.fprintf(os.stderr, "Error: Vulkan renderer initialization failed.\n")
+            raytrace.free_world_volumes(r_world)
+            delete(r_world)
+            free(r_camera)
+            if earth_img != nil {
+                raytrace.texture_image_destroy(earth_img)
+                free(earth_img)
+            }
+            return
+        }
 
         when VERBOSE_OUTPUT {
             last_pct := f32(-1.0)
@@ -164,9 +175,21 @@ main :: proc() {
             for raytrace.get_render_progress(session) < 1.0 {}
         }
 
+        rgba := make([][4]u8, image_width * image_height)
+        defer delete(rgba)
+        if session.backend != nil {
+            raytrace.backend_final_readback(session.backend, rgba)
+        }
+        rgb := make([]u8, image_width * image_height * 3)
+        defer delete(rgb)
+        for i in 0..<len(rgba) {
+            rgb[i * 3 + 0] = rgba[i][0]
+            rgb[i * 3 + 1] = rgba[i][1]
+            rgb[i * 3 + 2] = rgba[i][2]
+        }
         raytrace.finish_render(session)
 
-        if !raytrace.write_buffer_to_png(&session.pixel_buffer, args.OutputPath, r_camera) {
+        if !raytrace.write_rgb8_to_png(image_width, image_height, args.OutputPath, rgb) {
             fmt.fprintf(os.stderr, "Failed to write PNG: %s\n", args.OutputPath)
         } else {
             when VERBOSE_OUTPUT {
@@ -192,7 +215,7 @@ main :: proc() {
         return
     }
 
-    editor.run_app(r_camera, r_world, thread_count, args.UseGPU, initial_editor_view, args.SaveConfigPath, initial_volumes)
+    editor.run_app(r_camera, r_world, thread_count, true, initial_editor_view, args.SaveConfigPath, initial_volumes)
     if initial_editor_view != nil {
         free(initial_editor_view)
     }

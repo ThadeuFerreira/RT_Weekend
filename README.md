@@ -10,13 +10,13 @@ compute-shader path.
 ## Features
 
 - **CPU path tracer** — multi-threaded, BVH-accelerated, progressive tile rendering
-- **GPU path tracer** — OpenGL 4.3 compute shader with progressive accumulation (`-gpu` / `-backend gpu`)
-- **Backend abstraction** — pluggable `RenderBackendApi` vtable; CPU and OpenGL ship today, Vulkan planned
+- **GPU path tracer** — Vulkan compute shader with progressive accumulation (`-gpu` / `-backend gpu`)
+- **Backend abstraction** — pluggable `RenderBackendApi` vtable; CPU and Vulkan backends
 - **Dear ImGui docking UI** — native docking, undockable panels, menu bar, ImGui Metrics window
 - **Live preview** — Raylib window with real-time texture upload as tiles / samples complete
 - **Scene editor** — interactive 3D viewport; add, move, and delete spheres; three material types
 - **Scene-load light safety** — imported scenes with no emissive materials and black/missing background auto-fallback to white background
-- **Cross-platform** — Linux (OpenGL 4.3+), Windows (OpenGL 4.3+), macOS (CPU fallback; OpenGL capped at 4.1)
+- **Cross-platform** — Linux (Vulkan GPU path), macOS/Windows (CPU fallback)
 
 ## Getting Started
 
@@ -59,7 +59,7 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 # Custom resolution and sample count
 ./build/debug -w 1280 -h 720 -s 50
 
-# GPU compute shader path (requires OpenGL 4.3+)
+# GPU compute shader path (Vulkan)
 ./build/debug -gpu -s 100
 # or equivalently:
 ./build/debug -backend gpu -s 100
@@ -93,8 +93,8 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 │   ├── render_backend.odin RenderBackendApi vtable, RenderBackend, backend helpers
 │   ├── cpu_backend.odin    CPU tile renderer as a RenderBackend
 │   ├── gpu_backend_adapter.odin  Wraps GpuRendererApi as a RenderBackend
-│   ├── gpu_types.odin      GPUBackend, GPUSphere, LinearBVHNode, GPUCameraUniforms
-│   ├── gpu_backend.odin    OpenGL compute backend (Linux/Windows/macOS loaders)
+│   ├── gpu_types.odin      GPUSphere, LinearBVHNode, GPUCameraUniforms
+│   ├── gpu_backend_vulkan.odin  Vulkan compute backend (VulkanGPUBackend, VULKAN_RENDERER_API)
 │   ├── gpu_renderer.odin   GpuRendererApi vtable + create_gpu_renderer factory
 │   ├── raytrace.odin       setup_scene (default scene), write_buffer_to_png/ppm
 │   ├── scene_build.odin    build_world_from_scene
@@ -115,8 +115,9 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 └── assets/
     ├── fonts/              Inter-Regular.ttf (SDF UI text, optional)
     └── shaders/
-        ├── raytrace.comp   GLSL 430 compute shader (GPU path tracer)
-        └── sdf.fs          SDF text rendering shader
+        ├── raytrace_vk.comp      Vulkan GLSL 450 compute shader (GPU path tracer)
+        ├── raytrace_vk.comp.spv  Pre-compiled SPIR-V (committed; rebuild with `make shaders`)
+        └── sdf.fs                SDF text rendering shader
 ```
 
 ## Architecture
@@ -141,7 +142,7 @@ RenderBackendApi :: struct {
 }
 ```
 
-To add a new backend (e.g. Vulkan): implement these procs, declare a
+To add a new backend: implement these procs, declare a
 `MY_BACKEND_API :: RenderBackendApi{...}` constant, and add a branch in
 `start_render_auto()`. The editor needs zero changes.
 
@@ -163,14 +164,15 @@ so the rest of the codebase only sees the unified interface.
 
 ### Platform Behavior
 
-| Platform | GPU today | Future |
-|----------|-----------|--------|
-| Linux | OpenGL 4.3 (GLX) | Vulkan (`vendor:vulkan`) |
-| Windows | OpenGL 4.3 (WGL) | DirectX 12 / Vulkan |
-| macOS | CPU fallback (OpenGL capped at 4.1) | Metal |
+| Platform | GPU Backend |
+|----------|-------------|
+| Linux | Vulkan compute (`vendor:vulkan`) |
+| Windows | CPU fallback (Vulkan support planned) |
+| macOS | CPU fallback (Vulkan support planned) |
 
-Odin ships with official Vulkan bindings (`import vk "vendor:vulkan"`). A Vulkan
-compute backend would implement `RenderBackendApi` and plug in alongside OpenGL.
+The GPU path uses Vulkan compute shaders via Odin's official Vulkan bindings
+(`import vk "vendor:vulkan"`). When `create_gpu_renderer` fails (e.g. no Vulkan
+driver), the renderer falls back to the CPU path automatically.
 
 ### CPU Path
 

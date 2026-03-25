@@ -17,3 +17,5 @@ scenes/*
 logs/
 # Test output artifacts
 tests/output/
+
+out.png

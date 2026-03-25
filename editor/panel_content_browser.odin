@@ -35,7 +35,7 @@ ContentBrowserState :: struct {
     scanned:        bool,
     scan_requested: bool,
 
-    preview_tex:    rl.Texture2D,
+    vk_preview_tex: ImguiVkTexture,
     preview_w:      i32,
     preview_h:      i32,
     preview_valid:  bool,
@@ -58,7 +58,7 @@ content_browser_free_assets :: proc(st: ^ContentBrowserState) {
 content_browser_clear_preview :: proc(st: ^ContentBrowserState) {
     if st == nil { return }
     if st.preview_valid {
-        rl.UnloadTexture(st.preview_tex)
+        imgui_vk_destroy_texture(&st.vk_preview_tex)
         st.preview_valid = false
     }
     delete(st.preview_sig)
@@ -168,16 +168,16 @@ content_browser_assign_texture :: proc(app: ^App, texture_path: string) -> bool 
     if app == nil || len(texture_path) == 0 { return false }
     ev := &app.e_edit_view
     if ev.selection_kind != .Sphere || ev.selected_idx < 0 {
-        app_push_log(app, strings.clone("Content Browser: select a sphere first"))
+        app_push_log(app, "Content Browser: select a sphere first")
         return false
     }
     sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
     if !ok {
-        app_push_log(app, strings.clone("Content Browser: selected sphere unavailable"))
+        app_push_log(app, "Content Browser: selected sphere unavailable")
         return false
     }
     if sphere.material_kind != .Lambertian {
-        app_push_log(app, strings.clone("Content Browser: image textures require a Lambertian sphere"))
+        app_push_log(app, "Content Browser: image textures require a Lambertian sphere")
         return false
     }
 
@@ -190,7 +190,7 @@ content_browser_assign_texture :: proc(app: ^App, texture_path: string) -> bool 
     SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
     edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
     mark_scene_dirty(app)
-    app_push_log(app, fmt.aprintf("Texture assigned: %s", filepath.base(texture_path)))
+    app_push_log(app, fmt.tprintf("Texture assigned: %s", filepath.base(texture_path)))
     return true
 }
 
@@ -217,20 +217,18 @@ content_browser_ensure_preview :: proc(app: ^App) {
     img, buf_to_free, ok := texture_view_build_image(app, core.ImageTexture{path = asset.path})
     if !ok { return }
 
-    st.preview_tex = rl.LoadTextureFromImage(img)
+    w, h := img.width, img.height
+    if imgui_vk_ensure_texture(&st.vk_preview_tex, w, h) {
+        imgui_vk_update_texture(&st.vk_preview_tex, img.data)
+        st.preview_valid = true
+        st.preview_w = w
+        st.preview_h = h
+        st.preview_sig = strings.clone(sig)
+    }
     if buf_to_free != nil {
         delete(buf_to_free)
     } else {
         rl.UnloadImage(img)
     }
-    if !rl.IsTextureValid(st.preview_tex) {
-        rl.UnloadTexture(st.preview_tex)
-        return
-    }
-
-    st.preview_valid = true
-    st.preview_w = img.width
-    st.preview_h = img.height
-    st.preview_sig = strings.clone(sig)
 }
 

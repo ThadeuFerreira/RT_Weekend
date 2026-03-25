@@ -15,7 +15,6 @@ VulkanGPUBackend :: struct {
     ctx:            vk_ctx.VulkanContext,
     pipeline:       vk_ctx.VulkanComputePipeline,
     buffers:        [7]vk_ctx.VulkanBuffer, // 0=ubo, 1=spheres, 2=bvh, 3=output, 4=quads, 5=volumes, 6=volume_quads
-    command_pool:   vk.CommandPool,
     command_buffer: vk.CommandBuffer,
     width:          int,
     height:         int,
@@ -158,19 +157,10 @@ _vk_backend_init :: proc(
 
     vk_ctx.write_raytrace_descriptors(b.ctx.device, b.pipeline.descriptor_set, b.buffers)
 
-    // Dedicated compute command pool/buffer.
-    pool_info := vk.CommandPoolCreateInfo{
-        sType = .COMMAND_POOL_CREATE_INFO,
-        flags = {.RESET_COMMAND_BUFFER},
-        queueFamilyIndex = b.ctx.compute_queue_family,
-    }
-    if vk.CreateCommandPool(b.ctx.device, &pool_info, nil, &b.command_pool) != .SUCCESS {
-        _vk_destroy((^VulkanGPUBackend)(b))
-        return nil, false
-    }
+    // Reuse compute command pool owned by vk_ctx.
     alloc := vk.CommandBufferAllocateInfo{
         sType = .COMMAND_BUFFER_ALLOCATE_INFO,
-        commandPool = b.command_pool,
+        commandPool = b.ctx.compute_command_pool,
         level = .PRIMARY,
         commandBufferCount = 1,
     }
@@ -191,6 +181,8 @@ _vk_dispatch :: proc(state: rawptr) {
     b := (^VulkanGPUBackend)(state)
     if b == nil { return }
     if b.current_sample >= b.total_samples { return }
+    // Re-bind global Vulkan dispatch to this compute device (see imgui_vk_end_frame comment).
+    vk.load_proc_addresses_device(b.ctx.device)
 
     t0 := time.now()
     defer {
@@ -313,13 +305,10 @@ _vk_reset :: proc(state: rawptr) {
 @(private)
 _vk_destroy :: proc(b: ^VulkanGPUBackend) {
     if b == nil { return }
-    if b.command_buffer != vk.CommandBuffer({}) && b.command_pool != vk.CommandPool({}) {
-        vk.FreeCommandBuffers(b.ctx.device, b.command_pool, 1, &b.command_buffer)
+    vk.load_proc_addresses_device(b.ctx.device)
+    if b.command_buffer != vk.CommandBuffer({}) && b.ctx.compute_command_pool != vk.CommandPool({}) {
+        vk.FreeCommandBuffers(b.ctx.device, b.ctx.compute_command_pool, 1, &b.command_buffer)
         b.command_buffer = {}
-    }
-    if b.command_pool != vk.CommandPool({}) {
-        vk.DestroyCommandPool(b.ctx.device, b.command_pool, nil)
-        b.command_pool = {}
     }
     for i in 0 ..< len(b.buffers) {
         if b.buffers[i].buffer != vk.Buffer({}) {

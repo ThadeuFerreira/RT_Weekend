@@ -6,51 +6,13 @@ import "RT_Weekend:core"
 // GPU-compatible type definitions
 // ============================================================
 //
-// These structs are designed to be uploadable to OpenGL SSBOs
+// These structs are designed to be uploadable to Vulkan SSBOs
 // and UBOs with std430 / std140 layout.  Each struct is
 // annotated with its size so it is easy to verify alignment.
 //
 // Step 1 — LinearBVHNode (32 bytes, SSBO-compatible)
 // Step 2 — GPUSphere, GPUCameraUniforms, material constants
 // ============================================================
-
-// GPUBackend holds all OpenGL state for the GPU compute-shader path.
-//
-// Lifecycle:
-//   gpu_backend_init   — compile shader, create buffers, upload scene
-//   gpu_backend_dispatch — bind + dispatch one sample per frame
-//   gpu_backend_readback — read accumulated buffer → RGBA bytes
-//   gpu_backend_destroy  — delete GL objects, free struct
-//
-// All fields are private implementation details; callers use the four
-// procedures above. The struct lives in gpu_types.odin so that
-// RenderSession (in camera.odin) can hold a pointer to it without
-// requiring a separate compilation unit.
-GPUBackend :: struct {
-    program:           u32,  // linked compute shader program
-    ssbo_spheres:      u32,  // SSBO: [4]i32 header then []GPUSphere
-    ssbo_quads:        u32,  // SSBO: [4]i32 header then []GPUQuad
-    ssbo_bvh:          u32,  // SSBO: [4]i32 header then []LinearBVHNode
-    ssbo_volumes:      u32,  // SSBO: [4]i32 header then []GPUVolume
-    ssbo_volume_quads: u32,  // SSBO: [4]i32 header then []GPUQuad (boundary faces)
-    ssbo_output:       u32,  // SSBO: vec4 per pixel (RGB accumulation)
-    ubo_camera:        u32,  // UBO: GPUCameraUniforms (std140)
-    image_texs:        [MAX_GPU_IMAGE_TEXTURES]u32, // 2D textures for Lambertian image maps (units 4..4+N-1)
-    num_image_texs:    int,  // number of image textures actually bound (0..MAX_GPU_IMAGE_TEXTURES)
-    width:             int,
-    height:            int,
-    current_sample:    int,  // number of samples dispatched so far
-    total_samples:     int,  // target sample count
-    // Cached UBO contents so dispatch can update only current_sample.
-    cached_uniforms:   GPUCameraUniforms,
-    // Timing (nanoseconds) accumulated across all dispatch/readback calls.
-    dispatch_total_ns: i64,
-    readback_total_ns: i64,
-    // GPU-side timer query.
-    timer_query:          u32,  // GL query object; 0 = not yet created
-    timer_query_pending:  bool, // true = a query was begun and not yet read back
-    gpu_dispatch_total_ns: i64, // accumulated GPU execution time across all dispatches
-}
 
 // ---- Step 1 ------------------------------------------------
 
@@ -67,7 +29,7 @@ GPUBackend :: struct {
 // The flat array produced by flatten_bvh is traversed iteratively
 // by bvh_hit_linear — no pointer chasing, no recursion.
 //
-// Leaf sentinels for GPU BVH traversal (must match raytrace.comp).
+// Leaf sentinels for GPU BVH traversal (must match raytrace_vk.comp).
 // left_idx == LEAF_SPHERE => right_or_obj_idx = -(sphere_index + 1)
 // left_idx == LEAF_QUAD   => right_or_obj_idx = -(quad_index + 1)
 // left_idx == LEAF_VOLUME => right_or_obj_idx = -(volume_index + 1)
@@ -90,7 +52,7 @@ LinearBVHNode :: struct #packed {
 // ---- Step 2 ------------------------------------------------
 
 // Material type constants.
-// Add new entries here; also add a GLSL case in raytrace.comp
+// Add new entries here; also add a GLSL case in raytrace_vk.comp
 // and an Odin case in scene_to_gpu_spheres.
 MAT_LAMBERTIAN :: i32(0)   // Diffuse: scatter in cosine-weighted hemisphere
 MAT_METALLIC   :: i32(1)   // Specular: reflect + fuzz perturbation
@@ -99,7 +61,7 @@ MAT_DIFFUSE_LIGHT :: i32(3) // Emissive: returns emit color, does not scatter
 MAT_ISOTROPIC     :: i32(4) // Volumetric: scatter uniformly (used by constant_medium)
 // Future: MAT_PBR_GLOSSY :: i32(5), …
 
-// Texture type for Lambertian (GPU only; must match raytrace.comp).
+// Texture type for Lambertian (GPU only; must match raytrace_vk.comp).
 TEX_CONSTANT :: i32(0)  // use albedo as-is
 TEX_CHECKER  :: i32(1)  // 3D checker from tex_scale, tex_even, tex_odd
 TEX_IMAGE    :: i32(2)  // sample from bound 2D image texture using sphere UV
@@ -132,7 +94,7 @@ GPURay :: struct #packed {
 // pad → stride = 144. The CPU struct must match: _pad_stride is 12 bytes (not 4)
 // so that both sides use 144 bytes and sphere[N] is at offset N*144.
 //
-// Field offsets (must match raytrace.comp Sphere struct exactly):
+// Field offsets (must match raytrace_vk.comp Sphere struct exactly):
 //   center (GPURay)  : 0   – 31   (32 bytes)
 //   radius           : 32  – 35   (4 bytes)
 //   _pad_r[3]        : 36  – 47   (12 bytes, padding before vec3 albedo)
@@ -255,7 +217,7 @@ scene_to_gpu_volumes :: proc(objects: []Object) -> (volumes: []GPUVolume, volume
 
 // GPUCameraUniforms is uploaded as a UBO (std140).
 // Padding fields keep each vec3 on a 16-byte boundary as required by std140.
-// Must match the layout(std140) CameraBlock in raytrace.comp exactly.
+// Must match the layout(std140) CameraBlock in raytrace_vk.comp exactly.
 GPUCameraUniforms :: struct #packed {
     camera_center:  [3]f32, _p0: f32,   // 16 bytes
     pixel00_loc:    [3]f32, _p1: f32,   // 16 bytes
@@ -270,6 +232,27 @@ GPUCameraUniforms :: struct #packed {
     current_sample: i32,
     _pad:           [3]i32,             // align to 16 bytes
     background:     [3]f32, _p5: f32,   // miss color (flat background)
+}
+
+// _camera_to_gpu_uniforms converts Camera fields to the flat GPUCameraUniforms
+// struct that matches the CameraBlock UBO layout in raytrace_vk.comp.
+// defocus_angle is packed into the .w component of defocus_disk_u (see shader).
+_camera_to_gpu_uniforms :: proc(cam: ^Camera, total_samples, current_sample: int) -> GPUCameraUniforms {
+    return GPUCameraUniforms{
+        camera_center  = cam.center,
+        pixel00_loc    = cam.pixel00_loc,
+        pixel_delta_u  = cam.pixel_delta_u,
+        pixel_delta_v  = cam.pixel_delta_v,
+        defocus_disk_u = cam.defocus_disk_u,
+        defocus_angle  = cam.defocus_angle,
+        defocus_disk_v = cam.defocus_disk_v,
+        width          = i32(cam.image_width),
+        height         = i32(cam.image_height),
+        max_depth      = i32(cam.max_depth),
+        total_samples  = i32(total_samples),
+        current_sample = i32(current_sample),
+        background     = cam.background,
+    }
 }
 
 // collect_image_textures_ordered walks the world and returns (1) a list of unique
@@ -295,7 +278,7 @@ collect_image_textures_ordered :: proc(objects: []Object) -> (images: [dynamic]^
 }
 
 // scene_to_gpu_spheres converts the Odin-union Object slice to a flat []GPUSphere
-// suitable for uploading to a GL SSBO.
+// suitable for uploading to a Vulkan SSBO.
 //
 // When path_to_index is non-nil, ImageTextureRuntime spheres get tex_index set from
 // it so each object can reference a different image texture on the GPU.

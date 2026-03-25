@@ -16,7 +16,6 @@ import "RT_Weekend:core"
 TEXTURE_PREVIEW_SIZE :: 256
 
 TextureViewPanelState :: struct {
-	preview_tex: rl.Texture2D,
 	preview_w:   i32,
 	preview_h:   i32,
 	valid:       bool,
@@ -173,80 +172,6 @@ texture_view_build_image :: proc(app: ^App, tex: core.Texture) -> (img: rl.Image
 	return {}, nil, false
 }
 
-draw_texture_view_content :: proc(app: ^App, content: rl.Rectangle) {
-	tex, has_tex := texture_view_current(app)
-	if !has_tex {
-		rl.DrawText("No texture",
-			i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-		rl.DrawText("Select a sphere in the Viewport to preview its material.",
-			i32(content.x) + 10, i32(content.y) + 42, 10, rl.Color{140, 150, 165, 200})
-		return
-	}
-
-	sig := texture_view_sig(app, tex)
-	defer delete(sig)
-	need_rebuild := !app.e_texture_view.valid || app.e_texture_view.last_sig != sig
-
-	if need_rebuild {
-		if app.e_texture_view.valid {
-			rl.UnloadTexture(app.e_texture_view.preview_tex)
-			app.e_texture_view.valid = false
-		}
-		delete(app.e_texture_view.last_sig)
-		app.e_texture_view.last_sig = strings.clone(sig)
-
-		img, buf_to_free, ok := texture_view_build_image(app, tex)
-		if !ok {
-			rl.DrawText("Texture unavailable",
-				i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-			if it, is_img := tex.(core.ImageTexture); is_img {
-				rl.DrawText(fmt.ctprintf("Image: %s", it.path),
-					i32(content.x) + 10, i32(content.y) + 42, 10, rl.Color{160, 80, 80, 200})
-			}
-			return
-		}
-		app.e_texture_view.preview_tex = rl.LoadTextureFromImage(img)
-		if buf_to_free != nil {
-			delete(buf_to_free)
-		} else {
-			rl.UnloadImage(img)
-		}
-		if rl.IsTextureValid(app.e_texture_view.preview_tex) {
-			app.e_texture_view.preview_w = img.width
-			app.e_texture_view.preview_h = img.height
-			app.e_texture_view.valid = true
-		} else {
-			rl.UnloadTexture(app.e_texture_view.preview_tex)
-			app.e_texture_view.valid = false
-			rl.DrawText("Texture unavailable",
-				i32(content.x) + 10, i32(content.y) + 20, 12, CONTENT_TEXT_COLOR)
-			rl.DrawText("Failed to upload to GPU.",
-				i32(content.x) + 10, i32(content.y) + 42, 10, rl.Color{160, 80, 80, 200})
-			return
-		}
-	}
-
-	if !app.e_texture_view.valid do return
-
-	tw := f32(app.e_texture_view.preview_w)
-	th := f32(app.e_texture_view.preview_h)
-	if tw <= 0 || th <= 0 do return
-	content_aspect := content.width / content.height
-	tex_aspect := tw / th
-	preview_w, preview_h: f32
-	if content_aspect > tex_aspect {
-		preview_h = content.height
-		preview_w = content.height * tex_aspect
-	} else {
-		preview_w = content.width
-		preview_h = content.width / tex_aspect
-	}
-	dest := rl.Rectangle{
-		content.x + (content.width - preview_w) * 0.5,
-		content.y + (content.height - preview_h) * 0.5,
-		preview_w,
-		preview_h,
-	}
-	src := rl.Rectangle{0, 0, tw, th}
-	rl.DrawTexturePro(app.e_texture_view.preview_tex, src, dest, rl.Vector2{0, 0}, 0.0, rl.WHITE)
-}
+// draw_texture_view_content is a legacy stub; the texture view panel now
+// renders through ImGui in imgui_draw_texture_view_panel.
+draw_texture_view_content :: proc(app: ^App, content: rl.Rectangle) {}

@@ -4,12 +4,12 @@ import "core:fmt"
 
 import "RT_Weekend:util"
 
-// gpu_backend_adapter.odin — Wraps the existing GpuRendererApi (OpenGL compute)
+// gpu_backend_adapter.odin — Wraps the GpuRendererApi (Vulkan compute)
 // behind the unified RenderBackendApi vtable.
 //
 // This is a thin adapter: each proc forwards to the corresponding GpuRendererApi
-// proc.  The GPU-specific state struct (GPUBackend) is still allocated and
-// managed by gpu_backend.odin; this adapter only holds a pointer to the
+// proc.  The Vulkan-specific state (VulkanGPUBackend) is allocated and managed
+// by gpu_backend_vulkan.odin; this adapter only holds a pointer to the
 // GpuRenderer that owns it.
 
 GPUBackendAdapterState :: struct {

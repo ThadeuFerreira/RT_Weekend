@@ -28,7 +28,8 @@ vulkan_context_init_window :: proc(
 
 	glfw.DefaultWindowHints()
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
-	glfw.WindowHint(glfw.RESIZABLE, false)
+	glfw.WindowHint(glfw.RESIZABLE, true)
+	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
 	glfw.WindowHint(glfw.VISIBLE, true)
 	glfw.WindowHint(glfw.FOCUSED, true)
 	win := glfw.CreateWindow(width, height, title, nil, nil)

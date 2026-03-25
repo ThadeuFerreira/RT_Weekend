@@ -72,11 +72,11 @@ ls $(odin root)/vendor/raylib/linux/libraylib.so
 ```
 exists. If not, install Odin from [odin-lang.org](https://odin-lang.org/) with the full vendor collection.
 
-### GPU path (Linux + X11 GLX only)
-The GPU compute-shader backend is **Linux-only**: it uses `glXGetProcAddressARB` to load OpenGL. On macOS or Windows, `gpu_backend_init` returns failure and the renderer uses the CPU path. No separate build flag — the same binary falls back automatically.
+### GPU path (Vulkan compute)
+The GPU compute-shader backend uses **Vulkan** via the `vk_ctx` package (`vendor:vulkan` + `vendor:glfw`). On platforms without a Vulkan driver, `create_gpu_renderer` returns nil and the renderer falls back to CPU automatically.
 
-### Vulkan scaffolding (`vk_ctx`, optional)
-The **`vk_ctx`** package (`vendor:vulkan` + `vendor:glfw`) bootstraps a minimal Vulkan stack for future GPU work. It is **not** linked into the main Raylib app. Build the smoke binary from the repo root:
+### Vulkan infrastructure (`vk_ctx`)
+The **`vk_ctx`** package bootstraps a Vulkan instance, device, queues, command pools, compute pipeline, buffer management, and synchronization utilities. It is used by the GPU backend (`raytrace/gpu_backend_vulkan.odin`) and the standalone smoke test. Build the smoke binary from the repo root:
 
 ```bash
 make vk-smoke
@@ -94,11 +94,11 @@ Optional **validation layers** (`vulkan-validation-layers` on many distros): ena
 ### UI assets (SDF font and shader)
 - **`assets/fonts/Inter-Regular.ttf`** — Inter (OFL-licensed, Arial-like) used for UI text when SDF font loading succeeds. Sourced from [rsms/inter](https://github.com/rsms/inter).
 - **`assets/shaders/sdf.fs`** — Raylib SDF fragment shader (GLSL 330) for signed-distance-field text rendering.
-- **`assets/shaders/raytrace.comp`** — GLSL 430 compute shader for the GPU path. Required when using GPU rendering (Linux only). If missing or the binary is run from a non-root working directory, the GPU path fails and the app falls back to CPU (check the Console panel).
+- **`assets/shaders/raytrace_vk.comp`** — Vulkan GLSL 450 compute shader (GPU path tracer). Pre-compiled to `raytrace_vk.comp.spv` (committed); rebuild with `make shaders`. The SPIR-V is embedded in the binary via `#load`.
 
 **Feature flag:** SDF/custom font loading is **off by default** (`USE_SDF_FONT = false`). With it disabled, the UI uses Raylib’s default font only. To enable SDF and custom font loading, build with `-define:USE_SDF_FONT=true`.
 
-Paths are resolved **relative to the current working directory** at launch. Run the binary from the repository root (e.g. `./build/debug`) so `assets/fonts/`, `assets/shaders/sdf.fs`, and `assets/shaders/raytrace.comp` are found; the default directory for Open/Save scene dialogs when no file is open is then `./scenes`. The `scenes/` folder is in the repo (with `.gitkeep`); user scene files are ignored via `.gitignore` (`scenes/*`, `!scenes/.gitkeep`). If the GPU shader is not found, the app falls back to CPU; if the SDF assets are missing with the flag enabled, the UI falls back to Raylib’s default font.
+Paths are resolved **relative to the current working directory** at launch. Run the binary from the repository root (e.g. `./build/debug`) so `assets/fonts/` and `assets/shaders/sdf.fs` are found; the default directory for Open/Save scene dialogs when no file is open is then `./scenes`. The `scenes/` folder is in the repo (with `.gitkeep`); user scene files are ignored via `.gitignore` (`scenes/*`, `!scenes/.gitkeep`). If the SDF assets are missing with the flag enabled, the UI falls back to Raylib’s default font.
 
 ## Project layout (packages)
 

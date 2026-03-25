@@ -2,22 +2,12 @@ package raytrace
 
 // render_backend.odin — Backend-agnostic render interface.
 //
-// Both the CPU tile-based renderer and GPU compute-shader renderer implement
+// Both the CPU tile-based renderer and Vulkan compute-shader renderer implement
 // this vtable so the editor and headless paths never branch on backend kind.
-//
-// To add a new backend (e.g. Vulkan, Metal, DX12):
-//   1. Define a backend-specific state struct.
-//   2. Implement the RenderBackendApi procs for that struct.
-//   3. Declare a package-level constant MY_BACKEND_API :: RenderBackendApi{...}.
-//   4. Add a branch in create_render_backend() to try it.
 
 RenderBackendKind :: enum {
     CPU,
-    OpenGL_Compute,
     Vulkan_Compute,
-    // Future:
-    // Metal_Compute,
-    // DX12_Compute,
 }
 
 // RenderBackendApi is the vtable every render backend must implement.
@@ -124,7 +114,6 @@ backend_done :: proc(b: ^RenderBackend) -> bool {
 backend_kind_label :: proc(kind: RenderBackendKind) -> string {
     switch kind {
     case .CPU:             return "CPU"
-    case .OpenGL_Compute:  return "GPU (OpenGL)"
     case .Vulkan_Compute:  return "GPU (Vulkan)"
     }
     return "Unknown"

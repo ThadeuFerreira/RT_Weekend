@@ -331,11 +331,9 @@ start_render :: proc(r_camera: ^Camera, world: [dynamic]Object, num_threads: int
 
     session.timing = start_parallel_timing()
 
-    buffer_trace := util.trace_scope_begin("Render.Buffer", "render")
     session.timing.buffer_creation = start_timer()
-    session.pixel_buffer = create_test_pixel_buffer(r_camera.image_width, r_camera.image_height)
+    // Vulkan path reads back directly into caller-provided RGBA8 staging.
     stop_timer(&session.timing.buffer_creation)
-    util.trace_scope_end(buffer_trace)
 
     tiles_trace := util.trace_scope_begin("Render.Tiles", "render")
     session.timing.tile_generation = start_timer()
@@ -590,17 +588,13 @@ finish_render :: proc(session: ^RenderSession) {
     }
 }
 
-// start_render_auto starts a render session using the GPU compute-shader path when
-// use_gpu=true and the GPU backend initialises successfully, otherwise falls back
-// to the standard CPU multi-threaded path.
+// start_render_auto starts a render session using the Vulkan compute path.
+// The CPU backend is no longer used by the active editor/runtime path.
 //
 // GPU path:
 //   Builds the pixel buffer and BVH (needed for GPU upload) without spawning any
-//   CPU worker threads.  gpu_backend_init compiles the shader and uploads the scene.
-//   If GPU init fails the partial session is cleaned up and start_render is called.
-//
-// CPU path (use_gpu=false or GPU init failure):
-//   Identical to calling start_render directly.
+//   CPU worker threads. If GPU init fails, the partial session is cleaned up and
+//   nil is returned to the caller for deterministic error handling.
 start_render_auto :: proc(
     r_camera:    ^Camera,
     world:       [dynamic]Object,
@@ -609,7 +603,9 @@ start_render_auto :: proc(
 ) -> ^RenderSession {
     image_texture_debug_reset()
     if !use_gpu {
-        return start_render(r_camera, world, num_threads)
+        when VERBOSE_OUTPUT {
+            fmt.println("[GPU] Vulkan path forced by runtime policy")
+        }
     }
 
     // Build session without spawning CPU worker threads.
@@ -680,8 +676,8 @@ start_render_auto :: proc(
         return session
     }
 
-    // GPU init failed: clean up the partial session and fall back to CPU.
-    fmt.println("[GPU] Init failed — falling back to CPU")
+    // GPU init failed: clean up the partial session and return nil.
+    fmt.println("[GPU] Init failed")
     delete(session.pixel_buffer.pixels)
     if session.linear_bvh != nil { delete(session.linear_bvh) }
     if session.bvh_root   != nil { free_bvh(session.bvh_root)  }
@@ -692,5 +688,5 @@ start_render_auto :: proc(
     delete(session.thread_rendering_breakdowns)
     free(session)
 
-    return start_render(r_camera, world, num_threads)
+    return nil
 }

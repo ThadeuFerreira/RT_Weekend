@@ -1,294 +1,38 @@
 package editor
 
-// imgui_rl.odin — Raylib → Dear ImGui platform/renderer bridge.
+// imgui_rl.odin — Thin delegation wrapper.
 //
-// Provides four lifecycle procedures that integrate the Dear ImGui
-// docking build with a Raylib OpenGL window.  The caller is responsible
-// for the correct ordering:
-//
-//   imgui_rl_setup()            — after rl.InitWindow()
-//   defer imgui_rl_shutdown()
-//
-//   // inside the frame loop, between BeginDrawing and EndDrawing:
-//   imgui_rl_new_frame()        — feeds input + calls imgui.NewFrame()
-//   ... imgui draw calls ...
-//   imgui_rl_render()           — calls imgui.Render() + GL draw-data submit
-//
-// There is no dedicated platform backend for Raylib; this file is a
-// hand-written equivalent of the rlImGui C library.  It uses
-// imgui_impl_opengl3 for GPU rendering and feeds Raylib mouse/keyboard
-// state into ImGui's event queue each frame.
+// All ImGui lifecycle is handled by imgui_vk_backend.odin (Vulkan).
+// These procs exist so callers don't need to know which backend is active.
 
-import "core:c"
-import "core:fmt"
 import rl "vendor:raylib"
 import imgui "RT_Weekend:vendor/odin-imgui"
-import imgui_impl_opengl3 "RT_Weekend:vendor/odin-imgui/imgui_impl_opengl3"
 
-IMGUI_COORD_DEBUG :: #config(IMGUI_COORD_DEBUG, false)
+// imgui_rl_setup is a no-op: ImGui context and backends are initialised
+// by imgui_vk_init() in imgui_vk_backend.odin, called from app.odin.
+imgui_rl_setup :: proc() {}
 
-@(private)
-_imgui_dbg_prev: struct {
-    valid:     bool,
-    screen_w:  c.int,
-    screen_h:  c.int,
-    render_w:  c.int,
-    render_h:  c.int,
-    dpi_x:     f32,
-    dpi_y:     f32,
-    disp_w:    f32,
-    disp_h:    f32,
-    fb_x:      f32,
-    fb_y:      f32,
-}
-
-// imgui_rl_setup creates the ImGui context, enables docking and keyboard
-// navigation, and initialises the OpenGL 3 rendering backend.
-// Call once, immediately after rl.InitWindow() (GL context must be live).
-imgui_rl_setup :: proc() {
-    imgui.CHECKVERSION()
-    imgui.CreateContext(nil)
-
-    io := imgui.GetIO()
-    io.ConfigFlags |= {.DockingEnable}
-    io.ConfigFlags |= {.NavEnableKeyboard}
-    // Only the title bar initiates a window move — clicks on panel content are not consumed.
-    io.ConfigWindowsMoveFromTitleBarOnly = true
-    // Persist ImGui window layout between sessions.
-    io.IniFilename = "imgui.ini"
-
-    imgui.StyleColorsDark(nil)
-    imgui.GetStyle().WindowMinSize = imgui.Vec2{40, 20}
-    imgui_impl_opengl3.Init("#version 330")
-}
-
-// imgui_rl_shutdown tears down the rendering backend and destroys the
-// ImGui context.  Call once, after the main loop.
 imgui_rl_shutdown :: proc() {
-    imgui_impl_opengl3.Shutdown()
-    imgui.DestroyContext(nil)
+    imgui_vk_shutdown()
 }
 
-// imgui_rl_new_frame feeds the current Raylib window/input state into
-// ImGui's IO, then calls imgui.NewFrame().  Call at the start of the
-// ImGui section inside BeginDrawing/EndDrawing.
 imgui_rl_new_frame :: proc() {
-    io := imgui.GetIO()
-
-    // --- display size, framebuffer scale, and timing ---
-    // Keep ImGui in Raylib's window/screen coordinate space.
-    // FramebufferScale bridges that space to the actual GL framebuffer size on HiDPI.
-    screen_w_i := max(rl.GetScreenWidth(), 1)
-    screen_h_i := max(rl.GetScreenHeight(), 1)
-    render_w_i := max(rl.GetRenderWidth(), 1)
-    render_h_i := max(rl.GetRenderHeight(), 1)
-    screen_w := f32(screen_w_i)
-    screen_h := f32(screen_h_i)
-    render_w := f32(render_w_i)
-    render_h := f32(render_h_i)
-
-    io.DisplaySize = imgui.Vec2{screen_w, screen_h}
-    io.DisplayFramebufferScale = imgui.Vec2{render_w / screen_w, render_h / screen_h}
-
-    io.DeltaTime = max(rl.GetFrameTime(), 0.000001)
-
-    // --- mouse position ---
-    mp := rl.GetMousePosition()
-    imgui.IO_AddMousePosEvent(io, mp.x, mp.y)
-
-    when IMGUI_COORD_DEBUG {
-        dpi := rl.GetWindowScaleDPI()
-        cur_disp := io.DisplaySize
-        cur_fb := io.DisplayFramebufferScale
-        changed :=
-            !_imgui_dbg_prev.valid ||
-            _imgui_dbg_prev.screen_w != screen_w_i || _imgui_dbg_prev.screen_h != screen_h_i ||
-            _imgui_dbg_prev.render_w != render_w_i || _imgui_dbg_prev.render_h != render_h_i ||
-            abs(_imgui_dbg_prev.dpi_x - dpi.x) > 0.01 || abs(_imgui_dbg_prev.dpi_y - dpi.y) > 0.01 ||
-            abs(_imgui_dbg_prev.disp_w - cur_disp.x) > 0.5 || abs(_imgui_dbg_prev.disp_h - cur_disp.y) > 0.5 ||
-            abs(_imgui_dbg_prev.fb_x - cur_fb.x) > 0.01 || abs(_imgui_dbg_prev.fb_y - cur_fb.y) > 0.01
-        if changed {
-            mp_img := imgui.GetMousePos()
-            fmt.eprintf(
-                "[imgui-coord] screen=%dx%d render=%dx%d dpi=%.3fx%.3f io_display=%.1fx%.1f io_fb=%.3fx%.3f mouse_rl=%.1f,%.1f mouse_img=%.1f,%.1f\n",
-                screen_w_i, screen_h_i,
-                render_w_i, render_h_i,
-                dpi.x, dpi.y,
-                cur_disp.x, cur_disp.y,
-                cur_fb.x, cur_fb.y,
-                mp.x, mp.y,
-                mp_img.x, mp_img.y,
-            )
-            _imgui_dbg_prev = {
-                valid = true,
-                screen_w = screen_w_i,
-                screen_h = screen_h_i,
-                render_w = render_w_i,
-                render_h = render_h_i,
-                dpi_x = dpi.x,
-                dpi_y = dpi.y,
-                disp_w = cur_disp.x,
-                disp_h = cur_disp.y,
-                fb_x = cur_fb.x,
-                fb_y = cur_fb.y,
-            }
-        }
-    }
-
-    // --- mouse buttons (0=left, 1=right, 2=middle) ---
-    imgui.IO_AddMouseButtonEvent(io, 0, rl.IsMouseButtonDown(.LEFT))
-    imgui.IO_AddMouseButtonEvent(io, 1, rl.IsMouseButtonDown(.RIGHT))
-    imgui.IO_AddMouseButtonEvent(io, 2, rl.IsMouseButtonDown(.MIDDLE))
-
-    // --- mouse wheel ---
-    wheel_y := rl.GetMouseWheelMove()
-    if wheel_y != 0 {
-        imgui.IO_AddMouseWheelEvent(io, 0, wheel_y)
-    }
-
-    // --- modifier keys (must come before other keys so ImGui
-    //     can set the Ctrl/Shift/Alt flags before processing shortcuts) ---
-    _rl_imgui_key(io, .LEFT_CONTROL,  .LeftCtrl)
-    _rl_imgui_key(io, .RIGHT_CONTROL, .RightCtrl)
-    _rl_imgui_key(io, .LEFT_SHIFT,    .LeftShift)
-    _rl_imgui_key(io, .RIGHT_SHIFT,   .RightShift)
-    _rl_imgui_key(io, .LEFT_ALT,      .LeftAlt)
-    _rl_imgui_key(io, .RIGHT_ALT,     .RightAlt)
-    _rl_imgui_key(io, .LEFT_SUPER,    .LeftSuper)
-    _rl_imgui_key(io, .RIGHT_SUPER,   .RightSuper)
-
-    // --- navigation / editing keys ---
-    _rl_imgui_key(io, .TAB,       .Tab)
-    _rl_imgui_key(io, .LEFT,      .LeftArrow)
-    _rl_imgui_key(io, .RIGHT,     .RightArrow)
-    _rl_imgui_key(io, .UP,        .UpArrow)
-    _rl_imgui_key(io, .DOWN,      .DownArrow)
-    _rl_imgui_key(io, .PAGE_UP,   .PageUp)
-    _rl_imgui_key(io, .PAGE_DOWN, .PageDown)
-    _rl_imgui_key(io, .HOME,      .Home)
-    _rl_imgui_key(io, .END,       .End)
-    _rl_imgui_key(io, .INSERT,    .Insert)
-    _rl_imgui_key(io, .DELETE,    .Delete)
-    _rl_imgui_key(io, .BACKSPACE, .Backspace)
-    _rl_imgui_key(io, .SPACE,     .Space)
-    _rl_imgui_key(io, .ENTER,     .Enter)
-    _rl_imgui_key(io, .ESCAPE,    .Escape)
-
-    // --- function keys ---
-    _rl_imgui_key(io, .F1,  .F1)
-    _rl_imgui_key(io, .F2,  .F2)
-    _rl_imgui_key(io, .F3,  .F3)
-    _rl_imgui_key(io, .F4,  .F4)
-    _rl_imgui_key(io, .F5,  .F5)
-    _rl_imgui_key(io, .F6,  .F6)
-    _rl_imgui_key(io, .F7,  .F7)
-    _rl_imgui_key(io, .F8,  .F8)
-    _rl_imgui_key(io, .F9,  .F9)
-    _rl_imgui_key(io, .F10, .F10)
-    _rl_imgui_key(io, .F11, .F11)
-    _rl_imgui_key(io, .F12, .F12)
-
-    // --- alphanumeric keys ---
-    _rl_imgui_key(io, .A, .A) ; _rl_imgui_key(io, .B, .B)
-    _rl_imgui_key(io, .C, .C) ; _rl_imgui_key(io, .D, .D)
-    _rl_imgui_key(io, .E, .E) ; _rl_imgui_key(io, .F, .F)
-    _rl_imgui_key(io, .G, .G) ; _rl_imgui_key(io, .H, .H)
-    _rl_imgui_key(io, .I, .I) ; _rl_imgui_key(io, .J, .J)
-    _rl_imgui_key(io, .K, .K) ; _rl_imgui_key(io, .L, .L)
-    _rl_imgui_key(io, .M, .M) ; _rl_imgui_key(io, .N, .N)
-    _rl_imgui_key(io, .O, .O) ; _rl_imgui_key(io, .P, .P)
-    _rl_imgui_key(io, .Q, .Q) ; _rl_imgui_key(io, .R, .R)
-    _rl_imgui_key(io, .S, .S) ; _rl_imgui_key(io, .T, .T)
-    _rl_imgui_key(io, .U, .U) ; _rl_imgui_key(io, .V, .V)
-    _rl_imgui_key(io, .W, .W) ; _rl_imgui_key(io, .X, .X)
-    _rl_imgui_key(io, .Y, .Y) ; _rl_imgui_key(io, .Z, .Z)
-
-    _rl_imgui_key(io, .ZERO,  ._0) ; _rl_imgui_key(io, .ONE,   ._1)
-    _rl_imgui_key(io, .TWO,   ._2) ; _rl_imgui_key(io, .THREE, ._3)
-    _rl_imgui_key(io, .FOUR,  ._4) ; _rl_imgui_key(io, .FIVE,  ._5)
-    _rl_imgui_key(io, .SIX,   ._6) ; _rl_imgui_key(io, .SEVEN, ._7)
-    _rl_imgui_key(io, .EIGHT, ._8) ; _rl_imgui_key(io, .NINE,  ._9)
-
-    // --- punctuation / symbol keys ---
-    _rl_imgui_key(io, .APOSTROPHE,    .Apostrophe)
-    _rl_imgui_key(io, .COMMA,         .Comma)
-    _rl_imgui_key(io, .MINUS,         .Minus)
-    _rl_imgui_key(io, .PERIOD,        .Period)
-    _rl_imgui_key(io, .SLASH,         .Slash)
-    _rl_imgui_key(io, .SEMICOLON,     .Semicolon)
-    _rl_imgui_key(io, .EQUAL,         .Equal)
-    _rl_imgui_key(io, .LEFT_BRACKET,  .LeftBracket)
-    _rl_imgui_key(io, .BACKSLASH,     .Backslash)
-    _rl_imgui_key(io, .RIGHT_BRACKET, .RightBracket)
-    _rl_imgui_key(io, .GRAVE,         .GraveAccent)
-
-    // --- lock keys ---
-    _rl_imgui_key(io, .CAPS_LOCK,   .CapsLock)
-    _rl_imgui_key(io, .SCROLL_LOCK, .ScrollLock)
-    _rl_imgui_key(io, .NUM_LOCK,    .NumLock)
-    _rl_imgui_key(io, .PRINT_SCREEN, .PrintScreen)
-    _rl_imgui_key(io, .PAUSE,        .Pause)
-
-    // --- keypad ---
-    _rl_imgui_key(io, .KP_0,        .Keypad0)
-    _rl_imgui_key(io, .KP_1,        .Keypad1)
-    _rl_imgui_key(io, .KP_2,        .Keypad2)
-    _rl_imgui_key(io, .KP_3,        .Keypad3)
-    _rl_imgui_key(io, .KP_4,        .Keypad4)
-    _rl_imgui_key(io, .KP_5,        .Keypad5)
-    _rl_imgui_key(io, .KP_6,        .Keypad6)
-    _rl_imgui_key(io, .KP_7,        .Keypad7)
-    _rl_imgui_key(io, .KP_8,        .Keypad8)
-    _rl_imgui_key(io, .KP_9,        .Keypad9)
-    _rl_imgui_key(io, .KP_DECIMAL,  .KeypadDecimal)
-    _rl_imgui_key(io, .KP_DIVIDE,   .KeypadDivide)
-    _rl_imgui_key(io, .KP_MULTIPLY, .KeypadMultiply)
-    _rl_imgui_key(io, .KP_SUBTRACT, .KeypadSubtract)
-    _rl_imgui_key(io, .KP_ADD,      .KeypadAdd)
-    _rl_imgui_key(io, .KP_ENTER,    .KeypadEnter)
-
-    // --- text / unicode characters typed this frame ---
-    for {
-        ch := rl.GetCharPressed()
-        if ch == 0 { break }
-        imgui.IO_AddInputCharacter(io, c.uint(ch))
-    }
-
-    // Let the OpenGL3 backend update its internal state, then start the frame.
-    imgui_impl_opengl3.NewFrame()
-    imgui.NewFrame()
+    imgui_vk_begin_frame()
 }
 
-// imgui_rl_render finalises the ImGui frame and submits the draw data
-// to the OpenGL3 backend.  Call just before rl.EndDrawing().
 imgui_rl_render :: proc() {
-    imgui.Render()
-    imgui_impl_opengl3.RenderDrawData(imgui.GetDrawData())
+    imgui_vk_end_frame()
 }
 
-// imgui_rl_want_capture_mouse returns true when ImGui wants exclusive
-// ownership of mouse input (hovering a window, widget active, etc.).
-// Use to skip Raylib mouse processing when ImGui is consuming it.
 imgui_rl_want_capture_mouse :: proc() -> bool {
     return imgui.GetIO().WantCaptureMouse
 }
 
-// imgui_rl_want_capture_keyboard returns true when ImGui wants exclusive
-// ownership of keyboard input (e.g. text widget focused).
 imgui_rl_want_capture_keyboard :: proc() -> bool {
     return imgui.GetIO().WantCaptureKeyboard
 }
 
-// imgui_rl_mouse_pos returns the mouse position in ImGui's current coordinate space.
-// Use this for editor hit-tests that compare against ImGui rects.
 imgui_rl_mouse_pos :: proc() -> rl.Vector2 {
     mp := imgui.GetMousePos()
     return rl.Vector2{mp.x, mp.y}
-}
-
-// _rl_imgui_key is an internal helper that reports a single Raylib key's
-// current down state to ImGui's event queue.
-@(private)
-_rl_imgui_key :: proc(io: ^imgui.IO, rl_key: rl.KeyboardKey, imgui_key: imgui.Key) {
-    imgui.IO_AddKeyEvent(io, imgui_key, rl.IsKeyDown(rl_key))
 }

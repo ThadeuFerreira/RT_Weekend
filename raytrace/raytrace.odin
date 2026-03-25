@@ -93,6 +93,19 @@ write_buffer_to_png :: proc(buffer: ^TestPixelBuffer, file_name: string, r_camer
     return result != 0
 }
 
+// write_rgb8_to_png writes already-gamma-corrected RGB8 pixel data to PNG.
+// rgb_data length must be width*height*3.
+write_rgb8_to_png :: proc(width, height: int, file_name: string, rgb_data: []u8) -> bool {
+    if len(rgb_data) != width * height * 3 {
+        return false
+    }
+    cname := strings.clone_to_cstring(file_name)
+    defer delete(cname)
+    result := stbi.write_png(cname, c.int(width), c.int(height), 3,
+                             raw_data(rgb_data), c.int(width * 3))
+    return result != 0
+}
+
 // Legacy: ground_texture is ^Texture for optional; elsewhere (e.g. build_world_from_scene) textures are passed by value.
 setup_scene :: proc(image_width, image_height, samples_per_pixel, number_of_spheres: int, ground_texture: ^Texture = nil) -> (^Camera, [dynamic]Object) {
     world := make([dynamic]Object, 0, number_of_spheres)

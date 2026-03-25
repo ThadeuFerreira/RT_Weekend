@@ -118,7 +118,7 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 	if e_cam.drag_idx >= 0 {
 		if !lmb {
 			e_cam.drag_idx = -1
-			rl.SetMouseCursor(.DEFAULT)
+			vk_set_cursor(.Default)
 		} else {
 			delta := mouse.x - e_cam.drag_start_x
 			switch e_cam.drag_idx {
@@ -189,7 +189,7 @@ update_camera_panel_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vec
 				case 13: e_cam.drag_start_val = c_params.background[1]
 				case 14: e_cam.drag_start_val = c_params.background[2]
 				}
-				rl.SetMouseCursor(.CROSSHAIR)
+				vk_set_cursor(.Crosshair)
 				if g_app != nil { g_app.input_consumed = true }
 				return
 			}
