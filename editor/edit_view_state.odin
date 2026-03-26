@@ -261,7 +261,6 @@ update_orbit_camera :: proc(ev: ^EditViewState) {
 }
 
 // get_orbit_camera_pose returns lookfrom and lookat for the current editor orbit camera.
-// Used by "From View"; vup is not returned so the handler can leave c_camera_params.vup unchanged and preserve roll.
 get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
 	pitch := ev.camera_pitch
 	dist  := ev.orbit_distance

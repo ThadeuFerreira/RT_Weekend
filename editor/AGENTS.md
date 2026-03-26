@@ -149,8 +149,6 @@ imgui.Image(...)                                   // UV-flipped (Raylib Y-flip)
 Key files: `panel_viewport.odin` (render + grid), `edit_view_state.odin`, `edit_view_camera_math.odin`,
 `edit_view_input.odin`, `edit_view_nudge.odin`, `ui_viewport_scene.odin`.
 
-**From View** copies orbit lookfrom/lookat into `c_camera_params` without overwriting vup (preserves roll).
-
 ---
 
 ## Commands
