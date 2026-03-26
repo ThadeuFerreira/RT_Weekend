@@ -290,6 +290,17 @@ App :: struct {
 
 g_app: ^App = nil
 
+// viewport_resolution_change_is_significant returns true when either dimension
+// changes by at least 5% relative to the current render resolution.
+viewport_resolution_change_is_significant :: proc(curr_w, curr_h, next_w, next_h: int) -> bool {
+    if curr_w <= 0 || curr_h <= 0 || next_w <= 0 || next_h <= 0 { return false }
+    dw := next_w - curr_w
+    if dw < 0 { dw = -dw }
+    dh := next_h - curr_h
+    if dh < 0 { dh = -dh }
+    return (dw * 100 >= curr_w * 5) || (dh * 100 >= curr_h * 5)
+}
+
 app_update_editor_viewport_texture :: proc(app: ^App) {
     if app == nil { return }
     if app.e_viewport.mode != .Editor { return }
@@ -359,10 +370,21 @@ viewport_provider_raytrace_get_texture :: proc(provider: ^vp.ViewportTextureProv
 
 viewport_provider_raytrace_resize :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr, width, height: int) {
     _ = provider
-    _ = app_ptr
-    _ = width
-    _ = height
-    // Stage 2 does not change raytrace resolution/restart behavior.
+    if app_ptr == nil { return }
+    app := (^App)(app_ptr)
+    if width <= 0 || height <= 0 { return }
+    if app.r_camera == nil { return }
+
+    curr_w := app.r_camera.image_width
+    curr_h := app.r_camera.image_height
+    if curr_w == width && curr_h == height { return }
+    if !viewport_resolution_change_is_significant(curr_w, curr_h, width, height) { return }
+
+    // Policy: viewport-driven restart is allowed only when idle.
+    if !app.finished { return }
+
+    samples := max(app.r_camera.samples_per_pixel, 1)
+    restart_render_with_settings(app, width, height, samples)
 }
 
 make_editor_viewport_provider :: proc() -> vp.ViewportTextureProvider {
