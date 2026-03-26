@@ -40,14 +40,6 @@ make_quad :: proc(Q, u, v: [3]f32, mat: material) -> Quad {
 	return q
 }
 
-aabb_from_points :: proc(p, q: [3]f32) -> AABB {
-	return AABB{
-		x = Interval{math.min(p[0], q[0]), math.max(p[0], q[0])},
-		y = Interval{math.min(p[1], q[1]), math.max(p[1], q[1])},
-		z = Interval{math.min(p[2], q[2]), math.max(p[2], q[2])},
-	}
-}
-
 // quad_geometry_equal returns true if two quads have the same shape (Q, u, v, normal, D).
 // Used by BVH flatten when full Quad equality fails (e.g. material union comparison).
 quad_geometry_equal :: proc(a, b: Quad) -> bool {
@@ -125,4 +117,33 @@ xz_rect :: proc(x0, x1, z0, z1, k: f32, mat: material) -> Object {
 yz_rect :: proc(y0, y1, z0, z1, k: f32, mat: material) -> Object {
 	q := make_quad([3]f32{k, y0, z0}, [3]f32{0, y1 - y0, 0}, [3]f32{0, 0, z1 - z0}, mat)
 	return Object(q)
+}
+
+// hit_quad tests a ray against a planar quad (Q + α*u + β*v, α,β in [0,1]).
+// Matches RTNW: ray-plane intersection then interior test using cached w.
+hit_quad :: proc(q: Quad, r: ray, ray_t: Interval, rec: ^hit_record) -> bool {
+    denom := dot(q.normal, r.dir)
+    if math.abs(denom) < 1e-8 {
+        return false
+    }
+    t := (q.D - dot(q.normal, r.origin)) / denom
+    if t < ray_t.min || t > ray_t.max {
+        return false
+    }
+    intersection := ray_at(r, t)
+    planar_hitpt := intersection - q.Q
+
+    alpha := dot(q.w, cross(planar_hitpt, q.v))
+    beta  := dot(q.w, cross(q.u, planar_hitpt))
+    if alpha < 0 || alpha > 1 || beta < 0 || beta > 1 {
+        return false
+    }
+
+    rec.t = t
+    rec.p = intersection
+    rec.material = q.material
+    set_face_normal(rec, r, q.normal)
+    rec.u = alpha
+    rec.v = beta
+    return true
 }

@@ -42,3 +42,35 @@ sphere_bounding_box :: proc(s: Sphere) -> AABB {
 	}
 	return aabb_union(box0, box1)
 }
+
+hit_sphere :: proc (sphere : Sphere, r : ray,  ray_t : Interval, rec : ^hit_record) -> bool {
+    current_center := sphere_center_at(sphere, r.time)
+    oc := current_center - r.origin
+    a := vector_length_squared(r.dir)
+    h := dot(r.dir, oc)
+    c := vector_length_squared(oc) - sphere.radius*sphere.radius
+    discriminant := h*h - a*c
+
+    if discriminant < 0 {
+        return false
+    }
+    discriminant = math.sqrt_f32(discriminant)
+    root := (h - discriminant) / a
+    if !interval_surrounds(ray_t, root) {
+        root = (h + discriminant) / a
+        if !interval_surrounds(ray_t, root) {
+            return false
+        }
+    }
+
+    rec.material = sphere.material
+
+    rec.t = root
+    rec.p = ray_at(r, rec.t)
+    outward_normal := (rec.p - current_center) / sphere.radius
+
+    set_face_normal(rec, r, outward_normal)
+    rec.u, rec.v = sphere_get_uv(outward_normal)
+
+    return true
+}

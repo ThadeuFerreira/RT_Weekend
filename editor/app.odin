@@ -418,7 +418,7 @@ run_app :: proc(
     rl.SetTraceLogLevel(.WARNING)
     rl.SetConfigFlags({.WINDOW_HIDDEN})
     rl.InitWindow(1, 1, "offscreen")
-    defer rl.CloseWindow()
+    
 
     // Vulkan ImGui window (visible) — separate GLFW window; must not be torn down by Raylib init order.
     if !imgui_vk_init("Ray Tracer — Live Preview", WIN_W, WIN_H) {
@@ -604,9 +604,15 @@ run_app :: proc(
 
             if ctrl_held {
                 if vk_is_key_pressed(glfw.KEY_Z) {
-                    if shift_held { cmd_execute(&app, CMD_REDO) } else { cmd_execute(&app, CMD_UNDO) }
+                    if shift_held {
+                        ui_log_key(&app, "Global", "Ctrl+Shift+Z")
+                        cmd_execute(&app, CMD_REDO)
+                    } else {
+                        ui_log_key(&app, "Global", "Ctrl+Z")
+                        cmd_execute(&app, CMD_UNDO)
+                    }
                 }
-                if vk_is_key_pressed(glfw.KEY_Y) { cmd_execute(&app, CMD_REDO) }
+                if vk_is_key_pressed(glfw.KEY_Y) { ui_log_key(&app, "Global", "Ctrl+Y"); cmd_execute(&app, CMD_REDO) }
                 if vk_is_key_pressed(glfw.KEY_C) { cmd_execute(&app, CMD_EDIT_COPY) }
                 if vk_is_key_pressed(glfw.KEY_V) { cmd_execute(&app, CMD_EDIT_PASTE) }
                 if vk_is_key_pressed(glfw.KEY_D) { cmd_execute(&app, CMD_EDIT_DUPLICATE) }

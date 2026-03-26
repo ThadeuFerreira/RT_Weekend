@@ -277,6 +277,55 @@ collect_image_textures_ordered :: proc(objects: []Object) -> (images: [dynamic]^
     return
 }
 
+// pack_image_textures_for_gpu packs image pixel data into a flat i32 array
+// for upload as a Vulkan SSBO (binding 7).
+// Layout (after the standard [4]i32 header with image_count written by caller):
+//   metadata: images_count * 4 ints per image (width, height, pixel_data_offset, 0)
+//   pixel data: packed RGB bytes as i32 ((R << 16) | (G << 8) | B)
+// pixel_data_offset is relative to the start of image_tex_data[] in the SSBO.
+// Returns nil when images is empty. Caller must delete the returned slice.
+pack_image_textures_for_gpu :: proc(images: []^Texture_Image) -> []i32 {
+    if len(images) == 0 { return nil }
+
+    total_pixels := 0
+    for i in 0 ..< len(images) {
+        w := texture_image_width(images[i])
+        h := texture_image_height(images[i])
+        total_pixels += w * h
+    }
+
+    metadata_ints := len(images) * 4
+    data := make([]i32, metadata_ints + total_pixels)
+
+    pixel_offset := metadata_ints
+    for i in 0 ..< len(images) {
+        img := images[i]
+        w := texture_image_width(img)
+        h := texture_image_height(img)
+
+        base := i * 4
+        data[base + 0] = i32(w)
+        data[base + 1] = i32(h)
+        data[base + 2] = i32(pixel_offset)
+        data[base + 3] = 0
+
+        bytes := texture_image_byte_slice(img)
+        for py in 0 ..< h {
+            for px in 0 ..< w {
+                idx := (py * w + px) * 3
+                if idx + 2 < len(bytes) {
+                    r := i32(bytes[idx])
+                    g := i32(bytes[idx + 1])
+                    b := i32(bytes[idx + 2])
+                    data[pixel_offset + py * w + px] = (r << 16) | (g << 8) | b
+                }
+            }
+        }
+        pixel_offset += w * h
+    }
+    return data
+}
+
 // scene_to_gpu_spheres converts the Odin-union Object slice to a flat []GPUSphere
 // suitable for uploading to a Vulkan SSBO.
 //

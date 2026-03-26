@@ -272,8 +272,14 @@ run_compute_test :: proc(ctx: ^vk_ctx.VulkanContext) -> bool {
 	defer vk_ctx.destroy_buffer(ctx.device, &output)
 	mem.set(output.mapped, 0, int(OUT_SIZE))
 
+	// Empty image texture SSBO (no images).
+	img_textures, s6 := vk_ctx.create_host_visible_buffer(ctx.device, ctx.physical_device, HEADER_SIZE, {.STORAGE_BUFFER})
+	if !s6 { return false }
+	defer vk_ctx.destroy_buffer(ctx.device, &img_textures)
+	mem.copy(img_textures.mapped, &empty_hdr, int(HEADER_SIZE))
+
 	// 3. Write descriptors.
-	buffers := [7]vk_ctx.VulkanBuffer{ubo, spheres, bvh, output, quads, volumes, vol_quads}
+	buffers := [8]vk_ctx.VulkanBuffer{ubo, spheres, bvh, output, quads, volumes, vol_quads, img_textures}
 	vk_ctx.write_raytrace_descriptors(ctx.device, pipeline.descriptor_set, buffers)
 	fmt.println("  compute: buffers + descriptors OK")
 

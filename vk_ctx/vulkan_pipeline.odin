@@ -34,10 +34,10 @@ create_shader_module :: proc(device: vk.Device, spirv: []u8) -> (vk.ShaderModule
 	return mod, true
 }
 
-// create_raytrace_descriptor_set_layout creates the layout matching the 7 bindings
-// in raytrace_vk.comp: 1 UBO + 6 SSBOs.
+// create_raytrace_descriptor_set_layout creates the layout matching the 8 bindings
+// in raytrace_vk.comp: 1 UBO + 7 SSBOs.
 create_raytrace_descriptor_set_layout :: proc(device: vk.Device) -> (vk.DescriptorSetLayout, bool) {
-	bindings := [7]vk.DescriptorSetLayoutBinding {
+	bindings := [8]vk.DescriptorSetLayoutBinding {
 		// Binding 0: camera uniforms (UBO).
 		{
 			binding         = 0,
@@ -83,6 +83,13 @@ create_raytrace_descriptor_set_layout :: proc(device: vk.Device) -> (vk.Descript
 		// Binding 6: volume quads (SSBO, readonly).
 		{
 			binding         = 6,
+			descriptorType  = .STORAGE_BUFFER,
+			descriptorCount = 1,
+			stageFlags      = {.COMPUTE},
+		},
+		// Binding 7: image textures (SSBO, readonly).
+		{
+			binding         = 7,
 			descriptorType  = .STORAGE_BUFFER,
 			descriptorCount = 1,
 			stageFlags      = {.COMPUTE},
@@ -145,11 +152,11 @@ create_raytrace_compute_pipeline :: proc(
 	return pipeline, true
 }
 
-// create_raytrace_descriptor_pool creates a pool for 1 UBO + 6 SSBOs (1 set).
+// create_raytrace_descriptor_pool creates a pool for 1 UBO + 7 SSBOs (1 set).
 create_raytrace_descriptor_pool :: proc(device: vk.Device) -> (vk.DescriptorPool, bool) {
 	pool_sizes := [2]vk.DescriptorPoolSize {
 		{ type = .UNIFORM_BUFFER,  descriptorCount = 1 },
-		{ type = .STORAGE_BUFFER,  descriptorCount = 6 },
+		{ type = .STORAGE_BUFFER,  descriptorCount = 7 },
 	}
 	ci := vk.DescriptorPoolCreateInfo {
 		sType         = .DESCRIPTOR_POOL_CREATE_INFO,
@@ -186,13 +193,13 @@ allocate_raytrace_descriptor_set :: proc(
 	return set, true
 }
 
-// write_raytrace_descriptors binds 7 buffers to the descriptor set.
-// buffers must have exactly 7 entries: [0]=UBO, [1]=spheres, [2]=BVH, [3]=output,
-// [4]=quads, [5]=volumes, [6]=volume_quads.
-write_raytrace_descriptors :: proc(device: vk.Device, set: vk.DescriptorSet, buffers: [7]VulkanBuffer) {
-	buf_infos: [7]vk.DescriptorBufferInfo
-	writes: [7]vk.WriteDescriptorSet
-	for i in 0 ..< 7 {
+// write_raytrace_descriptors binds 8 buffers to the descriptor set.
+// buffers must have exactly 8 entries: [0]=UBO, [1]=spheres, [2]=BVH, [3]=output,
+// [4]=quads, [5]=volumes, [6]=volume_quads, [7]=image_textures.
+write_raytrace_descriptors :: proc(device: vk.Device, set: vk.DescriptorSet, buffers: [8]VulkanBuffer) {
+	buf_infos: [8]vk.DescriptorBufferInfo
+	writes: [8]vk.WriteDescriptorSet
+	for i in 0 ..< 8 {
 		buf_infos[i] = {
 			buffer = buffers[i].buffer,
 			offset = 0,

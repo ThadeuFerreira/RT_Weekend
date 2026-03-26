@@ -14,7 +14,7 @@ RAYTRACE_VK_SPV :: #load("../assets/shaders/raytrace_vk.comp.spv")
 VulkanGPUBackend :: struct {
     ctx:            vk_ctx.VulkanContext,
     pipeline:       vk_ctx.VulkanComputePipeline,
-    buffers:        [7]vk_ctx.VulkanBuffer, // 0=ubo, 1=spheres, 2=bvh, 3=output, 4=quads, 5=volumes, 6=volume_quads
+    buffers:        [8]vk_ctx.VulkanBuffer, // 0=ubo, 1=spheres, 2=bvh, 3=output, 4=quads, 5=volumes, 6=volume_quads, 7=image_textures
     command_buffer: vk.CommandBuffer,
     width:          int,
     height:         int,
@@ -63,7 +63,6 @@ _vk_backend_init :: proc(
     image_list:   []^Texture_Image,
 ) -> (rawptr, bool) {
     _ = world
-    _ = image_list // Vulkan compute path currently does not use sampled image textures.
 
     b := new(VulkanGPUBackend)
     b.width = cam.image_width
@@ -142,6 +141,16 @@ _vk_backend_init :: proc(
     vq_header := [4]i32{i32(len(volume_quads)), 0, 0, 0}
     vk_ctx.update_buffer_data(&b.buffers[6], 0, &vq_header, size_of([4]i32))
 
+    // Buffer 7: image textures (packed metadata + RGB pixel data)
+    img_data := pack_image_textures_for_gpu(image_list)
+    defer if img_data != nil { delete(img_data) }
+    img_body_size := len(img_data) * size_of(i32)
+    img_buf, img_ok := _vk_create_ssbo_with_header(&b.ctx, raw_data(img_data), img_body_size)
+    if !img_ok { _vk_destroy((^VulkanGPUBackend)(b)); return nil, false }
+    b.buffers[7] = img_buf
+    img_header := [4]i32{i32(len(image_list)), 0, 0, 0}
+    vk_ctx.update_buffer_data(&b.buffers[7], 0, &img_header, size_of([4]i32))
+
     // Buffer 3: output accumulation
     pixel_count := b.width * b.height
     out_size := pixel_count * size_of([4]f32)
@@ -170,8 +179,8 @@ _vk_backend_init :: proc(
     }
 
     when VERBOSE_OUTPUT {
-        fmt.printf("[GPU] Vulkan compute ready — %d spheres, %d quads, %d volumes, %d BVH nodes, %dx%d px\n",
-            len(spheres), len(quads), len(volumes), len(bvh), b.width, b.height)
+        fmt.printf("[GPU] Vulkan compute ready — %d spheres, %d quads, %d volumes, %d BVH nodes, %d image textures, %dx%d px\n",
+            len(spheres), len(quads), len(volumes), len(bvh), len(image_list), b.width, b.height)
     }
     return b, true
 }

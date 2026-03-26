@@ -169,6 +169,19 @@ imgui_draw_render_panel :: proc(app: ^App) {
     if !app.e_panel_vis.render { return }
     flags := imgui.WindowFlags{.NoScrollbar, .NoScrollWithMouse}
     if imgui.Begin("Render Preview", &app.e_panel_vis.render, flags) {
+        // Green "Render" button in the top-right of the panel
+        {
+            btn_w := f32(60)
+            imgui.SetCursorPosX(imgui.GetContentRegionAvail().x - btn_w + imgui.GetCursorPosX())
+            imgui.PushStyleColorImVec4(.Button, imgui.Vec4{0.2, 0.6, 0.2, 1.0})
+            imgui.PushStyleColorImVec4(.ButtonHovered, imgui.Vec4{0.25, 0.7, 0.25, 1.0})
+            imgui.PushStyleColorImVec4(.ButtonActive, imgui.Vec4{0.15, 0.5, 0.15, 1.0})
+            if imgui.Button("Render", imgui.Vec2{btn_w, 0}) {
+                cmd_execute(app, CMD_RENDER_RESTART)
+            }
+            imgui.PopStyleColor(3)
+        }
+
         avail := imgui.GetContentRegionAvail()
         settings_h := _imgui_render_settings_height()
         image_h := max(avail.y - settings_h, 120)
@@ -303,6 +316,122 @@ _imgui_toggle_btn :: proc(label: cstring, active: bool) -> bool {
     return clicked
 }
 
+@(private)
+add_entry_object_to_scene :: proc(app: ^App, ev: ^EditViewState, entry_label: string) {
+    switch entry_label {
+    case "Add Sphere":
+        AppendDefaultSphere(ev.scene_mgr)
+        new_idx := SceneManagerLen(ev.scene_mgr) - 1
+        ev.selection_kind = .Sphere
+        ev.selected_idx   = new_idx
+        if obj, ok := GetSceneObject(ev.scene_mgr, new_idx); ok {
+            #partial switch o in obj {
+            case core.SceneSphere:
+                edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = o})
+                mark_scene_dirty(app)
+                app_push_log(app, "Add sphere")
+            }
+        }
+        app.r_render_pending = true
+    case "Add Quad":
+        AppendDefaultQuad(ev.scene_mgr)
+        new_idx := SceneManagerLen(ev.scene_mgr) - 1
+        ev.selection_kind = .Quad
+        ev.selected_idx   = new_idx
+        if obj, ok := GetSceneObject(ev.scene_mgr, new_idx); ok {
+            #partial switch o in obj {
+            case rt.Quad:
+                edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = o})
+                mark_scene_dirty(app)
+                app_push_log(app, "Add quad")
+            }
+        }
+        app.r_render_pending = true
+    case "Add Volume":
+        box_min, box_max, trans := default_volume_from_scene_scale(ev.scene_mgr)
+        new_vol := core.SceneVolume{
+            box_min      = box_min,
+            box_max      = box_max,
+            rotate_y_deg = 0,
+            translate    = trans,
+            density      = 0.02,
+            albedo       = {0.8, 0.8, 0.8},
+        }
+        append(&app.e_volumes, new_vol)
+        new_idx := len(app.e_volumes) - 1
+        ev.selection_kind = .Volume
+        ev.selected_idx   = new_idx
+        edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
+        mark_scene_dirty(app)
+        app_push_log(app, "Add volume")
+        app.r_render_pending = true
+    }
+}
+
+@(private)
+finalize_delete_entry_object :: proc(app: ^App, ev: ^EditViewState, log_label: string) {
+    mark_scene_dirty(app)
+    app_push_log(app, log_label)
+    ev.selection_kind = .None
+    ev.selected_idx   = -1
+    app.r_render_pending = true
+}
+
+@(private)
+delete_entry_object_from_scene :: proc(app: ^App, ev: ^EditViewState, del_idx: int) {
+    if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
+        dv := app.e_volumes[ev.selected_idx]
+        edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = dv})
+        ordered_remove(&app.e_volumes, ev.selected_idx)
+        finalize_delete_entry_object(app, ev, "Delete volume")
+        return
+    }
+
+    if obj, ok := GetSceneObject(ev.scene_mgr, del_idx); ok {
+        #partial switch o in obj {
+        case core.SceneSphere:
+            edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = o})
+            OrderedRemove(ev.scene_mgr, del_idx)
+            finalize_delete_entry_object(app, ev, "Delete sphere")
+        case rt.Quad:
+            edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = o})
+            OrderedRemove(ev.scene_mgr, del_idx)
+            finalize_delete_entry_object(app, ev, "Delete quad")
+        }
+    }
+}
+
+@(private)
+viewport_toolbar_add_popup :: proc(app: ^App, ev: ^EditViewState) {
+    if imgui.Button("+ Add") { imgui.OpenPopup("##vp_add") }
+    if imgui.BeginPopup("##vp_add") {
+        if imgui.Selectable("Sphere") { add_entry_object_to_scene(app, ev, "Add Sphere") }
+        if imgui.Selectable("Quad")   { add_entry_object_to_scene(app, ev, "Add Quad") }
+        if imgui.Selectable("Volume") { add_entry_object_to_scene(app, ev, "Add Volume") }
+        imgui.EndPopup()
+    }
+}
+
+@(private)
+viewport_toggle_bvh_hierarchy :: proc(ev: ^EditViewState) {
+    ev.show_bvh_hierarchy = !ev.show_bvh_hierarchy
+    if !ev.show_bvh_hierarchy && ev.viz_bvh_root != nil {
+        rt.free_bvh(ev.viz_bvh_root)
+        ev.viz_bvh_root = nil
+    }
+}
+
+@(private)
+viewport_apply_camera_from_view :: proc(app: ^App, ev: ^EditViewState) {
+    before := app.c_camera_params
+    lookfrom, lookat := get_orbit_camera_pose(ev)
+    app.c_camera_params.lookfrom = lookfrom
+    app.c_camera_params.lookat   = lookat
+    edit_history_push(&app.edit_history, ModifyCameraAction{before = before, after = app.c_camera_params})
+    mark_scene_dirty(app)
+    app.r_render_pending = true
+}
+
 imgui_draw_viewport_panel :: proc(app: ^App) {
     if !app.e_panel_vis.viewport { return }
     imgui.PushStyleVarImVec2(.WindowPadding, imgui.Vec2{0, 0})
@@ -315,89 +444,27 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         imgui.SetCursorPosX(imgui.GetCursorPosX() + 4)
 
         // [+ Add▾] popup
-        if imgui.Button("+ Add") { imgui.OpenPopup("##vp_add") }
-        if imgui.BeginPopup("##vp_add") {
-            if imgui.Selectable("Sphere") {
-                AppendDefaultSphere(ev.scene_mgr)
-                new_idx := SceneManagerLen(ev.scene_mgr) - 1
-                ev.selection_kind = .Sphere
-                ev.selected_idx   = new_idx
-                if ns, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
-                    edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = ns})
-                    mark_scene_dirty(app)
-                    app_push_log(app, "Add sphere")
-                }
-                app.r_render_pending = true
-            }
-            if imgui.Selectable("Quad") {
-                AppendDefaultQuad(ev.scene_mgr)
-                new_idx := SceneManagerLen(ev.scene_mgr) - 1
-                ev.selection_kind = .Quad
-                ev.selected_idx   = new_idx
-                if nq, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
-                    edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = nq})
-                    mark_scene_dirty(app)
-                    app_push_log(app, "Add quad")
-                }
-                app.r_render_pending = true
-            }
-            if imgui.Selectable("Volume") {
-                box_min, box_max, trans := default_volume_from_scene_scale(ev.scene_mgr)
-                new_vol := core.SceneVolume{
-                    box_min      = box_min,
-                    box_max      = box_max,
-                    rotate_y_deg = 0,
-                    translate    = trans,
-                    density      = 0.02,
-                    albedo       = {0.8, 0.8, 0.8},
-                }
-                append(&app.e_volumes, new_vol)
-                new_idx := len(app.e_volumes) - 1
-                ev.selection_kind = .Volume
-                ev.selected_idx   = new_idx
-                edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
-                mark_scene_dirty(app)
-                app_push_log(app, "Add volume")
-                app.r_render_pending = true
-            }
-            imgui.EndPopup()
-        }
+        viewport_toolbar_add_popup(app, ev)
 
         imgui.SameLine()
         del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
         if !del_enabled { imgui.BeginDisabled() }
         if imgui.Button("Delete") {
-            del_idx := ev.selected_idx
-            switch ev.selection_kind {
-            case .Sphere:
-                if ds, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
-                    edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = ds})
-                    mark_scene_dirty(app)
-                    app_push_log(app, "Delete sphere")
-                }
-                OrderedRemove(ev.scene_mgr, del_idx)
-            case .Quad:
-                if dq, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
-                    edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = dq})
-                    mark_scene_dirty(app)
-                    app_push_log(app, "Delete quad")
-                }
-                OrderedRemove(ev.scene_mgr, del_idx)
-            case .Volume:
-                if del_idx >= 0 && del_idx < len(app.e_volumes) {
-                    dv := app.e_volumes[del_idx]
-                    edit_history_push(&app.edit_history, DeleteVolumeAction{idx = del_idx, volume = dv})
-                    ordered_remove(&app.e_volumes, del_idx)
-                    mark_scene_dirty(app)
-                    app_push_log(app, "Delete volume")
-                }
-            case .None, .Camera:
-            }
-            ev.selection_kind = .None
-            ev.selected_idx   = -1
-            app.r_render_pending = true
+            delete_entry_object_from_scene(app, ev, ev.selected_idx)
         }
         if !del_enabled { imgui.EndDisabled() }
+
+        imgui.SameLine()
+        can_undo := cmd_enabled_undo(app)
+        if !can_undo { imgui.BeginDisabled() }
+        if imgui.Button("Undo") { cmd_execute(app, CMD_UNDO) }
+        if !can_undo { imgui.EndDisabled() }
+
+        imgui.SameLine()
+        can_redo := cmd_enabled_redo(app)
+        if !can_redo { imgui.BeginDisabled() }
+        if imgui.Button("Redo") { cmd_execute(app, CMD_REDO) }
+        if !can_redo { imgui.EndDisabled() }
 
         imgui.SameLine()
         if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo }
@@ -411,11 +478,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         }
         imgui.SameLine()
         if _imgui_toggle_btn("BVH", ev.show_bvh_hierarchy) {
-            ev.show_bvh_hierarchy = !ev.show_bvh_hierarchy
-            if !ev.show_bvh_hierarchy && ev.viz_bvh_root != nil {
-                rt.free_bvh(ev.viz_bvh_root)
-                ev.viz_bvh_root = nil
-            }
+            viewport_toggle_bvh_hierarchy(ev)
         }
         if ev.show_bvh_hierarchy {
             imgui.SameLine()
@@ -425,13 +488,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         }
         imgui.SameLine()
         if imgui.Button("From View") {
-            before := app.c_camera_params
-            lookfrom, lookat := get_orbit_camera_pose(ev)
-            app.c_camera_params.lookfrom = lookfrom
-            app.c_camera_params.lookat   = lookat
-            edit_history_push(&app.edit_history, ModifyCameraAction{before = before, after = app.c_camera_params})
-            mark_scene_dirty(app)
-            app.r_render_pending = true
+            viewport_apply_camera_from_view(app, ev)
         }
 
         // ── Viewport image (fills remaining space) ────────────────────────
@@ -480,6 +537,15 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         update_sphere_nudge(app, ev)
         update_orbit_camera(ev)
 
+        // ── Viewport keyboard shortcuts ───────────────────────────────────
+        // Only fire when this panel is focused or hovered (ImGui standard focus check).
+        if imgui.IsWindowFocused() || hovered {
+            if imgui.IsKeyPressed(.Delete, false) && !imgui_rl_want_capture_keyboard() {
+                ui_log_key(app, "Viewport", "Delete")
+                if del_enabled { delete_entry_object_from_scene(app, ev, ev.selected_idx) }
+            }
+        }
+
         // ── Right-click context menu ───────────────────────────────────────
         // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
         if ev.ctx_menu_open {
@@ -499,54 +565,10 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                         cmd_execute(app, entry.cmd_id)
                     } else {
                         switch entry.label {
-                        case "Add Sphere":
-                            AppendDefaultSphere(ev.scene_mgr)
-                            new_idx := SceneManagerLen(ev.scene_mgr) - 1
-                            ev.selection_kind = .Sphere ; ev.selected_idx = new_idx
-                            if ns, ok := GetSceneSphere(ev.scene_mgr, new_idx); ok {
-                                edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = ns})
-                                mark_scene_dirty(app) ; app_push_log(app, "Add sphere")
-                            }
-                            app.r_render_pending = true
-                        case "Add Quad":
-                            AppendDefaultQuad(ev.scene_mgr)
-                            new_idx := SceneManagerLen(ev.scene_mgr) - 1
-                            ev.selection_kind = .Quad ; ev.selected_idx = new_idx
-                            if nq, ok := GetSceneQuad(ev.scene_mgr, new_idx); ok {
-                                edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = nq})
-                                mark_scene_dirty(app) ; app_push_log(app, "Add quad")
-                            }
-                            app.r_render_pending = true
-                        case "Add Volume":
-                            box_min, box_max, trans := default_volume_from_scene_scale(ev.scene_mgr)
-                            new_vol := core.SceneVolume{box_min = box_min, box_max = box_max,
-                                rotate_y_deg = 0, translate = trans, density = 0.02, albedo = {0.8, 0.8, 0.8}}
-                            append(&app.e_volumes, new_vol)
-                            new_idx := len(app.e_volumes) - 1
-                            ev.selection_kind = .Volume ; ev.selected_idx = new_idx
-                            edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
-                            mark_scene_dirty(app) ; app_push_log(app, "Add volume")
-                            app.r_render_pending = true
+                        case "Add Sphere", "Add Quad", "Add Volume":
+                            add_entry_object_to_scene(app, ev, entry.label)
                         case "Delete":
-                            del_idx := ev.ctx_menu_hit_idx
-                            if ev.selection_kind == .Volume && ev.selected_idx >= 0 {
-                                dv := app.e_volumes[ev.selected_idx]
-                                edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = dv})
-                                ordered_remove(&app.e_volumes, ev.selected_idx)
-                                mark_scene_dirty(app) ; app_push_log(app, "Delete volume")
-                                ev.selection_kind = .None ; ev.selected_idx = -1
-                            } else if ds, ok := GetSceneSphere(ev.scene_mgr, del_idx); ok {
-                                edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = ds})
-                                OrderedRemove(ev.scene_mgr, del_idx)
-                                mark_scene_dirty(app) ; app_push_log(app, "Delete sphere")
-                                ev.selection_kind = .None ; ev.selected_idx = -1
-                            } else if dq, ok := GetSceneQuad(ev.scene_mgr, del_idx); ok {
-                                edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = dq})
-                                OrderedRemove(ev.scene_mgr, del_idx)
-                                mark_scene_dirty(app) ; app_push_log(app, "Delete quad")
-                                ev.selection_kind = .None ; ev.selected_idx = -1
-                            }
-                            app.r_render_pending = true
+                            delete_entry_object_from_scene(app, ev, ev.ctx_menu_hit_idx)
                         }
                     }
                 }
@@ -720,6 +742,46 @@ imgui_draw_texture_view_panel :: proc(app: ^App) {
     imgui.End()
 }
 
+@(private)
+content_browser_draw_assets_list :: proc(st: ^ContentBrowserState) {
+    visible_count := 0
+    if imgui.BeginChild("Assets", imgui.Vec2{-1, 220}, {.Borders}) {
+        for asset, asset_idx in st.assets {
+            if content_browser_matches_filter(asset, st.filter_lower) {
+                visible_count += 1
+                prefix := "T"
+                if asset.kind == .Scene { prefix = "S" }
+                label := fmt.aprintf("[%s] %s##asset_%d", prefix, asset.name, asset_idx, allocator = context.temp_allocator)
+                selected := asset_idx == st.selected_idx
+                if imgui.Selectable(strings.clone_to_cstring(label, context.temp_allocator), selected) {
+                    st.selected_idx = asset_idx
+                }
+            }
+        }
+        if visible_count == 0 {
+            imgui.TextUnformatted("No assets match the current filter")
+        }
+    }
+    imgui.EndChild()
+}
+
+@(private)
+content_browser_draw_asset_preview :: proc(st: ^ContentBrowserState, asset: ^ContentBrowserAsset) {
+    imgui.TextUnformatted(strings.clone_to_cstring(asset.name, context.temp_allocator))
+    imgui.TextUnformatted(strings.clone_to_cstring(asset.path, context.temp_allocator))
+    if imgui.BeginChild("Preview", imgui.Vec2{-1, 220}, {.Borders}) {
+        if asset.kind == .Texture && st.preview_valid {
+            _imgui_show_texture(imgui_vk_texture_id(&st.vk_preview_tex), st.preview_w, st.preview_h)
+        } else if asset.kind == .Scene {
+            imgui.TextUnformatted("Scene asset")
+            imgui.TextUnformatted("Use Open Scene to load it into the editor.")
+        } else {
+            imgui.TextUnformatted("Texture preview unavailable")
+        }
+    }
+    imgui.EndChild()
+}
+
 imgui_draw_content_browser_panel :: proc(app: ^App) {
     if !app.e_panel_vis.content_browser { return }
     if imgui.Begin("Content Browser", &app.e_panel_vis.content_browser) {
@@ -740,26 +802,7 @@ imgui_draw_content_browser_panel :: proc(app: ^App) {
         }
         imgui.Separator()
 
-        visible_count := 0
-        if imgui.BeginChild("Assets", imgui.Vec2{-1, 220}, {.Borders}) {
-            for asset, asset_idx in st.assets {
-                if content_browser_matches_filter(asset, st.filter_lower) {
-                    visible_count += 1
-                    prefix := "T"
-                    if asset.kind == .Scene { prefix = "S" }
-                    label := fmt.aprintf("[%s] %s##asset_%d", prefix, asset.name, asset_idx,
-                        allocator = context.temp_allocator)
-                    selected := asset_idx == st.selected_idx
-                    if imgui.Selectable(strings.clone_to_cstring(label, context.temp_allocator), selected) {
-                        st.selected_idx = asset_idx
-                    }
-                }
-            }
-            if visible_count == 0 {
-                imgui.TextUnformatted("No assets match the current filter")
-            }
-        }
-        imgui.EndChild()
+        content_browser_draw_assets_list(st)
 
         asset := content_browser_selected_asset(app)
         content_browser_ensure_preview(app)
@@ -768,19 +811,7 @@ imgui_draw_content_browser_panel :: proc(app: ^App) {
         if asset == nil {
             imgui.TextUnformatted("Select an asset")
         } else {
-            imgui.TextUnformatted(strings.clone_to_cstring(asset.name, context.temp_allocator))
-            imgui.TextUnformatted(strings.clone_to_cstring(asset.path, context.temp_allocator))
-            if imgui.BeginChild("Preview", imgui.Vec2{-1, 220}, {.Borders}) {
-                if asset.kind == .Texture && st.preview_valid {
-                    _imgui_show_texture(imgui_vk_texture_id(&st.vk_preview_tex), st.preview_w, st.preview_h)
-                } else if asset.kind == .Scene {
-                    imgui.TextUnformatted("Scene asset")
-                    imgui.TextUnformatted("Use Open Scene to load it into the editor.")
-                } else {
-                    imgui.TextUnformatted("Texture preview unavailable")
-                }
-            }
-            imgui.EndChild()
+            content_browser_draw_asset_preview(st, asset)
         }
 
         primary_enabled := asset != nil && asset.kind == .Texture
