@@ -640,7 +640,7 @@ run_app :: proc(
         r_aspect_ratio      = 1, // default to 16:9
         r_render_pending    = true, // initial render needed
         scene_version       = 1,
-        render_scene_version = 1,
+        render_scene_version = 0,  // always dirty on first Raytrace switch
     }
     app.r_camera    = r_camera
     app.num_threads = num_threads

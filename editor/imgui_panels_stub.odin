@@ -249,7 +249,10 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
         imgui.SameLine()
         if imgui.RadioButton("Raytrace", mode == .Raytrace) {
             vp.viewport_set_mode(&app.e_viewport, .Raytrace)
-            app_request_render_state(app, .Rendering)
+            // No explicit restart here — the frame-loop scene invalidation check
+            // fires next frame when scene_version != render_scene_version, which
+            // issues CMD_RENDER_RESTART (with world rebuild). If nothing changed,
+            // no restart and the existing render result is shown as-is.
             mode = .Raytrace
         }
         if mode == .Editor {
