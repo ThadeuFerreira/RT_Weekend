@@ -140,7 +140,6 @@ cmd_action_view_unified_viewport :: proc(app: ^App) { toggle_panel(app, PANEL_ID
 cmd_action_view_stats  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_STATS) }
 cmd_action_view_console :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CONSOLE) }
 cmd_action_view_sysinfo:: proc(app: ^App) { toggle_panel(app, PANEL_ID_SYSTEM_INFO) }
-cmd_action_view_edit   :: proc(app: ^App) { toggle_panel(app, PANEL_ID_VIEWPORT) }
 cmd_action_view_camera :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA) }
 cmd_action_view_props  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_DETAILS) }
 cmd_action_view_preview:: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA_PREVIEW) }
@@ -158,7 +157,6 @@ cmd_checked_view_unified_viewport :: proc(app: ^App) -> bool { return panel_visi
 cmd_checked_view_stats  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_STATS) }
 cmd_checked_view_console :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONSOLE) }
 cmd_checked_view_sysinfo:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_SYSTEM_INFO) }
-cmd_checked_view_edit   :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_VIEWPORT) }
 cmd_checked_view_camera :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA) }
 cmd_checked_view_props  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_DETAILS) }
 cmd_checked_view_preview:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA_PREVIEW) }
@@ -571,7 +569,6 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_VIEW_STATS,           label = "Stats",           action = cmd_action_view_stats,           checked_proc = cmd_checked_view_stats})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_CONSOLE,         label = "Console",         action = cmd_action_view_console,         checked_proc = cmd_checked_view_console})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_SYSINFO,         label = "System Info",     action = cmd_action_view_sysinfo,         checked_proc = cmd_checked_view_sysinfo})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_EDIT,            label = "Viewport",        action = cmd_action_view_edit,            checked_proc = cmd_checked_view_edit})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_CAMERA,          label = "Camera",          action = cmd_action_view_camera,          checked_proc = cmd_checked_view_camera})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PROPS,           label = "Details",         action = cmd_action_view_props,           checked_proc = cmd_checked_view_props})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PREVIEW,         label = "Camera Preview",  action = cmd_action_view_preview,         checked_proc = cmd_checked_view_preview})
