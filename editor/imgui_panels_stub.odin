@@ -169,6 +169,19 @@ imgui_draw_render_panel :: proc(app: ^App) {
     if !app.e_panel_vis.render { return }
     flags := imgui.WindowFlags{.NoScrollbar, .NoScrollWithMouse}
     if imgui.Begin("Render Preview", &app.e_panel_vis.render, flags) {
+        // Green "Render" button in the top-right of the panel
+        {
+            btn_w := f32(60)
+            imgui.SetCursorPosX(imgui.GetContentRegionAvail().x - btn_w + imgui.GetCursorPosX())
+            imgui.PushStyleColorImVec4(.Button, imgui.Vec4{0.2, 0.6, 0.2, 1.0})
+            imgui.PushStyleColorImVec4(.ButtonHovered, imgui.Vec4{0.25, 0.7, 0.25, 1.0})
+            imgui.PushStyleColorImVec4(.ButtonActive, imgui.Vec4{0.15, 0.5, 0.15, 1.0})
+            if imgui.Button("Render", imgui.Vec2{btn_w, 0}) {
+                cmd_execute(app, CMD_RENDER_RESTART)
+            }
+            imgui.PopStyleColor(3)
+        }
+
         avail := imgui.GetContentRegionAvail()
         settings_h := _imgui_render_settings_height()
         image_h := max(avail.y - settings_h, 120)

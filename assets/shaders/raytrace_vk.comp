@@ -117,6 +117,11 @@ layout(set = 0, binding = 6, std430) readonly buffer VolumeQuadsBlock {
     int _vq_pad[3];
     Quad volume_quads[];
 };
+layout(set = 0, binding = 7, std430) readonly buffer ImageTextureBlock {
+    int image_tex_count;
+    int _img_pad[3];
+    int image_tex_data[];  // metadata (width, height, pixel_offset, pad) per image, then packed RGB pixels
+};
 
 const int _perm[256] = int[256](
     151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -356,6 +361,29 @@ bool bvh_hit_scene(Ray r, float t_min, float t_max, inout uint seed, out HitReco
     return hit_anything;
 }
 
+// Sample image texture from the packed SSBO.
+// Metadata per image: image_tex_data[i*4] = width, [i*4+1] = height,
+// [i*4+2] = pixel_offset (into image_tex_data), [i*4+3] = pad.
+// Pixel data: each int = (R << 16) | (G << 8) | B.
+vec3 sample_image_texture(int tex_idx, float u, float v) {
+    if (tex_idx < 0 || tex_idx >= image_tex_count) return vec3(1.0, 0.0, 1.0);
+    int meta = tex_idx * 4;
+    int w = image_tex_data[meta + 0];
+    int h = image_tex_data[meta + 1];
+    int pixel_offset = image_tex_data[meta + 2];
+    if (w <= 0 || h <= 0) return vec3(1.0, 0.0, 1.0);
+    float ux = clamp(u, 0.0, 1.0);
+    float vx = clamp(v, 0.0, 1.0);
+    int px = min(int(ux * float(w)), w - 1);
+    int py = min(int((1.0 - vx) * float(h)), h - 1);
+    if (py < 0) py = 0;
+    int packed = image_tex_data[pixel_offset + py * w + px];
+    float r = float((packed >> 16) & 0xFF) / 255.0;
+    float g = float((packed >>  8) & 0xFF) / 255.0;
+    float b = float( packed        & 0xFF) / 255.0;
+    return vec3(r, g, b);
+}
+
 vec3 texture_value_lambertian(HitRecord rec) {
     if (rec.tex_type == TEX_CHECKER) {
         float safe_scale = abs(rec.tex_scale) > 1e-8 ? rec.tex_scale : 1.0;
@@ -379,7 +407,7 @@ vec3 texture_value_lambertian(HitRecord rec) {
         return vec3(val);
     }
     if (rec.tex_type == TEX_IMAGE) {
-        return rec.albedo; // Vulkan compute MVP: image textures fallback to stored albedo.
+        return sample_image_texture(rec.tex_index, rec.u, rec.v);
     }
     return rec.albedo;
 }

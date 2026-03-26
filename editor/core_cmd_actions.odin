@@ -2,6 +2,7 @@ package editor
 
 import "core:fmt"
 import "core:os"
+import "core:strconv"
 import "core:strings"
 import "core:time"
 import "RT_Weekend:core"
@@ -176,6 +177,23 @@ cmd_action_render_restart :: proc(app: ^App) {
     ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     world := app_build_world_from_scene(app, ev.export_scratch[:])
     AppendQuadsToWorld(ev.scene_mgr, &world)
+
+    // When the render panel settings (height, samples, aspect) have changed,
+    // recreate the camera at the new resolution instead of reusing the old one.
+    if app.r_render_pending {
+        width, height, res_ok := calculate_render_dimensions(app)
+        samples, samp_ok := strconv.parse_int(strings.trim_space(app.r_samples_input))
+        if res_ok && samp_ok && samples > 0 {
+            // restart_render_with_settings needs to own the world, but it rebuilds
+            // internally — we already built it, so swap it in before calling.
+            rt.free_world_volumes(app.r_world)
+            delete(app.r_world)
+            app.r_world = world
+            restart_render_with_settings(app, width, height, samples)
+            return
+        }
+    }
+
     app_restart_render(app, world)
 }
 
