@@ -86,7 +86,6 @@ load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     for v in app.e_volumes {
         append(&app.r_world, rt.build_volume_from_scene_volume(v))
     }
-    app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
     rt.init_camera(app.r_camera)

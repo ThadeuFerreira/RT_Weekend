@@ -20,7 +20,16 @@ LOG_RING_SIZE :: 64
 RenderState :: enum {
     Idle,
     Rendering,
-    Paused,
+}
+
+// app_set_render_state is the single point of truth for render lifecycle transitions.
+// It sets render_state and derives finished so the two never drift.
+app_set_render_state :: proc(app: ^App, state: RenderState) {
+    app.render_state = state
+    #partial switch state {
+    case .Idle:      app.finished = true
+    case .Rendering: app.finished = false
+    }
 }
 
 // Panel chrome constants — shared by all panel draw procs.
@@ -128,13 +137,11 @@ app_append_volumes_to_world :: proc(app: ^App, world: ^[dynamic]rt.Object) {
 app_start_render_session :: proc(app: ^App) -> bool {
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, true)
     if app.r_session == nil {
-        app.finished = true
-        app.render_state = .Idle
+        app_set_render_state(app, .Idle)
         app_push_log(app, "[GPU] Vulkan init failed; render session not started")
         return false
     }
-    app.finished = false
-    app.render_state = .Rendering
+    app_set_render_state(app, .Rendering)
     return true
 }
 
@@ -144,21 +151,17 @@ app_request_render_state :: proc(app: ^App, next: RenderState) {
     app.next_render_state = next
 }
 
-app_pause_render :: proc(app: ^App) {
+// app_start_render_fresh starts a new render from scratch. If a render is already
+// in progress (threads still running), it keeps the existing session instead of
+// blocking on finish_render.
+app_start_render_fresh :: proc(app: ^App) {
     if app == nil { return }
-    if app.render_state == .Paused { return }
-    if app.render_state == .Rendering && app.r_session != nil {
-        rt.finish_render(app.r_session)
-        rt.free_session(app.r_session)
-        app.r_session = nil
+    // If a render is already in progress, just ensure state is Rendering.
+    if app.r_session != nil && !app.finished {
+        app_set_render_state(app, .Rendering)
+        return
     }
-    app.finished = true
-    app.render_state = .Paused
-}
-
-app_resume_render :: proc(app: ^App) {
-    if app == nil { return }
-    if app.render_state == .Rendering { return }
+    // Free old completed session if any.
     if app.r_session != nil {
         rt.free_session(app.r_session)
         app.r_session = nil
@@ -175,12 +178,18 @@ app_apply_pending_render_state_transition :: proc(app: ^App) {
     app.pending_render_state_change = false
     next := app.next_render_state
     switch next {
-    case .Paused:
-        app_pause_render(app)
     case .Rendering:
-        app_resume_render(app)
+        app_start_render_fresh(app)
     case .Idle:
-        app.render_state = .Idle
+        // Safety: clean up any lingering session.
+        if app.r_session != nil {
+            if !app.finished {
+                rt.finish_render(app.r_session)
+            }
+            rt.free_session(app.r_session)
+            app.r_session = nil
+        }
+        app_set_render_state(app, .Idle)
     }
 }
 
@@ -200,7 +209,6 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     delete(app.r_world)
     app.r_world = new_world
 
-    app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
 
@@ -230,7 +238,6 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
     AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
     app_append_volumes_to_world(app, &app.r_world)
 
-    app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
 
@@ -439,7 +446,7 @@ viewport_provider_raytrace_resize :: proc(provider: ^vp.ViewportTextureProvider,
     if !viewport_resolution_change_is_significant(curr_w, curr_h, width, height) { return }
 
     // Policy: viewport-driven restart is allowed only when idle.
-    if app.render_state == .Rendering || !app.finished { return }
+    if app.render_state != .Idle { return }
 
     samples := max(app.r_camera.samples_per_pixel, 1)
     restart_render_with_settings(app, width, height, samples)
@@ -740,15 +747,18 @@ run_app :: proc(
         app.ui_event_log_enabled = true
         cmd_action_benchmark_start(&app)
     }
-    _ = app_start_render_session(&app)
-    app.render_start = time.now()
-    if app.e_viewport.mode == .Editor {
-        app_request_render_state(&app, .Paused)
-    }
+    // Only start a render session if we're launching in Raytrace mode.
+    // In Editor mode the render is deferred until the user switches to Raytrace.
+    if app.e_viewport.mode != .Editor {
+        _ = app_start_render_session(&app)
+        app.render_start = time.now()
 
-    // Log the actual render mode after start_render_auto decides CPU vs GPU.
-    if app.r_session != nil && app.r_session.use_gpu {
-        app_push_log(&app, "[GPU] GPU rendering active")
+        // Log the actual render mode after start_render_auto decides CPU vs GPU.
+        if app.r_session != nil && app.r_session.use_gpu {
+            app_push_log(&app, "[GPU] GPU rendering active")
+        }
+    } else {
+        app_set_render_state(&app, .Idle)
     }
 
     frame := 0
@@ -838,8 +848,7 @@ run_app :: proc(
                 }
                 rt.finish_render(app.r_session)
                 app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
-                app.finished = true
-                app.render_state = .Idle
+                app_set_render_state(&app, .Idle)
                 // CPU backend: do a final readback after finish (threads joined, buffer complete).
                 if b != nil && b.kind == .CPU {
                     out_bytes := transmute([][4]u8)(app.pixel_staging)
@@ -863,7 +872,7 @@ run_app :: proc(
     // Early close: finish_render still runs and blocks until workers drain the tile queue (no abort).
     if !app.finished {
         rt.finish_render(app.r_session)
-        app.render_state = .Idle
+        app_set_render_state(&app, .Idle)
     }
 
     if len(config_save_path) > 0 {
