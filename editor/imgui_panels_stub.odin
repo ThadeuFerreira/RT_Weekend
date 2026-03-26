@@ -268,7 +268,6 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
                 }
                 total_samples := max(app.r_camera.samples_per_pixel, 1)
                 current_samples := int(math.round(f64(progress * f32(total_samples))))
-                if current_samples < 0 { current_samples = 0 }
                 if current_samples > total_samples { current_samples = total_samples }
                 img_min := imgui.GetItemRectMin()
                 imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 10})
@@ -551,18 +550,18 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         avail := imgui.GetContentRegionAvail()
         vp_w := max(i32(avail.x), 1)
         vp_h := max(i32(avail.y), 1)
-        vp.viewport_resize(&app.e_viewport, int(vp_w), int(vp_h))
-        render_viewport_to_texture(app, vp_w, vp_h)
-        // Readback Raylib FBO → Vulkan texture for ImGui display
-        if ev.tex_w > 0 && ev.tex_h > 0 {
-            imgui_vk_ensure_texture(&app.vk_viewport_tex, ev.tex_w, ev.tex_h)
-            vp_img := rl.LoadImageFromTexture(ev.viewport_tex.texture)
-            imgui_vk_update_texture(&app.vk_viewport_tex, vp_img.data)
-            rl.UnloadImage(vp_img)
+        // Unified Viewport owns viewport resize when both panels are visible.
+        if !app.e_panel_vis.unified_viewport {
+            vp.viewport_resize(&app.e_viewport, int(vp_w), int(vp_h))
         }
         tex_id := imgui_vk_texture_id(&app.vk_viewport_tex)
         // Raylib FBOs are Y-flipped; use uv0={0,1}, uv1={1,0}
         imgui.Image(tex_id, avail, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
+        if app.e_viewport.mode != .Editor {
+            img_min := imgui.GetItemRectMin()
+            imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 10})
+            imgui.TextDisabled("View Only - switch Unified Viewport to Editor mode to interact")
+        }
 
         img_min := imgui.GetItemRectMin()
         img_max := imgui.GetItemRectMax()
