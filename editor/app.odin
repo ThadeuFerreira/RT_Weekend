@@ -294,7 +294,7 @@ g_app: ^App = nil
 app_update_editor_viewport_texture :: proc(app: ^App) {
     if app == nil { return }
     if app.e_viewport.mode != .Editor { return }
-    if !app.e_panel_vis.viewport && !app.e_panel_vis.unified_viewport { return }
+    if !app.e_panel_vis.unified_viewport { return }
     if app.e_viewport.width <= 0 || app.e_viewport.height <= 0 { return }
 
     render_viewport_to_texture(app, i32(app.e_viewport.width), i32(app.e_viewport.height))
@@ -308,8 +308,9 @@ app_update_editor_viewport_texture :: proc(app: ^App) {
 
 viewport_provider_editor_update :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) {
     _ = provider
-    _ = app_ptr
-    // Editor scene rendering/upload remains owned by the app frame loop.
+    if app_ptr == nil { return }
+    app := (^App)(app_ptr)
+    app_update_editor_viewport_texture(app)
 }
 
 viewport_provider_editor_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> vp.ViewportDisplayTexture {
@@ -679,7 +680,6 @@ run_app :: proc(
             app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
         }
         vp.viewport_update(&app.e_viewport, rawptr(&app))
-        app_update_editor_viewport_texture(&app)
 
         // ── Input phase (priority order) ──────────────────────────────────
         keyboard_update(&app.keyboard)

@@ -550,10 +550,6 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         avail := imgui.GetContentRegionAvail()
         vp_w := max(i32(avail.x), 1)
         vp_h := max(i32(avail.y), 1)
-        // Unified Viewport owns viewport resize when both panels are visible.
-        if !app.e_panel_vis.unified_viewport {
-            vp.viewport_resize(&app.e_viewport, int(vp_w), int(vp_h))
-        }
         tex_id := imgui_vk_texture_id(&app.vk_viewport_tex)
         // Raylib FBOs are Y-flipped; use uv0={0,1}, uv1={1,0}
         imgui.Image(tex_id, avail, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
