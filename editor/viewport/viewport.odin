@@ -4,6 +4,20 @@ import rl "vendor:raylib"
 
 VIEWPORT_RESIZE_STABLE_FRAMES :: 2
 
+viewport_set_providers :: proc(vp: ^Viewport, editor_provider, raytrace_provider: ViewportTextureProvider) {
+	if vp == nil { return }
+	vp.editor_provider = editor_provider
+	vp.raytrace_provider = raytrace_provider
+}
+
+viewport_active_provider :: proc(vp: ^Viewport) -> ^ViewportTextureProvider {
+	if vp == nil { return nil }
+	if vp.mode == .Raytrace {
+		return &vp.raytrace_provider
+	}
+	return &vp.editor_provider
+}
+
 viewport_init :: proc(width, height: int) -> Viewport {
 	init_w := max(width, 1)
 	init_h := max(height, 1)
@@ -15,6 +29,8 @@ viewport_init :: proc(width, height: int) -> Viewport {
 		pending_width = init_w,
 		pending_height = init_h,
 		resize_defer_frames = 0,
+		editor_provider = make_editor_texture_provider(),
+		raytrace_provider = make_raytrace_texture_provider(),
 	}
 	vp.editor_target = rl.LoadRenderTexture(i32(vp.width), i32(vp.height))
 	return vp
@@ -35,26 +51,41 @@ viewport_resize :: proc(vp: ^Viewport, width, height: int) {
 	vp.resize_defer_frames = VIEWPORT_RESIZE_STABLE_FRAMES
 }
 
-viewport_update :: proc(vp: ^Viewport) {
-	if vp == nil || !vp.needs_resize { return }
-	if vp.resize_defer_frames > 0 {
-		vp.resize_defer_frames -= 1
-		return
+viewport_update :: proc(vp: ^Viewport, app: rawptr) {
+	if vp == nil { return }
+
+	if vp.needs_resize {
+		if vp.resize_defer_frames > 0 {
+			vp.resize_defer_frames -= 1
+		} else if vp.width == vp.pending_width && vp.height == vp.pending_height {
+			vp.needs_resize = false
+		} else {
+			if p := viewport_active_provider(vp); p != nil && p.resize != nil {
+				p.resize(p, app, vp.pending_width, vp.pending_height)
+			}
+			if vp.editor_target.id != 0 {
+				rl.UnloadRenderTexture(vp.editor_target)
+			}
+			vp.editor_target = rl.LoadRenderTexture(i32(vp.pending_width), i32(vp.pending_height))
+			vp.width = vp.pending_width
+			vp.height = vp.pending_height
+			vp.needs_resize = false
+		}
 	}
-	if vp.width == vp.pending_width && vp.height == vp.pending_height {
-		vp.needs_resize = false
-		return
+
+	if p := viewport_active_provider(vp); p != nil && p.update != nil {
+		p.update(p, app)
 	}
-	if vp.editor_target.id != 0 {
-		rl.UnloadRenderTexture(vp.editor_target)
-	}
-	vp.editor_target = rl.LoadRenderTexture(i32(vp.pending_width), i32(vp.pending_height))
-	vp.width = vp.pending_width
-	vp.height = vp.pending_height
-	vp.needs_resize = false
 }
 
 viewport_set_mode :: proc(vp: ^Viewport, mode: ViewportMode) {
 	if vp == nil || vp.mode == mode { return }
 	vp.mode = mode
+}
+
+viewport_get_texture :: proc(vp: ^Viewport, app: rawptr) -> rl.Texture2D {
+	if p := viewport_active_provider(vp); p != nil && p.get_texture != nil {
+		return p.get_texture(p, app)
+	}
+	return rl.Texture2D{}
 }

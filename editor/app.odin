@@ -290,6 +290,64 @@ App :: struct {
 
 g_app: ^App = nil
 
+viewport_provider_editor_update :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) {
+    _ = provider
+    _ = app_ptr
+    // Stage 2 adapter keeps the existing viewport render path in panel draw.
+}
+
+viewport_provider_editor_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> rl.Texture2D {
+    _ = provider
+    if app_ptr == nil { return rl.Texture2D{} }
+    app := (^App)(app_ptr)
+    return app.e_edit_view.viewport_tex.texture
+}
+
+viewport_provider_editor_resize :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr, width, height: int) {
+    _ = provider
+    _ = app_ptr
+    _ = width
+    _ = height
+    // Existing resize behavior remains in render_viewport_to_texture().
+}
+
+viewport_provider_raytrace_update :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) {
+    _ = provider
+    _ = app_ptr
+    // Raytrace readback/upload cadence remains owned by the app frame loop.
+}
+
+viewport_provider_raytrace_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> rl.Texture2D {
+    _ = provider
+    _ = app_ptr
+    // Stage 2 keeps Render Preview backed by Vulkan texture IDs in the existing panel.
+    return rl.Texture2D{}
+}
+
+viewport_provider_raytrace_resize :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr, width, height: int) {
+    _ = provider
+    _ = app_ptr
+    _ = width
+    _ = height
+    // Stage 2 does not change raytrace resolution/restart behavior.
+}
+
+make_editor_viewport_provider :: proc() -> vp.ViewportTextureProvider {
+    p := vp.make_editor_texture_provider()
+    p.update = viewport_provider_editor_update
+    p.get_texture = viewport_provider_editor_get_texture
+    p.resize = viewport_provider_editor_resize
+    return p
+}
+
+make_raytrace_viewport_provider :: proc() -> vp.ViewportTextureProvider {
+    p := vp.make_raytrace_texture_provider()
+    p.update = viewport_provider_raytrace_update
+    p.get_texture = viewport_provider_raytrace_get_texture
+    p.resize = viewport_provider_raytrace_resize
+    return p
+}
+
 // mark_scene_dirty sets the scene as having unsaved changes. Call after any edit (add/delete/modify sphere or camera).
 // Also invalidates the Viewport cached BVH (viz_bvh_dirty) and viewport sphere cache so the 3D viewport
 // shows up-to-date geometry and material/color after any change.
@@ -474,6 +532,7 @@ run_app :: proc(
     app_set_image_texture_cache_from_world(&app, r_world)
     init_edit_view(&app.e_edit_view)
     app.e_viewport = vp.viewport_init(app.r_camera.image_width, app.r_camera.image_height)
+    vp.viewport_set_providers(&app.e_viewport, make_editor_viewport_provider(), make_raytrace_viewport_provider())
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
     if len(r_world) > 0 {
@@ -585,7 +644,7 @@ run_app :: proc(
         if !app.finished {
             app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
         }
-        vp.viewport_update(&app.e_viewport)
+        vp.viewport_update(&app.e_viewport, rawptr(&app))
 
         // ── Input phase (priority order) ──────────────────────────────────
         keyboard_update(&app.keyboard)
