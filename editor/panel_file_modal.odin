@@ -76,7 +76,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
 
     if !app.finished {
         rt.finish_render(app.r_session)
-        app.finished = true
+        app_set_render_state(app, .Idle)
     }
     rt.free_session(app.r_session)
     app.r_session = nil
@@ -89,7 +89,6 @@ file_import_from_path :: proc(app: ^App, path: string) {
         for v in volumes { append(&app.e_volumes, v) }
         delete(volumes)
     }
-    app.finished     = false
     app.elapsed_secs = 0
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)

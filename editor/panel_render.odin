@@ -70,7 +70,7 @@ calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool)
 // render_settings_height returns the height of the settings area above the render preview.
 
 restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
-    if !app.finished { return }
+    if app.render_state == .Rendering { return }
 
     // Free old session
     rt.free_session(app.r_session)
@@ -99,12 +99,11 @@ restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     free(old_cam)
 
     // Reset render state
-    app.finished = false
     app.elapsed_secs = 0
     app.render_start = time.now()
     app.r_render_pending = false
 
-    // Start new render
+    // Start new render (app_start_render_session sets Rendering state via helper)
     _ = app_start_render_session(app)
     app_push_log(app, fmt.tprintf("Rendering at %dx%d with %d samples...", width, height, samples))
 }

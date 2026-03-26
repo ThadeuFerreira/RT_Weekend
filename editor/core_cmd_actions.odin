@@ -42,7 +42,6 @@ cmd_action_file_new :: proc(app: ^App) {
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
     app_append_volumes_to_world(app, &app.r_world)
 
-    app.finished     = false
     app.elapsed_secs = 0
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)

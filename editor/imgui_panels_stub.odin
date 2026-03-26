@@ -242,11 +242,14 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
         imgui.TextUnformatted("Viewport Mode:")
         if imgui.RadioButton("Editor", mode == .Editor) {
             vp.viewport_set_mode(&app.e_viewport, .Editor)
+            // No render state change — any in-progress render continues in
+            // the background and will complete/clean up naturally.
             mode = .Editor
         }
         imgui.SameLine()
         if imgui.RadioButton("Raytrace", mode == .Raytrace) {
             vp.viewport_set_mode(&app.e_viewport, .Raytrace)
+            app_request_render_state(app, .Rendering)
             mode = .Raytrace
         }
         if mode == .Editor {
