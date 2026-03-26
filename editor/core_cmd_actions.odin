@@ -134,8 +134,7 @@ panel_visible :: proc(app: ^App, id: string) -> bool {
     return false
 }
 
-cmd_action_view_render :: proc(app: ^App) { toggle_panel(app, PANEL_ID_RENDER) }
-cmd_action_view_unified_viewport :: proc(app: ^App) { toggle_panel(app, PANEL_ID_UNIFIED_VIEWPORT) }
+cmd_action_view_viewport :: proc(app: ^App) { toggle_panel(app, PANEL_ID_VIEWPORT) }
 cmd_action_view_stats  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_STATS) }
 cmd_action_view_console :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CONSOLE) }
 cmd_action_view_sysinfo:: proc(app: ^App) { toggle_panel(app, PANEL_ID_SYSTEM_INFO) }
@@ -151,8 +150,7 @@ cmd_action_view_content_browser :: proc(app: ^App) {
 }
 cmd_action_view_outliner :: proc(app: ^App) { toggle_panel(app, PANEL_ID_OUTLINER) }
 
-cmd_checked_view_render :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_RENDER) }
-cmd_checked_view_unified_viewport :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_UNIFIED_VIEWPORT) }
+cmd_checked_view_viewport :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_VIEWPORT) }
 cmd_checked_view_stats  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_STATS) }
 cmd_checked_view_console :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONSOLE) }
 cmd_checked_view_sysinfo:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_SYSTEM_INFO) }
@@ -563,8 +561,7 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
 
     // View — panels
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_RENDER,          label = "Render Preview",  action = cmd_action_view_render,          checked_proc = cmd_checked_view_render})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_UNIFIED_VIEWPORT, label = "Unified Viewport", action = cmd_action_view_unified_viewport, checked_proc = cmd_checked_view_unified_viewport})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_VIEWPORT,         label = "Viewport",        action = cmd_action_view_viewport,        checked_proc = cmd_checked_view_viewport})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_STATS,           label = "Stats",           action = cmd_action_view_stats,           checked_proc = cmd_checked_view_stats})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_CONSOLE,         label = "Console",         action = cmd_action_view_console,         checked_proc = cmd_checked_view_console})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_SYSINFO,         label = "System Info",     action = cmd_action_view_sysinfo,         checked_proc = cmd_checked_view_sysinfo})

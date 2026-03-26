@@ -51,10 +51,9 @@ odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILIN
 - `-c`: thread count (defaults to physical CPU cores)
 
 The program opens a **Raylib window** with floating panels:
-- **Render Preview** — live RT image updating as tiles complete
+- **Viewport** — unified Editor / Raytrace view with mode toggle and render settings
 - **Stats** — tile progress, thread count, elapsed time
 - **Console** — startup and completion messages
-- **Viewport** — interactive 3D edit view
 - **Details** — selected object properties
 - **World Outliner** — scene object list
 
@@ -130,7 +129,7 @@ Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is
 3. Each frame: uploads partial pixel buffer to GPU, polls progress, calls `finish_render()` when all tiles are done
 4. Draws panels, menu bar, and layout via `editor/ui_chrome.odin` and panel-specific modules
 
-**`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_CONSOLE`, `PANEL_ID_VIEWPORT`, `PANEL_ID_CAMERA`, `PANEL_ID_DETAILS`, `PANEL_ID_CAMERA_PREVIEW`, `PANEL_ID_OUTLINER`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
+**`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_VIEWPORT`, `PANEL_ID_STATS`, `PANEL_ID_CONSOLE`, `PANEL_ID_CAMERA`, `PANEL_ID_DETAILS`, `PANEL_ID_CAMERA_PREVIEW`, `PANEL_ID_OUTLINER`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
 
 **File dialogs and unsaved state:** Open/Save use **native OS dialogs** (no C/C++ libs) via `util.open_file_dialog`, `util.save_file_dialog`, and `util.dialog_default_dir`. When no scene file is open, the default directory is **`<cwd>/scenes`**; the `scenes/` folder exists in the repo (see `.gitignore`: `scenes/*` ignored, `!scenes/.gitkeep` keeps the folder). If the native dialog is unavailable, build with `-define:FILE_MODAL_FALLBACK=true` to fall back to the text path modal. **Save Changes?** appears when exiting or importing with unsaved changes; options are Save (overwrite), Save As (pick path), Cancel, Continue (discard). The editor only proceeds (exit/import) after a successful save or when the user chooses Continue/Cancel. **Load Example** always shows a confirmation; “Save & Load” is enabled only when the scene is dirty and uses Save As when there is no current path. Unsaved state is tracked in `e_scene_dirty`; any edit (including undo/redo) and all camera/material changes call `mark_scene_dirty`. `file_import_from_path` resets edit history; `cmd_action_file_save` and `file_save_as_path` return `bool` so callers can avoid proceeding on save failure.
 

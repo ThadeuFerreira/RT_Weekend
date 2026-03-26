@@ -44,8 +44,7 @@ CONTENT_TEXT_COLOR :: rl.Color{200, 210, 220, 255}
 ACCENT_COLOR       :: rl.Color{100, 180, 255, 255}
 DONE_COLOR         :: rl.Color{100, 220, 120, 255}
 
-PANEL_ID_RENDER         :: "render_preview"
-PANEL_ID_UNIFIED_VIEWPORT :: "unified_viewport"
+PANEL_ID_VIEWPORT       :: "viewport"
 PANEL_ID_STATS          :: "stats"
 PANEL_ID_CONSOLE        :: "console"
 PANEL_ID_SYSTEM_INFO    :: "system_info"
@@ -378,7 +377,7 @@ viewport_resolution_change_is_significant :: proc(curr_w, curr_h, next_w, next_h
 app_update_editor_viewport_texture :: proc(app: ^App) {
     if app == nil { return }
     if app.e_viewport.mode != .Editor { return }
-    if !app.e_panel_vis.unified_viewport { return }
+    if !app.e_panel_vis.viewport { return }
     if app.e_viewport.width <= 0 || app.e_viewport.height <= 0 { return }
 
     render_viewport_to_texture(app, i32(app.e_viewport.width), i32(app.e_viewport.height))
@@ -724,8 +723,7 @@ run_app :: proc(
 
     // Panel visibility — all open by default; ImGui persists layout via imgui.ini.
     app.e_panel_vis = ImguiPanelVis{
-        render          = true,
-        unified_viewport = true,
+        viewport        = true,
         stats           = true,
         console         = true,
         system_info     = true,
@@ -738,6 +736,16 @@ run_app :: proc(
     }
 
     app.e_reset_layout = !os.exists("imgui.ini")
+    // One-time layout migration: reset when imgui.ini still references removed/renamed panels.
+    if !app.e_reset_layout && os.exists("imgui.ini") {
+        ini_data, ini_ok := os.read_entire_file("imgui.ini", context.temp_allocator)
+        if ini_ok {
+            ini_str := string(ini_data)
+            if strings.contains(ini_str, "Unified Viewport") || strings.contains(ini_str, "Render Preview") {
+                app.e_reset_layout = true
+            }
+        }
+    }
 
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)
@@ -804,7 +812,7 @@ run_app :: proc(
                 if vk_is_key_pressed(glfw.KEY_F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
                 if vk_is_key_pressed(glfw.KEY_L) { app.e_panel_vis.console = true }
                 if vk_is_key_pressed(glfw.KEY_S) { app.e_panel_vis.system_info = true }
-                if vk_is_key_pressed(glfw.KEY_E) { app.e_panel_vis.unified_viewport = true }
+                if vk_is_key_pressed(glfw.KEY_E) { app.e_panel_vis.viewport = true }
                 if vk_is_key_pressed(glfw.KEY_C) { app.e_panel_vis.camera = true }
                 if vk_is_key_pressed(glfw.KEY_O) { app.e_panel_vis.details = true }
                 if vk_is_key_pressed(glfw.KEY_T) { app.e_panel_vis.texture_view = true }

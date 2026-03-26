@@ -7,7 +7,7 @@ import "core:time"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
 
-// Aspect ratio indices (used by r_aspect_ratio and legacy/ImGui render panels).
+// Aspect ratio indices (used by r_aspect_ratio and render settings).
 RENDER_ASPECT_4_3  :: 0
 RENDER_ASPECT_16_9 :: 1
 
@@ -21,25 +21,6 @@ get_aspect_ratio :: proc(idx: int) -> f32 {
 get_render_aspect :: proc(app: ^App) -> f32 {
     return get_aspect_ratio(app.r_aspect_ratio)
 }
-
-// Input field constants
-RENDER_INPUT_H :: f32(22)
-RENDER_INPUT_W :: f32(70)
-RENDER_DROPDOWN_W :: f32(80)
-RENDER_ROW_H :: f32(28)
-
-// Layout constants - shared between draw and update
-RENDER_PADDING_X :: f32(10)     // Left padding
-RENDER_HEIGHT_LABEL_W :: f32(45)  // Width for "Height:" label
-RENDER_HEIGHT_X :: f32(10)      // Height input starts at left padding
-RENDER_ASPECT_X :: f32(135)     // Aspect dropdown: RENDER_HEIGHT_X + 125
-RENDER_ASPECT_LABEL_W :: f32(55)  // Width for "Aspect:" label
-RENDER_SAMPLES_X :: f32(280)    // Samples input: RENDER_ASPECT_X + 145
-RENDER_SAMPLES_LABEL_W :: f32(60) // Width for "Samples:" label
-RENDER_INFO_X :: f32(405)       // Info text: RENDER_SAMPLES_X + 125
-RENDER_PROGRESS_TOGGLE_X :: f32(10)
-RENDER_PROGRESS_TOGGLE_Y :: f32(RENDER_ROW_H + 6)
-RENDER_PROGRESS_TOGGLE_W :: f32(120)
 
 // Resolution bounds (16k max, 720p min)
 MIN_RENDER_HEIGHT :: 720
@@ -66,8 +47,6 @@ calculate_render_dimensions :: proc(app: ^App) -> (width, height: int, ok: bool)
 
 	return w, h, true
 }
-
-// render_settings_height returns the height of the settings area above the render preview.
 
 restart_render_with_settings :: proc(app: ^App, width, height, samples: int) {
     if app.render_state == .Rendering { return }

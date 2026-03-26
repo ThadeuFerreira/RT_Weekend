@@ -17,7 +17,7 @@ The editor has been fully migrated from a hand-rolled Raylib panel system to **D
 | DockSpace + menu bar + all panels | `imgui_panels_stub.odin` | ✅ Done |
 | Console, Stats, System Info | `panel_console.odin` etc. | ✅ Track A |
 | Outliner, Camera | `panel_outliner.odin` etc. | ✅ Track B |
-| Render Preview, Viewport | `panel_render.odin` etc. | ✅ Track C |
+| Viewport (Editor/Raytrace) | `panel_render.odin` etc. | ✅ Track C |
 | Details | `panel_details.odin` | ✅ Track D |
 | Modals + menu bar | `panel_confirm_modal.odin` etc. | ✅ Track E |
 | Delete legacy Raylib files | `ui_*.odin`, `panel_registry.odin` | ✅ Track F |
@@ -119,7 +119,7 @@ App :: struct {
 
 | File | Panel |
 |---|---|
-| `panel_render.odin` | Render Preview |
+| `panel_render.odin` | Viewport render settings/helpers |
 | `panel_stats.odin` | Stats |
 | `panel_console.odin` | Console |
 | `panel_system_info.odin` | System Info |

@@ -51,8 +51,7 @@ imgui_draw_main_menu_bar :: proc(app: ^App) {
     }
 
     if imgui.BeginMenu("View") {
-        if imgui.MenuItem("Render Preview",  nil, app.e_panel_vis.render)          { cmd_execute(app, CMD_VIEW_RENDER) }
-        if imgui.MenuItem("Unified Viewport", nil, app.e_panel_vis.unified_viewport){ cmd_execute(app, CMD_VIEW_UNIFIED_VIEWPORT) }
+        if imgui.MenuItem("Viewport",        nil, app.e_panel_vis.viewport)        { cmd_execute(app, CMD_VIEW_VIEWPORT) }
         if imgui.MenuItem("Stats",           nil, app.e_panel_vis.stats)            { cmd_execute(app, CMD_VIEW_STATS) }
         if imgui.MenuItem("Console",         nil, app.e_panel_vis.console)          { cmd_execute(app, CMD_VIEW_CONSOLE) }
         if imgui.MenuItem("System Info",     nil, app.e_panel_vis.system_info)      { cmd_execute(app, CMD_VIEW_SYSINFO) }
@@ -160,81 +159,11 @@ _imgui_update_int_string :: proc(dst: ^string, value: int) {
     dst^ = next
 }
 
-@(private)
-_imgui_render_settings_height :: proc() -> f32 {
-    // 4 rows of controls + one text line; +12 = extra vertical padding so the image area doesn't feel cramped.
-    return imgui.GetFrameHeightWithSpacing() * 4 + imgui.GetTextLineHeightWithSpacing() + 12
-}
-
-imgui_draw_render_panel :: proc(app: ^App) {
-    if !app.e_panel_vis.render { return }
-    flags := imgui.WindowFlags{.NoScrollbar, .NoScrollWithMouse}
-    if imgui.Begin("Render Preview", &app.e_panel_vis.render, flags) {
-        // Green "Render" button in the top-right of the panel
-        {
-            btn_w := f32(60)
-            imgui.SetCursorPosX(imgui.GetContentRegionAvail().x - btn_w + imgui.GetCursorPosX())
-            imgui.PushStyleColorImVec4(.Button, imgui.Vec4{0.2, 0.6, 0.2, 1.0})
-            imgui.PushStyleColorImVec4(.ButtonHovered, imgui.Vec4{0.25, 0.7, 0.25, 1.0})
-            imgui.PushStyleColorImVec4(.ButtonActive, imgui.Vec4{0.15, 0.5, 0.15, 1.0})
-            if imgui.Button("Render", imgui.Vec2{btn_w, 0}) {
-                cmd_execute(app, CMD_RENDER_RESTART)
-            }
-            imgui.PopStyleColor(3)
-        }
-
-        avail := imgui.GetContentRegionAvail()
-        settings_h := _imgui_render_settings_height()
-        image_h := max(avail.y - settings_h, 120)
-        if imgui.BeginChild("RenderImage", imgui.Vec2{-1, image_h}, {.Borders}) {
-            tex_id := imgui_vk_texture_id(&app.vk_render_tex)
-            img_avail := imgui.GetContentRegionAvail()
-            aspect := f32(app.vk_render_tex.width) / max(f32(app.vk_render_tex.height), 1)
-            size := _imgui_fit_size(img_avail, aspect)
-            imgui.Image(tex_id, size)
-        }
-        imgui.EndChild()
-
-        imgui.Separator()
-        height, _ := strconv.parse_int(strings.trim_space(app.r_height_input))
-        samples, _ := strconv.parse_int(strings.trim_space(app.r_samples_input))
-        height_i := c.int(max(height, 1))
-        samples_i := c.int(max(samples, 1))
-        if imgui.InputInt("Height", &height_i) {
-            if height_i < 1 { height_i = 1 }
-            _imgui_update_int_string(&app.r_height_input, int(height_i))
-            app.r_render_pending = true
-        }
-        if imgui.InputInt("Samples", &samples_i) {
-            if samples_i < 1 { samples_i = 1 }
-            _imgui_update_int_string(&app.r_samples_input, int(samples_i))
-            app.r_render_pending = true
-        }
-
-        preview: cstring = "4:3"
-        if app.r_aspect_ratio == RENDER_ASPECT_16_9 { preview = "16:9" }
-        if imgui.BeginCombo("Aspect", preview) {
-            aspect_options := [2]cstring{"4:3", "16:9"}
-            for label, i in aspect_options {
-                selected := app.r_aspect_ratio == i
-                if imgui.Selectable(label, selected) {
-                    app.r_aspect_ratio = i
-                    app.r_render_pending = true
-                }
-            }
-            imgui.EndCombo()
-        }
-        _ = imgui.Checkbox("Use GPU (next render)", &app.prefer_gpu)
-        _ = imgui.Checkbox("Show Progress", &app.show_intermediate_render)
-    }
-    imgui.End()
-}
-
-imgui_draw_unified_viewport_panel :: proc(app: ^App) {
-    if !app.e_panel_vis.unified_viewport { return }
+imgui_draw_viewport_panel :: proc(app: ^App) {
+    if !app.e_panel_vis.viewport { return }
     flags := imgui.WindowFlags{.NoScrollbar, .NoScrollWithMouse}
     imgui.PushStyleVarImVec2(.WindowPadding, imgui.Vec2{0, 0})
-    if imgui.Begin("Unified Viewport", &app.e_panel_vis.unified_viewport, flags) {
+    if imgui.Begin("Viewport", &app.e_panel_vis.viewport, flags) {
         ev := &app.e_edit_view
         mode := app.e_viewport.mode
         // Keep mode controls aligned with the legacy viewport toolbar row.
@@ -258,6 +187,16 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
             // issues CMD_RENDER_RESTART (with world rebuild). If nothing changed,
             // no restart and the existing render result is shown as-is.
             mode = .Raytrace
+        }
+        if mode == .Raytrace {
+            imgui.SameLine()
+            imgui.PushStyleColorImVec4(.Button, imgui.Vec4{0.2, 0.6, 0.2, 1.0})
+            imgui.PushStyleColorImVec4(.ButtonHovered, imgui.Vec4{0.25, 0.7, 0.25, 1.0})
+            imgui.PushStyleColorImVec4(.ButtonActive, imgui.Vec4{0.15, 0.5, 0.15, 1.0})
+            if imgui.Button("Render", imgui.Vec2{60, 0}) {
+                cmd_execute(app, CMD_RENDER_RESTART)
+            }
+            imgui.PopStyleColor(3)
         }
         if mode == .Editor {
             imgui.SameLine()
@@ -306,6 +245,44 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
         }
         imgui.Separator()
 
+        if mode == .Raytrace {
+            imgui.SetCursorPosX(imgui.GetCursorPosX() + 4)
+            if imgui.CollapsingHeader("Render Settings") {
+                imgui.Indent(8)
+                height, _ := strconv.parse_int(strings.trim_space(app.r_height_input))
+                samples, _ := strconv.parse_int(strings.trim_space(app.r_samples_input))
+                height_i := c.int(max(height, 1))
+                samples_i := c.int(max(samples, 1))
+                if imgui.InputInt("Height", &height_i) {
+                    if height_i < 1 { height_i = 1 }
+                    _imgui_update_int_string(&app.r_height_input, int(height_i))
+                    app.r_render_pending = true
+                }
+                if imgui.InputInt("Samples", &samples_i) {
+                    if samples_i < 1 { samples_i = 1 }
+                    _imgui_update_int_string(&app.r_samples_input, int(samples_i))
+                    app.r_render_pending = true
+                }
+                aspect_preview: cstring = "4:3"
+                if app.r_aspect_ratio == RENDER_ASPECT_16_9 { aspect_preview = "16:9" }
+                if imgui.BeginCombo("Aspect", aspect_preview) {
+                    aspect_options := [2]cstring{"4:3", "16:9"}
+                    for label, i in aspect_options {
+                        selected := app.r_aspect_ratio == i
+                        if imgui.Selectable(label, selected) {
+                            app.r_aspect_ratio = i
+                            app.r_render_pending = true
+                        }
+                    }
+                    imgui.EndCombo()
+                }
+                _ = imgui.Checkbox("Use GPU (next render)", &app.prefer_gpu)
+                _ = imgui.Checkbox("Show Progress", &app.show_intermediate_render)
+                imgui.Unindent(8)
+            }
+            imgui.Separator()
+        }
+
         avail := imgui.GetContentRegionAvail()
         vp_w := max(i32(avail.x), 1)
         vp_h := max(i32(avail.y), 1)
@@ -349,7 +326,7 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
 
                 if imgui.IsWindowFocused() || hovered {
                     if imgui.IsKeyPressed(.Delete, false) && !imgui_rl_want_capture_keyboard() {
-                        ui_log_key(app, "UnifiedViewport", "Delete")
+                        ui_log_key(app, "Viewport", "Delete")
                         del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
                         if del_enabled {
                             delete_entry_object_from_scene(app, ev, ev.selected_idx)
@@ -938,8 +915,7 @@ imgui_draw_all_panels :: proc(app: ^App) {
         imgui.PushStyleColorImVec4(.WindowBg, imgui.Vec4{bg.x, bg.y, bg.z, 0.35})
     }
 
-    imgui_draw_render_panel(app)
-    imgui_draw_unified_viewport_panel(app)
+    imgui_draw_viewport_panel(app)
     imgui_draw_stats_panel(app)
     imgui_draw_console_panel(app)
     imgui_draw_system_info_panel(app)
@@ -993,12 +969,11 @@ imgui_build_default_layout :: proc(dockspace_id: imgui.ID) {
     imgui.DockBuilderDockWindow("World Outliner",  left_top_id)
     imgui.DockBuilderDockWindow("Content Browser", left_bottom_id)
 
-    imgui.DockBuilderDockWindow("Unified Viewport", center_top_id)
+    imgui.DockBuilderDockWindow("Viewport",         center_top_id)
 
     imgui.DockBuilderDockWindow("Console",         center_bottom_id)
     imgui.DockBuilderDockWindow("Stats",           center_bottom_id)
     imgui.DockBuilderDockWindow("System Info",     center_bottom_id)
-    imgui.DockBuilderDockWindow("Render Preview",  center_bottom_id)
 
     imgui.DockBuilderDockWindow("Details",         right_top_id)
     imgui.DockBuilderDockWindow("Camera",          right_top_id)
