@@ -16,6 +16,7 @@ import glfw "vendor:glfw"
 import rl "vendor:raylib"
 import "RT_Weekend:core"
 import "RT_Weekend:util"
+import vp "RT_Weekend:editor/viewport"
 import imgui "RT_Weekend:vendor/odin-imgui"
 import rt "RT_Weekend:raytrace"
 
@@ -497,6 +498,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         avail := imgui.GetContentRegionAvail()
         vp_w := max(i32(avail.x), 1)
         vp_h := max(i32(avail.y), 1)
+        vp.viewport_resize(&app.e_viewport, int(vp_w), int(vp_h))
         render_viewport_to_texture(app, vp_w, vp_h)
         // Readback Raylib FBO → Vulkan texture for ImGui display
         if ev.tex_w > 0 && ev.tex_h > 0 {
