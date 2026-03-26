@@ -87,6 +87,17 @@ ui_log_lifecycle :: #force_inline proc(app: ^App, component, event: string) {
 	}
 }
 
+// ui_log_key emits an instant trace event (ui.keyboard) and logs when ui_event_log_enabled.
+// Call from keyboard shortcut handlers. key_name is a human-readable label (e.g. "Ctrl+Z").
+ui_log_key :: #force_inline proc(app: ^App, panel, key_name: string) {
+	when UI_EVENT_LOG_ENABLED {
+		util.trace_instant("KeyPress", "ui.keyboard")
+		if app != nil && app.ui_event_log_enabled {
+			app_push_log(app, fmt.tprintf("[ui] Key %s in %s", key_name, panel))
+		}
+	}
+}
+
 // ui_trace_handler_begin / ui_trace_handler_end wrap an input handler function for Chrome
 // trace capture (category "ui.handler"). Records a duration event only when a capture is
 // active; zero overhead otherwise.

@@ -455,6 +455,18 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         if !del_enabled { imgui.EndDisabled() }
 
         imgui.SameLine()
+        can_undo := cmd_enabled_undo(app)
+        if !can_undo { imgui.BeginDisabled() }
+        if imgui.Button("Undo") { cmd_execute(app, CMD_UNDO) }
+        if !can_undo { imgui.EndDisabled() }
+
+        imgui.SameLine()
+        can_redo := cmd_enabled_redo(app)
+        if !can_redo { imgui.BeginDisabled() }
+        if imgui.Button("Redo") { cmd_execute(app, CMD_REDO) }
+        if !can_redo { imgui.EndDisabled() }
+
+        imgui.SameLine()
         if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo }
         imgui.SameLine()
         if _imgui_toggle_btn("Focal",   ev.show_focal_indicator) { ev.show_focal_indicator = !ev.show_focal_indicator }
@@ -524,6 +536,15 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         }
         update_sphere_nudge(app, ev)
         update_orbit_camera(ev)
+
+        // ── Viewport keyboard shortcuts ───────────────────────────────────
+        // Only fire when this panel is focused or hovered (ImGui standard focus check).
+        if imgui.IsWindowFocused() || hovered {
+            if imgui.IsKeyPressed(.Delete, false) && !imgui_rl_want_capture_keyboard() {
+                ui_log_key(app, "Viewport", "Delete")
+                if del_enabled { delete_entry_object_from_scene(app, ev, ev.selected_idx) }
+            }
+        }
 
         // ── Right-click context menu ───────────────────────────────────────
         // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
