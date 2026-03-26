@@ -90,7 +90,6 @@ file_import_from_path :: proc(app: ^App, path: string) {
         delete(volumes)
     }
     app.elapsed_secs = 0
-    app.scene_version += 1
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
     _ = app_start_render_session(app)

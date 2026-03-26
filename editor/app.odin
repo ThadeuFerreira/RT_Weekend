@@ -283,9 +283,13 @@ App :: struct {
     r_aspect_ratio:     int,     // 0=4:3, 1=16:9
     r_active_input:     int,     // 0=none, 1=height, 2=samples, 3=aspect dropdown
 
-    // Track if render settings or scene have changed since last render
-    r_render_pending:   bool,    // true when settings or scene changed
-    // Scene invalidation versioning for automatic render restart.
+    // Render settings invalidation:
+    // Set when render panel inputs change (resolution/samples/aspect) or when viewport-driven
+    // size changes require the "settings" restart path (recreates camera + staging + Vulkan texture).
+    r_render_pending:   bool,
+    // Scene invalidation versioning:
+    // Incremented when the actual scene snapshot changes (objects/camera params/materials via edits).
+    // Used to auto-restart the render to avoid showing stale pixels.
     scene_version:      u64,
     render_scene_version: u64,
 
@@ -780,9 +784,9 @@ run_app :: proc(
         }
         vp.viewport_update(&app.e_viewport, rawptr(&app))
 
-        // Scene invalidation: when edits changed the scene snapshot and renderer is idle,
-        // start a fresh render automatically.
-        if app.scene_version != app.render_scene_version && app.render_state == .Idle {
+        // Scene invalidation: when edits changed the scene snapshot and the render is idle,
+        // start a fresh render automatically (only in Raytrace viewport mode).
+        if app.scene_version != app.render_scene_version && app.render_state == .Idle && app.e_viewport.mode == .Raytrace {
             cmd_execute(&app, CMD_RENDER_RESTART)
         }
 

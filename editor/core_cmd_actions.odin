@@ -43,7 +43,6 @@ cmd_action_file_new :: proc(app: ^App) {
     app_append_volumes_to_world(app, &app.r_world)
 
     app.elapsed_secs = 0
-    app.scene_version += 1
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
     rt.init_camera(app.r_camera)
