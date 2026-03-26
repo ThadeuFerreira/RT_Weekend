@@ -545,11 +545,9 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         }
 
         // ── Viewport image (fills remaining space) ────────────────────────
-        // Render to texture here (not in app.odin) so the texture dimensions
-        // always match the available panel area this frame — no one-frame stretch on resize.
+        // Legacy panel is now passive: provider owns render/upload and this panel
+        // only displays the latest viewport texture.
         avail := imgui.GetContentRegionAvail()
-        vp_w := max(i32(avail.x), 1)
-        vp_h := max(i32(avail.y), 1)
         tex_id := imgui_vk_texture_id(&app.vk_viewport_tex)
         // Raylib FBOs are Y-flipped; use uv0={0,1}, uv1={1,0}
         imgui.Image(tex_id, avail, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})

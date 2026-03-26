@@ -294,7 +294,7 @@ g_app: ^App = nil
 app_update_editor_viewport_texture :: proc(app: ^App) {
     if app == nil { return }
     if app.e_viewport.mode != .Editor { return }
-    if !app.e_panel_vis.unified_viewport { return }
+    if !app.e_panel_vis.viewport && !app.e_panel_vis.unified_viewport { return }
     if app.e_viewport.width <= 0 || app.e_viewport.height <= 0 { return }
 
     render_viewport_to_texture(app, i32(app.e_viewport.width), i32(app.e_viewport.height))
