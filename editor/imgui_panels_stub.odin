@@ -582,6 +582,8 @@ viewport_toggle_bvh_hierarchy :: proc(ev: ^EditViewState) {
 viewport_apply_camera_from_view :: proc(app: ^App, ev: ^EditViewState) {
     before := app.c_camera_params
     lookfrom, lookat := get_orbit_camera_pose(ev)
+    // Only mark dirty / push undo when the camera actually moved.
+    if lookfrom == before.lookfrom && lookat == before.lookat { return }
     app.c_camera_params.lookfrom = lookfrom
     app.c_camera_params.lookat   = lookat
     edit_history_push(&app.edit_history, ModifyCameraAction{before = before, after = app.c_camera_params})

@@ -447,6 +447,8 @@ viewport_provider_raytrace_resize :: proc(provider: ^vp.ViewportTextureProvider,
     app := (^App)(app_ptr)
     if width <= 0 || height <= 0 { return }
     if app.r_camera == nil { return }
+    // Only restart when the viewport is actually in Raytrace mode.
+    if app.e_viewport.mode != .Raytrace { return }
 
     curr_w := app.r_camera.image_width
     curr_h := app.r_camera.image_height
