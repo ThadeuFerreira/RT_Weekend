@@ -34,7 +34,6 @@ PANEL_ID_UNIFIED_VIEWPORT :: "unified_viewport"
 PANEL_ID_STATS          :: "stats"
 PANEL_ID_CONSOLE        :: "console"
 PANEL_ID_SYSTEM_INFO    :: "system_info"
-PANEL_ID_VIEWPORT       :: "viewport"
 PANEL_ID_CAMERA         :: "camera"
 PANEL_ID_DETAILS        :: "details"
 PANEL_ID_CAMERA_PREVIEW :: "camera_preview"
@@ -294,7 +293,7 @@ g_app: ^App = nil
 app_update_editor_viewport_texture :: proc(app: ^App) {
     if app == nil { return }
     if app.e_viewport.mode != .Editor { return }
-    if !app.e_panel_vis.viewport && !app.e_panel_vis.unified_viewport { return }
+    if !app.e_panel_vis.unified_viewport { return }
     if app.e_viewport.width <= 0 || app.e_viewport.height <= 0 { return }
 
     render_viewport_to_texture(app, i32(app.e_viewport.width), i32(app.e_viewport.height))
@@ -631,7 +630,6 @@ run_app :: proc(
         stats           = true,
         console         = true,
         system_info     = true,
-        viewport        = true,
         camera          = true,
         details         = true,
         camera_preview  = true,
@@ -695,7 +693,7 @@ run_app :: proc(
                 if vk_is_key_pressed(glfw.KEY_F5) { cmd_execute(&app, CMD_RENDER_RESTART) }
                 if vk_is_key_pressed(glfw.KEY_L) { app.e_panel_vis.console = true }
                 if vk_is_key_pressed(glfw.KEY_S) { app.e_panel_vis.system_info = true }
-                if vk_is_key_pressed(glfw.KEY_E) { app.e_panel_vis.viewport = true }
+                if vk_is_key_pressed(glfw.KEY_E) { app.e_panel_vis.unified_viewport = true }
                 if vk_is_key_pressed(glfw.KEY_C) { app.e_panel_vis.camera = true }
                 if vk_is_key_pressed(glfw.KEY_O) { app.e_panel_vis.details = true }
                 if vk_is_key_pressed(glfw.KEY_T) { app.e_panel_vis.texture_view = true }

@@ -57,7 +57,6 @@ imgui_draw_main_menu_bar :: proc(app: ^App) {
         if imgui.MenuItem("Console",         nil, app.e_panel_vis.console)          { cmd_execute(app, CMD_VIEW_CONSOLE) }
         if imgui.MenuItem("System Info",     nil, app.e_panel_vis.system_info)      { cmd_execute(app, CMD_VIEW_SYSINFO) }
         imgui.Separator()
-        if imgui.MenuItem("Viewport",        nil, app.e_panel_vis.viewport)         { cmd_execute(app, CMD_VIEW_EDIT) }
         if imgui.MenuItem("Camera",          nil, app.e_panel_vis.camera)           { cmd_execute(app, CMD_VIEW_CAMERA) }
         if imgui.MenuItem("Details",         nil, app.e_panel_vis.details)          { cmd_execute(app, CMD_VIEW_PROPS) }
         if imgui.MenuItem("Camera Preview",  nil, app.e_panel_vis.camera_preview)   { cmd_execute(app, CMD_VIEW_PREVIEW) }
@@ -234,8 +233,12 @@ imgui_draw_render_panel :: proc(app: ^App) {
 imgui_draw_unified_viewport_panel :: proc(app: ^App) {
     if !app.e_panel_vis.unified_viewport { return }
     flags := imgui.WindowFlags{.NoScrollbar, .NoScrollWithMouse}
+    imgui.PushStyleVarImVec2(.WindowPadding, imgui.Vec2{0, 0})
     if imgui.Begin("Unified Viewport", &app.e_panel_vis.unified_viewport, flags) {
+        ev := &app.e_edit_view
         mode := app.e_viewport.mode
+        // Keep mode controls aligned with the legacy viewport toolbar row.
+        imgui.SetCursorPosX(imgui.GetCursorPosX() + 4)
         imgui.TextUnformatted("Viewport Mode:")
         if imgui.RadioButton("Editor", mode == .Editor) {
             vp.viewport_set_mode(&app.e_viewport, .Editor)
@@ -245,6 +248,55 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
         if imgui.RadioButton("Raytrace", mode == .Raytrace) {
             vp.viewport_set_mode(&app.e_viewport, .Raytrace)
             mode = .Raytrace
+        }
+        if mode == .Editor {
+            imgui.SameLine()
+            viewport_toolbar_add_popup(app, ev)
+
+            imgui.SameLine()
+            del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
+            if !del_enabled { imgui.BeginDisabled() }
+            if imgui.Button("Delete") {
+                delete_entry_object_from_scene(app, ev, ev.selected_idx)
+            }
+            if !del_enabled { imgui.EndDisabled() }
+
+            imgui.SameLine()
+            can_undo := cmd_enabled_undo(app)
+            if !can_undo { imgui.BeginDisabled() }
+            if imgui.Button("Undo") { cmd_execute(app, CMD_UNDO) }
+            if !can_undo { imgui.EndDisabled() }
+
+            imgui.SameLine()
+            can_redo := cmd_enabled_redo(app)
+            if !can_redo { imgui.BeginDisabled() }
+            if imgui.Button("Redo") { cmd_execute(app, CMD_REDO) }
+            if !can_redo { imgui.EndDisabled() }
+
+            imgui.SameLine()
+            if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo }
+            imgui.SameLine()
+            if _imgui_toggle_btn("Focal",   ev.show_focal_indicator) { ev.show_focal_indicator = !ev.show_focal_indicator }
+            imgui.SameLine()
+            if _imgui_toggle_btn("AABB",    ev.show_aabbs)           { ev.show_aabbs           = !ev.show_aabbs }
+            if ev.show_aabbs {
+                imgui.SameLine()
+                if _imgui_toggle_btn("Sel", ev.aabb_selected_only) { ev.aabb_selected_only = !ev.aabb_selected_only }
+            }
+            imgui.SameLine()
+            if _imgui_toggle_btn("BVH", ev.show_bvh_hierarchy) {
+                viewport_toggle_bvh_hierarchy(ev)
+            }
+            if ev.show_bvh_hierarchy {
+                imgui.SameLine()
+                if imgui.Button("D+") && ev.aabb_max_depth < AABB_MAX_DEPTH_CAP { ev.aabb_max_depth += 1 }
+                imgui.SameLine()
+                if imgui.Button("D-") && ev.aabb_max_depth > -1 { ev.aabb_max_depth -= 1 }
+            }
+            imgui.SameLine()
+            if imgui.Button("From View") {
+                viewport_apply_camera_from_view(app, ev)
+            }
         }
         imgui.Separator()
 
@@ -260,6 +312,74 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
             uv0 := imgui.Vec2{desc.uv0[0], desc.uv0[1]}
             uv1 := imgui.Vec2{desc.uv1[0], desc.uv1[1]}
             imgui.Image(desc.texture_id, size, uv0, uv1)
+
+            img_min := imgui.GetItemRectMin()
+            img_max := imgui.GetItemRectMax()
+            vp_rect := rl.Rectangle{img_min.x, img_min.y, img_max.x - img_min.x, img_max.y - img_min.y}
+            hovered := imgui.IsItemHovered()
+
+            if mode == .Editor {
+                rects: EditViewRects
+                rects.vp_rect = vp_rect
+                mouse       := imgui_rl_mouse_pos()
+                lmb         := vk_is_mouse_down(glfw.MOUSE_BUTTON_LEFT)
+                lmb_pressed := vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT)
+                any_active  := ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0
+
+                if hovered || any_active {
+                    switch {
+                    case ev.cam_rot_drag_axis >= 0:
+                        handle_cam_rot_drag(app, ev, mouse, lmb)
+                    case ev.cam_drag_active:
+                        handle_cam_body_drag(app, ev, mouse, lmb, &rects)
+                    case ev.drag_obj_active:
+                        handle_viewport_object_drag(app, ev, mouse, lmb, &rects)
+                    case hovered:
+                        handle_viewport_orbit_and_pick(app, ev, mouse, lmb_pressed, &rects)
+                    }
+                }
+                update_sphere_nudge(app, ev)
+                update_orbit_camera(ev)
+
+                if imgui.IsWindowFocused() || hovered {
+                    if imgui.IsKeyPressed(.Delete, false) && !imgui_rl_want_capture_keyboard() {
+                        ui_log_key(app, "UnifiedViewport", "Delete")
+                        del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
+                        if del_enabled {
+                            delete_entry_object_from_scene(app, ev, ev.selected_idx)
+                        }
+                    }
+                }
+
+                // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
+                if ev.ctx_menu_open {
+                    imgui.SetNextWindowPos(imgui.Vec2{ev.ctx_menu_pos.x, ev.ctx_menu_pos.y})
+                    imgui.OpenPopup("##vp_ctx")
+                    ev.ctx_menu_open = false
+                }
+                if imgui.BeginPopup("##vp_ctx") {
+                    items := ctx_menu_build_items(app, ev)
+                    for entry in items {
+                        if entry.separator { imgui.Separator(); continue }
+                        flags: imgui.SelectableFlags
+                        if entry.disabled { flags |= {.Disabled} }
+                        label_c := strings.clone_to_cstring(entry.label, context.temp_allocator)
+                        if imgui.Selectable(label_c, entry.checked, flags) {
+                            if len(entry.cmd_id) > 0 {
+                                cmd_execute(app, entry.cmd_id)
+                            } else {
+                                switch entry.label {
+                                case "Add Sphere", "Add Quad", "Add Volume":
+                                    add_entry_object_to_scene(app, ev, entry.label)
+                                case "Delete":
+                                    delete_entry_object_from_scene(app, ev, ev.ctx_menu_hit_idx)
+                                }
+                            }
+                        }
+                    }
+                    imgui.EndPopup()
+                }
+            }
 
             if mode == .Raytrace {
                 progress := f32(0)
@@ -280,6 +400,7 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
         }
     }
     imgui.End()
+    imgui.PopStyleVar()
 }
 
 imgui_draw_stats_panel :: proc(app: ^App) {
@@ -483,149 +604,6 @@ viewport_apply_camera_from_view :: proc(app: ^App, ev: ^EditViewState) {
     edit_history_push(&app.edit_history, ModifyCameraAction{before = before, after = app.c_camera_params})
     mark_scene_dirty(app)
     app.r_render_pending = true
-}
-
-imgui_draw_viewport_panel :: proc(app: ^App) {
-    if !app.e_panel_vis.viewport { return }
-    imgui.PushStyleVarImVec2(.WindowPadding, imgui.Vec2{0, 0})
-    if imgui.Begin("Viewport", &app.e_panel_vis.viewport) {
-        ev := &app.e_edit_view
-
-        // ── Toolbar ──────────────────────────────────────────────────────────
-        // SetCursorPos is relative to window top-left (includes title bar), so only
-        // nudge X; Y is already at the content-area top after the title bar.
-        imgui.SetCursorPosX(imgui.GetCursorPosX() + 4)
-
-        // [+ Add▾] popup
-        viewport_toolbar_add_popup(app, ev)
-
-        imgui.SameLine()
-        del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
-        if !del_enabled { imgui.BeginDisabled() }
-        if imgui.Button("Delete") {
-            delete_entry_object_from_scene(app, ev, ev.selected_idx)
-        }
-        if !del_enabled { imgui.EndDisabled() }
-
-        imgui.SameLine()
-        can_undo := cmd_enabled_undo(app)
-        if !can_undo { imgui.BeginDisabled() }
-        if imgui.Button("Undo") { cmd_execute(app, CMD_UNDO) }
-        if !can_undo { imgui.EndDisabled() }
-
-        imgui.SameLine()
-        can_redo := cmd_enabled_redo(app)
-        if !can_redo { imgui.BeginDisabled() }
-        if imgui.Button("Redo") { cmd_execute(app, CMD_REDO) }
-        if !can_redo { imgui.EndDisabled() }
-
-        imgui.SameLine()
-        if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo }
-        imgui.SameLine()
-        if _imgui_toggle_btn("Focal",   ev.show_focal_indicator) { ev.show_focal_indicator = !ev.show_focal_indicator }
-        imgui.SameLine()
-        if _imgui_toggle_btn("AABB",    ev.show_aabbs)           { ev.show_aabbs           = !ev.show_aabbs }
-        if ev.show_aabbs {
-            imgui.SameLine()
-            if _imgui_toggle_btn("Sel", ev.aabb_selected_only) { ev.aabb_selected_only = !ev.aabb_selected_only }
-        }
-        imgui.SameLine()
-        if _imgui_toggle_btn("BVH", ev.show_bvh_hierarchy) {
-            viewport_toggle_bvh_hierarchy(ev)
-        }
-        if ev.show_bvh_hierarchy {
-            imgui.SameLine()
-            if imgui.Button("D+") && ev.aabb_max_depth < AABB_MAX_DEPTH_CAP { ev.aabb_max_depth += 1 }
-            imgui.SameLine()
-            if imgui.Button("D-") && ev.aabb_max_depth > -1 { ev.aabb_max_depth -= 1 }
-        }
-        imgui.SameLine()
-        if imgui.Button("From View") {
-            viewport_apply_camera_from_view(app, ev)
-        }
-
-        // ── Viewport image (fills remaining space) ────────────────────────
-        // Legacy panel is now passive: provider owns render/upload and this panel
-        // only displays the latest viewport texture.
-        avail := imgui.GetContentRegionAvail()
-        tex_id := imgui_vk_texture_id(&app.vk_viewport_tex)
-        // Raylib FBOs are Y-flipped; use uv0={0,1}, uv1={1,0}
-        imgui.Image(tex_id, avail, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
-        if app.e_viewport.mode != .Editor {
-            img_min := imgui.GetItemRectMin()
-            imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 10})
-            imgui.TextDisabled("View Only - switch Unified Viewport to Editor mode to interact")
-        }
-
-        img_min := imgui.GetItemRectMin()
-        img_max := imgui.GetItemRectMax()
-        vp_rect := rl.Rectangle{img_min.x, img_min.y, img_max.x - img_min.x, img_max.y - img_min.y}
-        hovered := imgui.IsItemHovered()
-
-        // ── Input ─────────────────────────────────────────────────────────
-        rects: EditViewRects
-        rects.vp_rect = vp_rect
-        mouse       := imgui_rl_mouse_pos()
-        lmb         := vk_is_mouse_down(glfw.MOUSE_BUTTON_LEFT)
-        lmb_pressed := vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT)
-        any_active  := ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0
-
-        if app.e_viewport.mode == .Editor && (hovered || any_active) {
-            switch {
-            case ev.cam_rot_drag_axis >= 0:
-                handle_cam_rot_drag(app, ev, mouse, lmb)
-            case ev.cam_drag_active:
-                handle_cam_body_drag(app, ev, mouse, lmb, &rects)
-            case ev.drag_obj_active:
-                handle_viewport_object_drag(app, ev, mouse, lmb, &rects)
-            case hovered:
-                handle_viewport_orbit_and_pick(app, ev, mouse, lmb_pressed, &rects)
-            }
-        }
-        update_sphere_nudge(app, ev)
-        update_orbit_camera(ev)
-
-        // ── Viewport keyboard shortcuts ───────────────────────────────────
-        // Only fire when this panel is focused or hovered (ImGui standard focus check).
-        if app.e_viewport.mode == .Editor && (imgui.IsWindowFocused() || hovered) {
-            if imgui.IsKeyPressed(.Delete, false) && !imgui_rl_want_capture_keyboard() {
-                ui_log_key(app, "Viewport", "Delete")
-                if del_enabled { delete_entry_object_from_scene(app, ev, ev.selected_idx) }
-            }
-        }
-
-        // ── Right-click context menu ───────────────────────────────────────
-        // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
-        if app.e_viewport.mode == .Editor && ev.ctx_menu_open {
-            imgui.SetNextWindowPos(imgui.Vec2{ev.ctx_menu_pos.x, ev.ctx_menu_pos.y})
-            imgui.OpenPopup("##vp_ctx")
-            ev.ctx_menu_open = false
-        }
-        if app.e_viewport.mode == .Editor && imgui.BeginPopup("##vp_ctx") {
-            items := ctx_menu_build_items(app, ev)
-            for entry in items {
-                if entry.separator { imgui.Separator(); continue }
-                flags: imgui.SelectableFlags
-                if entry.disabled { flags |= {.Disabled} }
-                label_c := strings.clone_to_cstring(entry.label, context.temp_allocator)
-                if imgui.Selectable(label_c, entry.checked, flags) {
-                    if len(entry.cmd_id) > 0 {
-                        cmd_execute(app, entry.cmd_id)
-                    } else {
-                        switch entry.label {
-                        case "Add Sphere", "Add Quad", "Add Volume":
-                            add_entry_object_to_scene(app, ev, entry.label)
-                        case "Delete":
-                            delete_entry_object_from_scene(app, ev, ev.ctx_menu_hit_idx)
-                        }
-                    }
-                }
-            }
-            imgui.EndPopup()
-        }
-    }
-    imgui.End()
-    imgui.PopStyleVar()
 }
 
 imgui_draw_camera_panel :: proc(app: ^App) {
@@ -959,7 +937,6 @@ imgui_draw_all_panels :: proc(app: ^App) {
     imgui_draw_stats_panel(app)
     imgui_draw_console_panel(app)
     imgui_draw_system_info_panel(app)
-    imgui_draw_viewport_panel(app)
     imgui_draw_camera_panel(app)
     imgui_draw_details_panel(app)
     imgui_draw_camera_preview_panel(app)
@@ -1010,7 +987,6 @@ imgui_build_default_layout :: proc(dockspace_id: imgui.ID) {
     imgui.DockBuilderDockWindow("World Outliner",  left_top_id)
     imgui.DockBuilderDockWindow("Content Browser", left_bottom_id)
 
-    imgui.DockBuilderDockWindow("Viewport",        center_top_id)
     imgui.DockBuilderDockWindow("Unified Viewport", center_top_id)
 
     imgui.DockBuilderDockWindow("Console",         center_bottom_id)
