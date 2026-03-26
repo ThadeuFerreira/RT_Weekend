@@ -17,6 +17,12 @@ import imgui "RT_Weekend:vendor/odin-imgui"
 
 LOG_RING_SIZE :: 64
 
+RenderState :: enum {
+    Idle,
+    Rendering,
+    Paused,
+}
+
 // Panel chrome constants — shared by all panel draw procs.
 TITLE_BAR_HEIGHT   :: f32(24)
 RESIZE_GRIP_SIZE   :: f32(14)
@@ -123,10 +129,59 @@ app_start_render_session :: proc(app: ^App) -> bool {
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, true)
     if app.r_session == nil {
         app.finished = true
+        app.render_state = .Idle
         app_push_log(app, "[GPU] Vulkan init failed; render session not started")
         return false
     }
+    app.finished = false
+    app.render_state = .Rendering
     return true
+}
+
+app_request_render_state :: proc(app: ^App, next: RenderState) {
+    if app == nil { return }
+    app.pending_render_state_change = true
+    app.next_render_state = next
+}
+
+app_pause_render :: proc(app: ^App) {
+    if app == nil { return }
+    if app.render_state == .Paused { return }
+    if app.render_state == .Rendering && app.r_session != nil {
+        rt.finish_render(app.r_session)
+        rt.free_session(app.r_session)
+        app.r_session = nil
+    }
+    app.finished = true
+    app.render_state = .Paused
+}
+
+app_resume_render :: proc(app: ^App) {
+    if app == nil { return }
+    if app.render_state == .Rendering { return }
+    if app.r_session != nil {
+        rt.free_session(app.r_session)
+        app.r_session = nil
+    }
+    app.elapsed_secs = 0
+    app.render_start = time.now()
+    if app_start_render_session(app) {
+        app_push_log(app, fmt.tprintf("Re-rendering (%d objects)...", len(app.r_world)))
+    }
+}
+
+app_apply_pending_render_state_transition :: proc(app: ^App) {
+    if app == nil || !app.pending_render_state_change { return }
+    app.pending_render_state_change = false
+    next := app.next_render_state
+    switch next {
+    case .Paused:
+        app_pause_render(app)
+    case .Rendering:
+        app_resume_render(app)
+    case .Idle:
+        app.render_state = .Idle
+    }
 }
 
 // app_restart_render replaces the current world with new_world and starts a fresh render.
@@ -230,6 +285,9 @@ App :: struct {
     finished:      bool,
     elapsed_secs:  f64,
     render_start:  time.Time,
+    render_state: RenderState,
+    pending_render_state_change: bool,
+    next_render_state: RenderState,
 
     e_edit_view:    EditViewState,
     e_viewport:     vp.Viewport,
@@ -381,7 +439,7 @@ viewport_provider_raytrace_resize :: proc(provider: ^vp.ViewportTextureProvider,
     if !viewport_resolution_change_is_significant(curr_w, curr_h, width, height) { return }
 
     // Policy: viewport-driven restart is allowed only when idle.
-    if !app.finished { return }
+    if app.render_state == .Rendering || !app.finished { return }
 
     samples := max(app.r_camera.samples_per_pixel, 1)
     restart_render_with_settings(app, width, height, samples)
@@ -684,6 +742,9 @@ run_app :: proc(
     }
     _ = app_start_render_session(&app)
     app.render_start = time.now()
+    if app.e_viewport.mode == .Editor {
+        app_request_render_state(&app, .Paused)
+    }
 
     // Log the actual render mode after start_render_auto decides CPU vs GPU.
     if app.r_session != nil && app.r_session.use_gpu {
@@ -696,7 +757,7 @@ run_app :: proc(
         frame_scope := util.trace_scope_begin("Frame", "game")
         frame += 1
 
-        if !app.finished {
+        if app.render_state == .Rendering && !app.finished {
             app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
         }
         vp.viewport_update(&app.e_viewport, rawptr(&app))
@@ -743,14 +804,14 @@ run_app :: proc(
         }
 
         // ── Backend tick: advance one unit of rendering work per frame ──
-        if app.r_session != nil && app.r_session.backend != nil && !rt.backend_done(app.r_session.backend) {
+        if app.render_state == .Rendering && app.r_session != nil && app.r_session.backend != nil && !rt.backend_done(app.r_session.backend) {
             tick_scope := util.trace_scope_begin("Backend.Tick", "render")
             defer util.trace_scope_end(tick_scope)
             rt.backend_tick(app.r_session.backend)
         }
 
         // ── Render texture upload (Vulkan) ───────────────────────────────
-        if app.r_session != nil && app.show_intermediate_render && frame % 4 == 0 {
+        if app.render_state == .Rendering && app.r_session != nil && app.show_intermediate_render && frame % 4 == 0 {
             if app.r_session.backend != nil {
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
                 rt.backend_readback(app.r_session.backend, out_bytes)
@@ -758,7 +819,7 @@ run_app :: proc(
             }
         }
 
-        if app.r_session != nil && !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
+        if app.render_state == .Rendering && app.r_session != nil && !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
             continuous_restart := false
             b := app.r_session.backend
             if b != nil && b.mode == .Continuous {
@@ -778,6 +839,7 @@ run_app :: proc(
                 rt.finish_render(app.r_session)
                 app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
                 app.finished = true
+                app.render_state = .Idle
                 // CPU backend: do a final readback after finish (threads joined, buffer complete).
                 if b != nil && b.kind == .CPU {
                     out_bytes := transmute([][4]u8)(app.pixel_staging)
@@ -792,6 +854,7 @@ run_app :: proc(
         imgui_rl_new_frame()
         imgui_draw_all_panels(&app)
         imgui_rl_render()
+        app_apply_pending_render_state_transition(&app)
 
         util.trace_scope_end(frame_scope)
         free_all(context.temp_allocator)
@@ -800,6 +863,7 @@ run_app :: proc(
     // Early close: finish_render still runs and blocks until workers drain the tile queue (no abort).
     if !app.finished {
         rt.finish_render(app.r_session)
+        app.render_state = .Idle
     }
 
     if len(config_save_path) > 0 {

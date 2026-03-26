@@ -77,6 +77,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     if !app.finished {
         rt.finish_render(app.r_session)
         app.finished = true
+        app.render_state = .Idle
     }
     rt.free_session(app.r_session)
     app.r_session = nil
