@@ -5,6 +5,7 @@ package editor
 // built-in close button writes directly to the bool.
 ImguiPanelVis :: struct {
     render:          bool,
+    unified_viewport: bool,
     stats:           bool,
     console:         bool,
     system_info:     bool,
@@ -23,6 +24,7 @@ ImguiPanelVis :: struct {
 _imgui_panel_vis_ptr :: proc(vis: ^ImguiPanelVis, id: string) -> ^bool {
     switch id {
     case PANEL_ID_RENDER:          return &vis.render
+    case PANEL_ID_UNIFIED_VIEWPORT:return &vis.unified_viewport
     case PANEL_ID_STATS:           return &vis.stats
     case PANEL_ID_CONSOLE:         return &vis.console
     case PANEL_ID_SYSTEM_INFO:     return &vis.system_info
