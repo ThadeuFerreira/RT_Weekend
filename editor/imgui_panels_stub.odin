@@ -503,7 +503,11 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         // Readback Raylib FBO → Vulkan texture for ImGui display
         if ev.tex_w > 0 && ev.tex_h > 0 {
             imgui_vk_ensure_texture(&app.vk_viewport_tex, ev.tex_w, ev.tex_h)
-            vp_img := rl.LoadImageFromTexture(ev.viewport_tex.texture)
+            source_tex := vp.viewport_get_texture(&app.e_viewport, rawptr(app))
+            if source_tex.id == 0 {
+                source_tex = ev.viewport_tex.texture
+            }
+            vp_img := rl.LoadImageFromTexture(source_tex)
             imgui_vk_update_texture(&app.vk_viewport_tex, vp_img.data)
             rl.UnloadImage(vp_img)
         }
