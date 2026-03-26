@@ -248,6 +248,10 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
         }
         imgui.SameLine()
         if imgui.RadioButton("Raytrace", mode == .Raytrace) {
+            // editor_camera -> render_camera: copy the editor orbit camera into the shared
+            // render camera params on mode switch. This bumps scene_version via mark_scene_dirty,
+            // so the frame-loop invalidation check will issue CMD_RENDER_RESTART next frame.
+            viewport_apply_camera_from_view(app, ev)
             vp.viewport_set_mode(&app.e_viewport, .Raytrace)
             // No explicit restart here — the frame-loop scene invalidation check
             // fires next frame when scene_version != render_scene_version, which
@@ -298,10 +302,6 @@ imgui_draw_unified_viewport_panel :: proc(app: ^App) {
                 if imgui.Button("D+") && ev.aabb_max_depth < AABB_MAX_DEPTH_CAP { ev.aabb_max_depth += 1 }
                 imgui.SameLine()
                 if imgui.Button("D-") && ev.aabb_max_depth > -1 { ev.aabb_max_depth -= 1 }
-            }
-            imgui.SameLine()
-            if imgui.Button("From View") {
-                viewport_apply_camera_from_view(app, ev)
             }
         }
         imgui.Separator()
