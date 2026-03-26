@@ -30,6 +30,7 @@ ACCENT_COLOR       :: rl.Color{100, 180, 255, 255}
 DONE_COLOR         :: rl.Color{100, 220, 120, 255}
 
 PANEL_ID_RENDER         :: "render_preview"
+PANEL_ID_UNIFIED_VIEWPORT :: "unified_viewport"
 PANEL_ID_STATS          :: "stats"
 PANEL_ID_CONSOLE        :: "console"
 PANEL_ID_SYSTEM_INFO    :: "system_info"
@@ -290,17 +291,41 @@ App :: struct {
 
 g_app: ^App = nil
 
+app_update_editor_viewport_texture :: proc(app: ^App) {
+    if app == nil { return }
+    if app.e_viewport.mode != .Editor { return }
+    if !app.e_panel_vis.viewport && !app.e_panel_vis.unified_viewport { return }
+    if app.e_viewport.width <= 0 || app.e_viewport.height <= 0 { return }
+
+    render_viewport_to_texture(app, i32(app.e_viewport.width), i32(app.e_viewport.height))
+    ev := &app.e_edit_view
+    if ev.tex_w <= 0 || ev.tex_h <= 0 { return }
+    if !imgui_vk_ensure_texture(&app.vk_viewport_tex, ev.tex_w, ev.tex_h) { return }
+    vp_img := rl.LoadImageFromTexture(ev.viewport_tex.texture)
+    imgui_vk_update_texture(&app.vk_viewport_tex, vp_img.data)
+    rl.UnloadImage(vp_img)
+}
+
 viewport_provider_editor_update :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) {
     _ = provider
     _ = app_ptr
-    // Stage 2 adapter keeps the existing viewport render path in panel draw.
+    // Editor scene rendering/upload remains owned by the app frame loop.
 }
 
-viewport_provider_editor_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> rl.Texture2D {
+viewport_provider_editor_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> vp.ViewportDisplayTexture {
     _ = provider
-    if app_ptr == nil { return rl.Texture2D{} }
+    if app_ptr == nil { return vp.ViewportDisplayTexture{} }
     app := (^App)(app_ptr)
-    return app.e_edit_view.viewport_tex.texture
+    if !app.vk_viewport_tex.valid { return vp.ViewportDisplayTexture{} }
+    return vp.ViewportDisplayTexture{
+        valid      = true,
+        texture_id = imgui_vk_texture_id(&app.vk_viewport_tex),
+        width      = app.vk_viewport_tex.width,
+        height     = app.vk_viewport_tex.height,
+        // Raylib render targets are Y-flipped.
+        uv0        = {0, 1},
+        uv1        = {1, 0},
+    }
 }
 
 viewport_provider_editor_resize :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr, width, height: int) {
@@ -317,11 +342,19 @@ viewport_provider_raytrace_update :: proc(provider: ^vp.ViewportTextureProvider,
     // Raytrace readback/upload cadence remains owned by the app frame loop.
 }
 
-viewport_provider_raytrace_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> rl.Texture2D {
+viewport_provider_raytrace_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> vp.ViewportDisplayTexture {
     _ = provider
-    _ = app_ptr
-    // Stage 2 keeps Render Preview backed by Vulkan texture IDs in the existing panel.
-    return rl.Texture2D{}
+    if app_ptr == nil { return vp.ViewportDisplayTexture{} }
+    app := (^App)(app_ptr)
+    if !app.vk_render_tex.valid { return vp.ViewportDisplayTexture{} }
+    return vp.ViewportDisplayTexture{
+        valid      = true,
+        texture_id = imgui_vk_texture_id(&app.vk_render_tex),
+        width      = app.vk_render_tex.width,
+        height     = app.vk_render_tex.height,
+        uv0        = {0, 0},
+        uv1        = {1, 1},
+    }
 }
 
 viewport_provider_raytrace_resize :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr, width, height: int) {
@@ -593,6 +626,7 @@ run_app :: proc(
     // Panel visibility — all open by default; ImGui persists layout via imgui.ini.
     app.e_panel_vis = ImguiPanelVis{
         render          = true,
+        unified_viewport = true,
         stats           = true,
         console         = true,
         system_info     = true,
@@ -645,6 +679,7 @@ run_app :: proc(
             app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
         }
         vp.viewport_update(&app.e_viewport, rawptr(&app))
+        app_update_editor_viewport_texture(&app)
 
         // ── Input phase (priority order) ──────────────────────────────────
         keyboard_update(&app.keyboard)

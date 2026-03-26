@@ -8,6 +8,7 @@ CMD_FILE_SAVE_AS     :: "file.save_as"
 CMD_FILE_EXIT        :: "file.exit"
 
 CMD_VIEW_RENDER      :: "view.panel.render"
+CMD_VIEW_UNIFIED_VIEWPORT :: "view.panel.unified_viewport"
 CMD_VIEW_STATS       :: "view.panel.stats"
 CMD_VIEW_CONSOLE     :: "view.panel.console"
 CMD_VIEW_SYSINFO     :: "view.panel.sysinfo"

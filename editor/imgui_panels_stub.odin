@@ -52,6 +52,7 @@ imgui_draw_main_menu_bar :: proc(app: ^App) {
 
     if imgui.BeginMenu("View") {
         if imgui.MenuItem("Render Preview",  nil, app.e_panel_vis.render)          { cmd_execute(app, CMD_VIEW_RENDER) }
+        if imgui.MenuItem("Unified Viewport", nil, app.e_panel_vis.unified_viewport){ cmd_execute(app, CMD_VIEW_UNIFIED_VIEWPORT) }
         if imgui.MenuItem("Stats",           nil, app.e_panel_vis.stats)            { cmd_execute(app, CMD_VIEW_STATS) }
         if imgui.MenuItem("Console",         nil, app.e_panel_vis.console)          { cmd_execute(app, CMD_VIEW_CONSOLE) }
         if imgui.MenuItem("System Info",     nil, app.e_panel_vis.system_info)      { cmd_execute(app, CMD_VIEW_SYSINFO) }
@@ -226,6 +227,57 @@ imgui_draw_render_panel :: proc(app: ^App) {
         }
         _ = imgui.Checkbox("Use GPU (next render)", &app.prefer_gpu)
         _ = imgui.Checkbox("Show Progress", &app.show_intermediate_render)
+    }
+    imgui.End()
+}
+
+imgui_draw_unified_viewport_panel :: proc(app: ^App) {
+    if !app.e_panel_vis.unified_viewport { return }
+    flags := imgui.WindowFlags{.NoScrollbar, .NoScrollWithMouse}
+    if imgui.Begin("Unified Viewport", &app.e_panel_vis.unified_viewport, flags) {
+        mode := app.e_viewport.mode
+        imgui.TextUnformatted("Viewport Mode:")
+        if imgui.RadioButton("Editor", mode == .Editor) {
+            vp.viewport_set_mode(&app.e_viewport, .Editor)
+            mode = .Editor
+        }
+        imgui.SameLine()
+        if imgui.RadioButton("Raytrace", mode == .Raytrace) {
+            vp.viewport_set_mode(&app.e_viewport, .Raytrace)
+            mode = .Raytrace
+        }
+        imgui.Separator()
+
+        avail := imgui.GetContentRegionAvail()
+        vp_w := max(i32(avail.x), 1)
+        vp_h := max(i32(avail.y), 1)
+        vp.viewport_resize(&app.e_viewport, int(vp_w), int(vp_h))
+
+        desc := vp.viewport_get_texture(&app.e_viewport, rawptr(app))
+        if desc.valid && desc.width > 0 && desc.height > 0 {
+            aspect := f32(desc.width) / max(f32(desc.height), 1)
+            size := _imgui_fit_size(avail, aspect)
+            uv0 := imgui.Vec2{desc.uv0[0], desc.uv0[1]}
+            uv1 := imgui.Vec2{desc.uv1[0], desc.uv1[1]}
+            imgui.Image(desc.texture_id, size, uv0, uv1)
+
+            if mode == .Raytrace {
+                progress := f32(0)
+                if app.r_session != nil {
+                    progress = rt.get_render_progress(app.r_session)
+                }
+                total_samples := max(app.r_camera.samples_per_pixel, 1)
+                current_samples := int(math.round(f64(progress * f32(total_samples))))
+                if current_samples > total_samples { current_samples = total_samples }
+                img_min := imgui.GetItemRectMin()
+                imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 10})
+                imgui.Text("Samples: %d / %d", current_samples, total_samples)
+                imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 28})
+                imgui.Text("Progress: %.1f%%", f64(progress) * 100)
+            }
+        } else {
+            imgui.TextDisabled("No active viewport texture")
+        }
     }
     imgui.End()
 }
@@ -498,22 +550,18 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         avail := imgui.GetContentRegionAvail()
         vp_w := max(i32(avail.x), 1)
         vp_h := max(i32(avail.y), 1)
-        vp.viewport_resize(&app.e_viewport, int(vp_w), int(vp_h))
-        render_viewport_to_texture(app, vp_w, vp_h)
-        // Readback Raylib FBO → Vulkan texture for ImGui display
-        if ev.tex_w > 0 && ev.tex_h > 0 {
-            imgui_vk_ensure_texture(&app.vk_viewport_tex, ev.tex_w, ev.tex_h)
-            source_tex := vp.viewport_get_texture(&app.e_viewport, rawptr(app))
-            if source_tex.id == 0 {
-                source_tex = ev.viewport_tex.texture
-            }
-            vp_img := rl.LoadImageFromTexture(source_tex)
-            imgui_vk_update_texture(&app.vk_viewport_tex, vp_img.data)
-            rl.UnloadImage(vp_img)
+        // Unified Viewport owns viewport resize when both panels are visible.
+        if !app.e_panel_vis.unified_viewport {
+            vp.viewport_resize(&app.e_viewport, int(vp_w), int(vp_h))
         }
         tex_id := imgui_vk_texture_id(&app.vk_viewport_tex)
         // Raylib FBOs are Y-flipped; use uv0={0,1}, uv1={1,0}
         imgui.Image(tex_id, avail, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
+        if app.e_viewport.mode != .Editor {
+            img_min := imgui.GetItemRectMin()
+            imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 10})
+            imgui.TextDisabled("View Only - switch Unified Viewport to Editor mode to interact")
+        }
 
         img_min := imgui.GetItemRectMin()
         img_max := imgui.GetItemRectMax()
@@ -528,7 +576,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         lmb_pressed := vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT)
         any_active  := ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0
 
-        if hovered || any_active {
+        if app.e_viewport.mode == .Editor && (hovered || any_active) {
             switch {
             case ev.cam_rot_drag_axis >= 0:
                 handle_cam_rot_drag(app, ev, mouse, lmb)
@@ -545,7 +593,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
 
         // ── Viewport keyboard shortcuts ───────────────────────────────────
         // Only fire when this panel is focused or hovered (ImGui standard focus check).
-        if imgui.IsWindowFocused() || hovered {
+        if app.e_viewport.mode == .Editor && (imgui.IsWindowFocused() || hovered) {
             if imgui.IsKeyPressed(.Delete, false) && !imgui_rl_want_capture_keyboard() {
                 ui_log_key(app, "Viewport", "Delete")
                 if del_enabled { delete_entry_object_from_scene(app, ev, ev.selected_idx) }
@@ -554,12 +602,12 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
 
         // ── Right-click context menu ───────────────────────────────────────
         // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
-        if ev.ctx_menu_open {
+        if app.e_viewport.mode == .Editor && ev.ctx_menu_open {
             imgui.SetNextWindowPos(imgui.Vec2{ev.ctx_menu_pos.x, ev.ctx_menu_pos.y})
             imgui.OpenPopup("##vp_ctx")
             ev.ctx_menu_open = false
         }
-        if imgui.BeginPopup("##vp_ctx") {
+        if app.e_viewport.mode == .Editor && imgui.BeginPopup("##vp_ctx") {
             items := ctx_menu_build_items(app, ev)
             for entry in items {
                 if entry.separator { imgui.Separator(); continue }
@@ -913,6 +961,7 @@ imgui_draw_all_panels :: proc(app: ^App) {
     }
 
     imgui_draw_render_panel(app)
+    imgui_draw_unified_viewport_panel(app)
     imgui_draw_stats_panel(app)
     imgui_draw_console_panel(app)
     imgui_draw_system_info_panel(app)
@@ -968,6 +1017,7 @@ imgui_build_default_layout :: proc(dockspace_id: imgui.ID) {
     imgui.DockBuilderDockWindow("Content Browser", left_bottom_id)
 
     imgui.DockBuilderDockWindow("Viewport",        center_top_id)
+    imgui.DockBuilderDockWindow("Unified Viewport", center_top_id)
 
     imgui.DockBuilderDockWindow("Console",         center_bottom_id)
     imgui.DockBuilderDockWindow("Stats",           center_bottom_id)
