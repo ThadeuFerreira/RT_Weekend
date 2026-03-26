@@ -9,6 +9,7 @@ import "core:time"
 import glfw "vendor:glfw"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
+import vp "RT_Weekend:editor/viewport"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import "RT_Weekend:util"
@@ -231,6 +232,7 @@ App :: struct {
     render_start:  time.Time,
 
     e_edit_view:    EditViewState,
+    e_viewport:     vp.Viewport,
     e_camera_panel: CameraPanelState,
     e_details:      DetailsPanelState,
     e_outliner:     OutlinerPanelState,
@@ -471,6 +473,7 @@ run_app :: proc(
 	}
     app_set_image_texture_cache_from_world(&app, r_world)
     init_edit_view(&app.e_edit_view)
+    app.e_viewport = vp.viewport_init(app.r_camera.image_width, app.r_camera.image_height)
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
     if len(r_world) > 0 {
@@ -496,6 +499,11 @@ run_app :: proc(
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     app.e_content_browser = ContentBrowserState{selected_idx = -1, scan_requested = true}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
+    defer {
+        if app.e_viewport.editor_target.id != 0 {
+            rl.UnloadRenderTexture(app.e_viewport.editor_target)
+        }
+    }
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer {
         delete(app.e_texture_view.last_sig)
@@ -577,6 +585,7 @@ run_app :: proc(
         if !app.finished {
             app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
         }
+        vp.viewport_update(&app.e_viewport)
 
         // ── Input phase (priority order) ──────────────────────────────────
         keyboard_update(&app.keyboard)
