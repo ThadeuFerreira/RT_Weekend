@@ -173,6 +173,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
             vp.viewport_set_mode(&app.e_viewport, .Editor)
             // No render state change — any in-progress render continues in
             // the background and will complete/clean up naturally.
+            mark_viewport_dirty(&app.e_edit_view)
             mode = .Editor
         }
         imgui.SameLine()
@@ -379,11 +380,16 @@ finalize_delete_entry_object :: proc(app: ^App, ev: ^EditViewState, log_label: s
 
 @(private)
 delete_entry_object_from_scene :: proc(app: ^App, ev: ^EditViewState, del_idx: int) {
+    prev_sel_kind := ev.selection_kind
+    prev_sel_idx := ev.selected_idx
     if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
         dv := app.e_volumes[ev.selected_idx]
         edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = dv})
         ordered_remove(&app.e_volumes, ev.selected_idx)
         finalize_delete_entry_object(app, ev, "Delete volume")
+        if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+            mark_viewport_visual_dirty(ev)
+        }
         return
     }
 
@@ -398,6 +404,9 @@ delete_entry_object_from_scene :: proc(app: ^App, ev: ^EditViewState, del_idx: i
             OrderedRemove(ev.scene_mgr, del_idx)
             finalize_delete_entry_object(app, ev, "Delete quad")
         }
+    }
+    if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+        mark_viewport_visual_dirty(ev)
     }
 }
 
@@ -419,6 +428,7 @@ viewport_toggle_bvh_hierarchy :: proc(ev: ^EditViewState) {
         rt.free_bvh(ev.viz_bvh_root)
         ev.viz_bvh_root = nil
     }
+    mark_viewport_visual_dirty(ev)
 }
 
 @(private)
@@ -503,6 +513,7 @@ _viewport_toolbar_editor :: proc(app: ^App, ev: ^EditViewState) {
         } else {
             ev.camera_binding = .FreeFly
         }
+        mark_viewport_visual_dirty(ev)
     }
     imgui.SameLine()
     viewport_toolbar_add_popup(app, ev)
@@ -528,14 +539,14 @@ _viewport_toolbar_editor :: proc(app: ^App, ev: ^EditViewState) {
     if !can_redo { imgui.EndDisabled() }
 
     imgui.SameLine()
-    if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo }
+    if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo; mark_viewport_visual_dirty(ev) }
     imgui.SameLine()
-    if _imgui_toggle_btn("Focal",   ev.show_focal_indicator) { ev.show_focal_indicator = !ev.show_focal_indicator }
+    if _imgui_toggle_btn("Focal",   ev.show_focal_indicator) { ev.show_focal_indicator = !ev.show_focal_indicator; mark_viewport_visual_dirty(ev) }
     imgui.SameLine()
-    if _imgui_toggle_btn("AABB",    ev.show_aabbs)           { ev.show_aabbs           = !ev.show_aabbs }
+    if _imgui_toggle_btn("AABB",    ev.show_aabbs)           { ev.show_aabbs           = !ev.show_aabbs; mark_viewport_visual_dirty(ev) }
     if ev.show_aabbs {
         imgui.SameLine()
-        if _imgui_toggle_btn("Sel", ev.aabb_selected_only) { ev.aabb_selected_only = !ev.aabb_selected_only }
+        if _imgui_toggle_btn("Sel", ev.aabb_selected_only) { ev.aabb_selected_only = !ev.aabb_selected_only; mark_viewport_visual_dirty(ev) }
     }
     imgui.SameLine()
     if _imgui_toggle_btn("BVH", ev.show_bvh_hierarchy) {
@@ -543,9 +554,9 @@ _viewport_toolbar_editor :: proc(app: ^App, ev: ^EditViewState) {
     }
     if ev.show_bvh_hierarchy {
         imgui.SameLine()
-        if imgui.Button("D+") && ev.aabb_max_depth < AABB_MAX_DEPTH_CAP { ev.aabb_max_depth += 1 }
+        if imgui.Button("D+") && ev.aabb_max_depth < AABB_MAX_DEPTH_CAP { ev.aabb_max_depth += 1; mark_viewport_visual_dirty(ev) }
         imgui.SameLine()
-        if imgui.Button("D-") && ev.aabb_max_depth > -1 { ev.aabb_max_depth -= 1 }
+        if imgui.Button("D-") && ev.aabb_max_depth > -1 { ev.aabb_max_depth -= 1; mark_viewport_visual_dirty(ev) }
     }
 }
 
@@ -553,6 +564,8 @@ _viewport_toolbar_editor :: proc(app: ^App, ev: ^EditViewState) {
 
 @(private)
 _viewport_editor_interaction :: proc(app: ^App, ev: ^EditViewState, vp_rect: rl.Rectangle, hovered: bool) {
+    prev_sel_kind := ev.selection_kind
+    prev_sel_idx := ev.selected_idx
     rects: EditViewRects
     rects.vp_rect = vp_rect
     mouse       := imgui_rl_mouse_pos()
@@ -587,6 +600,9 @@ _viewport_editor_interaction :: proc(app: ^App, ev: ^EditViewState, vp_rect: rl.
 
     // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
     _viewport_context_menu(app, ev)
+    if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+        mark_viewport_visual_dirty(ev)
+    }
 }
 
 @(private)
@@ -604,6 +620,8 @@ _viewport_context_menu :: proc(app: ^App, ev: ^EditViewState) {
             if entry.disabled { flags |= {.Disabled} }
             label_c := strings.clone_to_cstring(entry.label, context.temp_allocator)
             if imgui.Selectable(label_c, entry.checked, flags) {
+                prev_sel_kind := ev.selection_kind
+                prev_sel_idx := ev.selected_idx
                 if len(entry.cmd_id) > 0 {
                     cmd_execute(app, entry.cmd_id)
                 } else {
@@ -613,6 +631,9 @@ _viewport_context_menu :: proc(app: ^App, ev: ^EditViewState) {
                     case "Delete":
                         delete_entry_object_from_scene(app, ev, ev.ctx_menu_hit_idx)
                     }
+                }
+                if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+                    mark_viewport_visual_dirty(ev)
                 }
             }
         }
@@ -740,12 +761,34 @@ imgui_draw_camera_preview_panel :: proc(app: ^App) {
         size := _imgui_fit_size(avail, aspect)
         preview_w := max(i32(size.x), 1)
         preview_h := max(i32(size.y), 1)
-        render_camera_preview_to_texture(app, preview_w, preview_h)
-        if app.preview_port_w > 0 && app.preview_port_h > 0 {
-            imgui_vk_ensure_texture(&app.vk_preview_tex, app.preview_port_w, app.preview_port_h)
-            prev_img := rl.LoadImageFromTexture(app.preview_port_tex.texture)
-            imgui_vk_update_texture(&app.vk_preview_tex, prev_img.data)
-            rl.UnloadImage(prev_img)
+
+        size_changed := preview_w != app.preview_port_w || preview_h != app.preview_port_h
+        if size_changed {
+            app.preview_needs_redraw = true
+        }
+        lookfrom_changed := app.prev_preview_lookfrom != app.c_camera_params.lookfrom
+        lookat_changed := app.prev_preview_lookat != app.c_camera_params.lookat
+        camera_params_changed := app.prev_preview_camera_params != app.c_camera_params
+        scene_changed := app.prev_preview_version != app.scene_version
+        preview_dirty := app.preview_needs_redraw || size_changed || lookfrom_changed || lookat_changed || camera_params_changed || scene_changed
+        app_trace_idle_gpu_note_preview(app, size_changed, lookfrom_changed, lookat_changed, camera_params_changed, scene_changed, preview_dirty)
+        if preview_dirty {
+            render_camera_preview_to_texture(app, preview_w, preview_h)
+            if app.preview_port_w > 0 && app.preview_port_h > 0 {
+                if imgui_vk_ensure_texture(&app.vk_preview_tex, app.preview_port_w, app.preview_port_h) {
+                    prev_img := rl.LoadImageFromTexture(app.preview_port_tex.texture)
+                    imgui_vk_update_texture(&app.vk_preview_tex, prev_img.data)
+                    rl.UnloadImage(prev_img)
+                    app.prev_preview_lookfrom = app.c_camera_params.lookfrom
+                    app.prev_preview_lookat = app.c_camera_params.lookat
+                    app.prev_preview_version = app.scene_version
+                    app.prev_preview_camera_params = app.c_camera_params
+                    app.preview_needs_redraw = false
+                }
+            }
+        }
+
+        if app.vk_preview_tex.valid {
             tex_id := imgui_vk_texture_id(&app.vk_preview_tex)
             imgui.Image(tex_id, size, imgui.Vec2{0, 1}, imgui.Vec2{1, 0})
         } else {
@@ -909,8 +952,13 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
                 label := fmt.ctprintf("Sphere %d  (%.2f, %.2f, %.2f)", i, sphere.center[0], sphere.center[1], sphere.center[2])
                 is_sel := ev.selection_kind == .Sphere && ev.selected_idx == i
                 if imgui.Selectable(label, is_sel) {
+                prev_sel_kind := ev.selection_kind
+                prev_sel_idx := ev.selected_idx
                     ev.selection_kind = .Sphere
                     ev.selected_idx   = i
+                if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+                    mark_viewport_visual_dirty(ev)
+                }
                 }
                 continue
             }
@@ -919,8 +967,13 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
                 label := fmt.ctprintf("Quad %d  (%.2f, %.2f, %.2f)", i, quad.Q[0], quad.Q[1], quad.Q[2])
                 is_sel := ev.selection_kind == .Quad && ev.selected_idx == i
                 if imgui.Selectable(label, is_sel) {
+                prev_sel_kind := ev.selection_kind
+                prev_sel_idx := ev.selected_idx
                     ev.selection_kind = .Quad
                     ev.selected_idx   = i
+                if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+                    mark_viewport_visual_dirty(ev)
+                }
                 }
                 continue
             }
@@ -932,8 +985,13 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
             label := fmt.ctprintf("Volume %d", i)
             is_sel := ev.selection_kind == .Volume && ev.selected_idx == i
             if imgui.Selectable(label, is_sel) {
+                prev_sel_kind := ev.selection_kind
+                prev_sel_idx := ev.selected_idx
                 ev.selection_kind = .Volume
                 ev.selected_idx   = i
+                if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+                    mark_viewport_visual_dirty(ev)
+                }
             }
         }
 

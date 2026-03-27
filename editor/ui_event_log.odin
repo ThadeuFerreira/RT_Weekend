@@ -31,7 +31,7 @@ import util "RT_Weekend:util"
 
 // UI_EVENT_LOG_ENABLED controls all UI mouse-event, handler, and lifecycle logging.
 // Defaults to true in debug builds (ODIN_DEBUG) and false in release.
-UI_EVENT_LOG_ENABLED :: #config(UI_EVENT_LOG_ENABLED, ODIN_DEBUG)
+UI_EVENT_LOG_ENABLED :: #config(UI_EVENT_LOG_ENABLED, ODIN_DEBUG || util.VERBOSE_DEBUG_ENABLED)
 
 // ui_log_hover emits an instant trace event (ui.mouse / Hover) and writes to stderr when
 // app.ui_event_log_enabled is true. Safe to call every frame — no heap allocation; trace

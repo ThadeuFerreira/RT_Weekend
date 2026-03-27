@@ -91,8 +91,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     }
     app.elapsed_secs = 0
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-    rt.init_camera(app.r_camera)
-    _ = app_start_render_session(app)
+    app_finalize_scene_load(app)
     app_push_log(app, fmt.tprintf("Imported: %s (%d objects)", path, len(app.r_world)))
 
     free(cam)

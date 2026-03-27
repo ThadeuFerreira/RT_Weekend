@@ -88,8 +88,7 @@ load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     }
     app.elapsed_secs = 0
     app.render_start = time.now()
-    rt.init_camera(app.r_camera)
-    _ = app_start_render_session(app)
+    app_finalize_scene_load(app)
     return true
 }
 

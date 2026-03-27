@@ -10,6 +10,7 @@ core with:
 
 - **[Raylib](https://www.raylib.com/)** for windowing, UI panels, and log output
 - **Scene editing** — interactive 3D viewport to add, move, and delete spheres at runtime
+- **Idle GPU throttling** — viewport/preview dirty-flag redraw + idle event-wait pacing (no unnecessary 60 FPS present loop)
 - **GPU acceleration** via a Vulkan compute shader (`-gpu` flag)
 - **Cross-platform** — Linux (Vulkan GPU + CPU), macOS/Windows (CPU fallback)
 
@@ -20,17 +21,24 @@ Always build before testing changes.
 **Using the Makefile:**
 
 ```bash
-make debug    # Debug build → build/debug
+make debug    # Debug build → build/debug (-define:VERBOSE_DEBUG=1)
 make release # Release build → build/release (optimized, quiet stdout)
 ```
 
 **Manual build:**
 
 ```bash
-odin build . -collection:RT_Weekend=. -debug -out:build/debug
+odin build . -collection:RT_Weekend=. -debug -define:VERBOSE_DEBUG=1 -out:build/debug
 ```
 
 Release builds use: `-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -define:TRACE_CAPTURE_ENABLED=false`. Run with `./build/release`.
+
+`VERBOSE_DEBUG` is a convenience build flag (`-define:VERBOSE_DEBUG=1`) that enables diagnostic defaults in one switch:
+- `TRACK_ALLOCATIONS` default on
+- `UI_EVENT_LOG_ENABLED` default on
+- `EDITOR_IDLE_GPU_TRACE` default on
+
+Idle GPU tracing can still be overridden at runtime with `EDITOR_IDLE_GPU_TRACE=0|1`.
 
 Verify a small, fast render starts (opens a Raylib window, closes when done):
 
