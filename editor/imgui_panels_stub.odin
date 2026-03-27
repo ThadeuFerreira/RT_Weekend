@@ -952,13 +952,13 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
                 label := fmt.ctprintf("Sphere %d  (%.2f, %.2f, %.2f)", i, sphere.center[0], sphere.center[1], sphere.center[2])
                 is_sel := ev.selection_kind == .Sphere && ev.selected_idx == i
                 if imgui.Selectable(label, is_sel) {
-                prev_sel_kind := ev.selection_kind
-                prev_sel_idx := ev.selected_idx
+                    prev_sel_kind := ev.selection_kind
+                    prev_sel_idx := ev.selected_idx
                     ev.selection_kind = .Sphere
                     ev.selected_idx   = i
-                if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
-                    mark_viewport_visual_dirty(ev)
-                }
+                    if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+                        mark_viewport_visual_dirty(ev)
+                    }
                 }
                 continue
             }
@@ -967,13 +967,13 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
                 label := fmt.ctprintf("Quad %d  (%.2f, %.2f, %.2f)", i, quad.Q[0], quad.Q[1], quad.Q[2])
                 is_sel := ev.selection_kind == .Quad && ev.selected_idx == i
                 if imgui.Selectable(label, is_sel) {
-                prev_sel_kind := ev.selection_kind
-                prev_sel_idx := ev.selected_idx
+                    prev_sel_kind := ev.selection_kind
+                    prev_sel_idx := ev.selected_idx
                     ev.selection_kind = .Quad
                     ev.selected_idx   = i
-                if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
-                    mark_viewport_visual_dirty(ev)
-                }
+                    if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
+                        mark_viewport_visual_dirty(ev)
+                    }
                 }
                 continue
             }
