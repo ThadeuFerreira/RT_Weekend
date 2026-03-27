@@ -132,6 +132,7 @@ render_viewport_to_texture :: proc(app: ^App, width, height: i32) {
 	if ev.tex_w <= 0 || ev.tex_h <= 0 { return }
 
 	ensure_viewport_sphere_cache_filled(app, ev)
+	sync_render_camera_from_editor(ev, &app.c_camera_params)
 
 	rl.BeginTextureMode(ev.viewport_tex)
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})

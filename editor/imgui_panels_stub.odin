@@ -177,10 +177,11 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         }
         imgui.SameLine()
         if imgui.RadioButton("Raytrace", mode == .Raytrace) {
-            // editor_camera -> render_camera: copy the editor orbit camera into the shared
-            // render camera params on mode switch. This bumps scene_version via mark_scene_dirty,
-            // so the frame-loop invalidation check will issue CMD_RENDER_RESTART next frame.
-            viewport_apply_camera_from_view(app, ev)
+            // In RenderCamera binding the editor IS the render camera, so sync on switch.
+            // In FreeFly the render camera is independent — don't overwrite it.
+            if ev.camera_binding == .RenderCamera {
+                viewport_apply_camera_from_view(app, ev)
+            }
             vp.viewport_set_mode(&app.e_viewport, .Raytrace)
             // No explicit restart here — the frame-loop scene invalidation check
             // fires next frame when scene_version != render_scene_version, which
@@ -189,99 +190,12 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
             mode = .Raytrace
         }
         if mode == .Raytrace {
-            imgui.SameLine()
-            imgui.PushStyleColorImVec4(.Button, imgui.Vec4{0.2, 0.6, 0.2, 1.0})
-            imgui.PushStyleColorImVec4(.ButtonHovered, imgui.Vec4{0.25, 0.7, 0.25, 1.0})
-            imgui.PushStyleColorImVec4(.ButtonActive, imgui.Vec4{0.15, 0.5, 0.15, 1.0})
-            if imgui.Button("Render", imgui.Vec2{60, 0}) {
-                cmd_execute(app, CMD_RENDER_RESTART)
-            }
-            imgui.PopStyleColor(3)
+            _viewport_toolbar_raytrace(app)
         }
         if mode == .Editor {
-            imgui.SameLine()
-            viewport_toolbar_add_popup(app, ev)
-
-            imgui.SameLine()
-            del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
-            if !del_enabled { imgui.BeginDisabled() }
-            if imgui.Button("Delete") {
-                delete_entry_object_from_scene(app, ev, ev.selected_idx)
-            }
-            if !del_enabled { imgui.EndDisabled() }
-
-            imgui.SameLine()
-            can_undo := cmd_enabled_undo(app)
-            if !can_undo { imgui.BeginDisabled() }
-            if imgui.Button("Undo") { cmd_execute(app, CMD_UNDO) }
-            if !can_undo { imgui.EndDisabled() }
-
-            imgui.SameLine()
-            can_redo := cmd_enabled_redo(app)
-            if !can_redo { imgui.BeginDisabled() }
-            if imgui.Button("Redo") { cmd_execute(app, CMD_REDO) }
-            if !can_redo { imgui.EndDisabled() }
-
-            imgui.SameLine()
-            if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo }
-            imgui.SameLine()
-            if _imgui_toggle_btn("Focal",   ev.show_focal_indicator) { ev.show_focal_indicator = !ev.show_focal_indicator }
-            imgui.SameLine()
-            if _imgui_toggle_btn("AABB",    ev.show_aabbs)           { ev.show_aabbs           = !ev.show_aabbs }
-            if ev.show_aabbs {
-                imgui.SameLine()
-                if _imgui_toggle_btn("Sel", ev.aabb_selected_only) { ev.aabb_selected_only = !ev.aabb_selected_only }
-            }
-            imgui.SameLine()
-            if _imgui_toggle_btn("BVH", ev.show_bvh_hierarchy) {
-                viewport_toggle_bvh_hierarchy(ev)
-            }
-            if ev.show_bvh_hierarchy {
-                imgui.SameLine()
-                if imgui.Button("D+") && ev.aabb_max_depth < AABB_MAX_DEPTH_CAP { ev.aabb_max_depth += 1 }
-                imgui.SameLine()
-                if imgui.Button("D-") && ev.aabb_max_depth > -1 { ev.aabb_max_depth -= 1 }
-            }
+            _viewport_toolbar_editor(app, ev)
         }
         imgui.Separator()
-
-        if mode == .Raytrace {
-            imgui.SetCursorPosX(imgui.GetCursorPosX() + 4)
-            if imgui.CollapsingHeader("Render Settings") {
-                imgui.Indent(8)
-                height, _ := strconv.parse_int(strings.trim_space(app.r_height_input))
-                samples, _ := strconv.parse_int(strings.trim_space(app.r_samples_input))
-                height_i := c.int(max(height, 1))
-                samples_i := c.int(max(samples, 1))
-                if imgui.InputInt("Height", &height_i) {
-                    if height_i < 1 { height_i = 1 }
-                    _imgui_update_int_string(&app.r_height_input, int(height_i))
-                    app.r_render_pending = true
-                }
-                if imgui.InputInt("Samples", &samples_i) {
-                    if samples_i < 1 { samples_i = 1 }
-                    _imgui_update_int_string(&app.r_samples_input, int(samples_i))
-                    app.r_render_pending = true
-                }
-                aspect_preview: cstring = "4:3"
-                if app.r_aspect_ratio == RENDER_ASPECT_16_9 { aspect_preview = "16:9" }
-                if imgui.BeginCombo("Aspect", aspect_preview) {
-                    aspect_options := [2]cstring{"4:3", "16:9"}
-                    for label, i in aspect_options {
-                        selected := app.r_aspect_ratio == i
-                        if imgui.Selectable(label, selected) {
-                            app.r_aspect_ratio = i
-                            app.r_render_pending = true
-                        }
-                    }
-                    imgui.EndCombo()
-                }
-                _ = imgui.Checkbox("Use GPU (next render)", &app.prefer_gpu)
-                _ = imgui.Checkbox("Show Progress", &app.show_intermediate_render)
-                imgui.Unindent(8)
-            }
-            imgui.Separator()
-        }
 
         avail := imgui.GetContentRegionAvail()
         vp_w := max(i32(avail.x), 1)
@@ -302,81 +216,10 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
             hovered := imgui.IsItemHovered()
 
             if mode == .Editor {
-                rects: EditViewRects
-                rects.vp_rect = vp_rect
-                mouse       := imgui_rl_mouse_pos()
-                lmb         := vk_is_mouse_down(glfw.MOUSE_BUTTON_LEFT)
-                lmb_pressed := vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT)
-                any_active  := ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0
-
-                if hovered || any_active {
-                    switch {
-                    case ev.cam_rot_drag_axis >= 0:
-                        handle_cam_rot_drag(app, ev, mouse, lmb)
-                    case ev.cam_drag_active:
-                        handle_cam_body_drag(app, ev, mouse, lmb, &rects)
-                    case ev.drag_obj_active:
-                        handle_viewport_object_drag(app, ev, mouse, lmb, &rects)
-                    case hovered:
-                        handle_viewport_orbit_and_pick(app, ev, mouse, lmb_pressed, &rects)
-                    }
-                }
-                update_sphere_nudge(app, ev)
-                update_orbit_camera(ev)
-
-                if imgui.IsWindowFocused() || hovered {
-                    if imgui.IsKeyPressed(.Delete, false) && !imgui_rl_want_capture_keyboard() {
-                        ui_log_key(app, "Viewport", "Delete")
-                        del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
-                        if del_enabled {
-                            delete_entry_object_from_scene(app, ev, ev.selected_idx)
-                        }
-                    }
-                }
-
-                // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
-                if ev.ctx_menu_open {
-                    imgui.SetNextWindowPos(imgui.Vec2{ev.ctx_menu_pos.x, ev.ctx_menu_pos.y})
-                    imgui.OpenPopup("##vp_ctx")
-                    ev.ctx_menu_open = false
-                }
-                if imgui.BeginPopup("##vp_ctx") {
-                    items := ctx_menu_build_items(app, ev)
-                    for entry in items {
-                        if entry.separator { imgui.Separator(); continue }
-                        flags: imgui.SelectableFlags
-                        if entry.disabled { flags |= {.Disabled} }
-                        label_c := strings.clone_to_cstring(entry.label, context.temp_allocator)
-                        if imgui.Selectable(label_c, entry.checked, flags) {
-                            if len(entry.cmd_id) > 0 {
-                                cmd_execute(app, entry.cmd_id)
-                            } else {
-                                switch entry.label {
-                                case "Add Sphere", "Add Quad", "Add Volume":
-                                    add_entry_object_to_scene(app, ev, entry.label)
-                                case "Delete":
-                                    delete_entry_object_from_scene(app, ev, ev.ctx_menu_hit_idx)
-                                }
-                            }
-                        }
-                    }
-                    imgui.EndPopup()
-                }
+                _viewport_editor_interaction(app, ev, vp_rect, hovered)
             }
-
             if mode == .Raytrace {
-                progress := f32(0)
-                if app.r_session != nil {
-                    progress = rt.get_render_progress(app.r_session)
-                }
-                total_samples := max(app.r_camera.samples_per_pixel, 1)
-                current_samples := int(math.round(f64(progress * f32(total_samples))))
-                if current_samples > total_samples { current_samples = total_samples }
-                img_min := imgui.GetItemRectMin()
-                imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 10})
-                imgui.Text("Samples: %d / %d", current_samples, total_samples)
-                imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 28})
-                imgui.Text("Progress: %.1f%%", f64(progress) * 100)
+                _viewport_raytrace_overlay(app)
             }
         } else {
             imgui.TextDisabled("No active viewport texture")
@@ -590,6 +433,210 @@ viewport_apply_camera_from_view :: proc(app: ^App, ev: ^EditViewState) {
     mark_scene_dirty(app)
     app.r_render_pending = true
 }
+
+// ── Viewport toolbar components ─────────────────────────────────────────────
+
+@(private)
+_viewport_toolbar_raytrace :: proc(app: ^App) {
+    imgui.SameLine()
+    imgui.PushStyleColorImVec4(.Button, imgui.Vec4{0.2, 0.6, 0.2, 1.0})
+    imgui.PushStyleColorImVec4(.ButtonHovered, imgui.Vec4{0.25, 0.7, 0.25, 1.0})
+    imgui.PushStyleColorImVec4(.ButtonActive, imgui.Vec4{0.15, 0.5, 0.15, 1.0})
+    if imgui.Button("Render", imgui.Vec2{60, 0}) {
+        cmd_execute(app, CMD_RENDER_RESTART)
+    }
+    imgui.PopStyleColor(3)
+    imgui.SameLine()
+    _viewport_render_settings_popup(app)
+}
+
+@(private)
+_viewport_render_settings_popup :: proc(app: ^App) {
+    if imgui.Button("Settings") { imgui.OpenPopup("##vp_render_settings") }
+    imgui.SetNextWindowSize(imgui.Vec2{250, 0}, .Appearing)
+    if imgui.BeginPopup("##vp_render_settings") {
+        height, _ := strconv.parse_int(strings.trim_space(app.r_height_input))
+        samples, _ := strconv.parse_int(strings.trim_space(app.r_samples_input))
+        height_i := c.int(max(height, 1))
+        samples_i := c.int(max(samples, 1))
+        if imgui.InputInt("Height", &height_i) {
+            if height_i < 1 { height_i = 1 }
+            _imgui_update_int_string(&app.r_height_input, int(height_i))
+            app.r_render_pending = true
+        }
+        if imgui.InputInt("Samples", &samples_i) {
+            if samples_i < 1 { samples_i = 1 }
+            _imgui_update_int_string(&app.r_samples_input, int(samples_i))
+            app.r_render_pending = true
+        }
+        aspect_preview: cstring = "4:3"
+        if app.r_aspect_ratio == RENDER_ASPECT_16_9 { aspect_preview = "16:9" }
+        if imgui.BeginCombo("Aspect", aspect_preview) {
+            aspect_options := [2]cstring{"4:3", "16:9"}
+            for label, i in aspect_options {
+                selected := app.r_aspect_ratio == i
+                if imgui.Selectable(label, selected) {
+                    app.r_aspect_ratio = i
+                    app.r_render_pending = true
+                }
+            }
+            imgui.EndCombo()
+        }
+        _ = imgui.Checkbox("Use GPU (next render)", &app.prefer_gpu)
+        _ = imgui.Checkbox("Show Progress", &app.show_intermediate_render)
+        imgui.EndPopup()
+    }
+}
+
+@(private)
+_viewport_toolbar_editor :: proc(app: ^App, ev: ^EditViewState) {
+    imgui.SameLine()
+    is_free := ev.camera_binding == .FreeFly
+    if _imgui_toggle_btn("Free Cam", is_free) {
+        if is_free {
+            // Switching back to RenderCamera: snap render camera to editor view.
+            lookfrom, lookat := get_orbit_camera_pose(ev)
+            app.c_camera_params.lookfrom = lookfrom
+            app.c_camera_params.lookat   = lookat
+            mark_scene_dirty(app)
+            ev.camera_binding = .RenderCamera
+        } else {
+            ev.camera_binding = .FreeFly
+        }
+    }
+    imgui.SameLine()
+    viewport_toolbar_add_popup(app, ev)
+
+    imgui.SameLine()
+    del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
+    if !del_enabled { imgui.BeginDisabled() }
+    if imgui.Button("Delete") {
+        delete_entry_object_from_scene(app, ev, ev.selected_idx)
+    }
+    if !del_enabled { imgui.EndDisabled() }
+
+    imgui.SameLine()
+    can_undo := cmd_enabled_undo(app)
+    if !can_undo { imgui.BeginDisabled() }
+    if imgui.Button("Undo") { cmd_execute(app, CMD_UNDO) }
+    if !can_undo { imgui.EndDisabled() }
+
+    imgui.SameLine()
+    can_redo := cmd_enabled_redo(app)
+    if !can_redo { imgui.BeginDisabled() }
+    if imgui.Button("Redo") { cmd_execute(app, CMD_REDO) }
+    if !can_redo { imgui.EndDisabled() }
+
+    imgui.SameLine()
+    if _imgui_toggle_btn("Frustum", ev.show_frustum_gizmo)   { ev.show_frustum_gizmo   = !ev.show_frustum_gizmo }
+    imgui.SameLine()
+    if _imgui_toggle_btn("Focal",   ev.show_focal_indicator) { ev.show_focal_indicator = !ev.show_focal_indicator }
+    imgui.SameLine()
+    if _imgui_toggle_btn("AABB",    ev.show_aabbs)           { ev.show_aabbs           = !ev.show_aabbs }
+    if ev.show_aabbs {
+        imgui.SameLine()
+        if _imgui_toggle_btn("Sel", ev.aabb_selected_only) { ev.aabb_selected_only = !ev.aabb_selected_only }
+    }
+    imgui.SameLine()
+    if _imgui_toggle_btn("BVH", ev.show_bvh_hierarchy) {
+        viewport_toggle_bvh_hierarchy(ev)
+    }
+    if ev.show_bvh_hierarchy {
+        imgui.SameLine()
+        if imgui.Button("D+") && ev.aabb_max_depth < AABB_MAX_DEPTH_CAP { ev.aabb_max_depth += 1 }
+        imgui.SameLine()
+        if imgui.Button("D-") && ev.aabb_max_depth > -1 { ev.aabb_max_depth -= 1 }
+    }
+}
+
+// ── Viewport interaction & overlay components ───────────────────────────────
+
+@(private)
+_viewport_editor_interaction :: proc(app: ^App, ev: ^EditViewState, vp_rect: rl.Rectangle, hovered: bool) {
+    rects: EditViewRects
+    rects.vp_rect = vp_rect
+    mouse       := imgui_rl_mouse_pos()
+    lmb         := vk_is_mouse_down(glfw.MOUSE_BUTTON_LEFT)
+    lmb_pressed := vk_is_mouse_pressed(glfw.MOUSE_BUTTON_LEFT)
+    any_active  := ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0
+
+    if hovered || any_active {
+        switch {
+        case ev.cam_rot_drag_axis >= 0:
+            handle_cam_rot_drag(app, ev, mouse, lmb)
+        case ev.cam_drag_active:
+            handle_cam_body_drag(app, ev, mouse, lmb, &rects)
+        case ev.drag_obj_active:
+            handle_viewport_object_drag(app, ev, mouse, lmb, &rects)
+        case hovered:
+            handle_viewport_orbit_and_pick(app, ev, mouse, lmb_pressed, &rects)
+        }
+    }
+    update_sphere_nudge(app, ev)
+    update_orbit_camera(ev)
+
+    if imgui.IsWindowFocused() || hovered {
+        if imgui.IsKeyPressed(.Delete, false) && !imgui_rl_want_capture_keyboard() {
+            ui_log_key(app, "Viewport", "Delete")
+            del_enabled := (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) && ev.selected_idx >= 0
+            if del_enabled {
+                delete_entry_object_from_scene(app, ev, ev.selected_idx)
+            }
+        }
+    }
+
+    // handle_viewport_orbit_and_pick sets ev.ctx_menu_open on short RMB release.
+    _viewport_context_menu(app, ev)
+}
+
+@(private)
+_viewport_context_menu :: proc(app: ^App, ev: ^EditViewState) {
+    if ev.ctx_menu_open {
+        imgui.SetNextWindowPos(imgui.Vec2{ev.ctx_menu_pos.x, ev.ctx_menu_pos.y})
+        imgui.OpenPopup("##vp_ctx")
+        ev.ctx_menu_open = false
+    }
+    if imgui.BeginPopup("##vp_ctx") {
+        items := ctx_menu_build_items(app, ev)
+        for entry in items {
+            if entry.separator { imgui.Separator(); continue }
+            flags: imgui.SelectableFlags
+            if entry.disabled { flags |= {.Disabled} }
+            label_c := strings.clone_to_cstring(entry.label, context.temp_allocator)
+            if imgui.Selectable(label_c, entry.checked, flags) {
+                if len(entry.cmd_id) > 0 {
+                    cmd_execute(app, entry.cmd_id)
+                } else {
+                    switch entry.label {
+                    case "Add Sphere", "Add Quad", "Add Volume":
+                        add_entry_object_to_scene(app, ev, entry.label)
+                    case "Delete":
+                        delete_entry_object_from_scene(app, ev, ev.ctx_menu_hit_idx)
+                    }
+                }
+            }
+        }
+        imgui.EndPopup()
+    }
+}
+
+@(private)
+_viewport_raytrace_overlay :: proc(app: ^App) {
+    progress := f32(0)
+    if app.r_session != nil {
+        progress = rt.get_render_progress(app.r_session)
+    }
+    total_samples := max(app.r_camera.samples_per_pixel, 1)
+    current_samples := int(math.round(f64(progress * f32(total_samples))))
+    if current_samples > total_samples { current_samples = total_samples }
+    img_min := imgui.GetItemRectMin()
+    imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 10})
+    imgui.Text("Samples: %d / %d", current_samples, total_samples)
+    imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 28})
+    imgui.Text("Progress: %.1f%%", f64(progress) * 100)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 imgui_draw_camera_panel :: proc(app: ^App) {
     if !app.e_panel_vis.camera { return }

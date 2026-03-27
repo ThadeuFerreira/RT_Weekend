@@ -10,6 +10,13 @@ EditViewCameraMode :: enum {
 	FreeFly,
 }
 
+// EditorCameraBinding controls whether the editor camera is locked to the
+// render camera (RenderCamera) or free to navigate independently (FreeFly).
+EditorCameraBinding :: enum {
+	RenderCamera, // editor view = render view (default)
+	FreeFly,    // editor detached; render camera stays put
+}
+
 // EditViewState holds all state for the Edit View panel (viewport, orbit camera, selection, drag, etc.).
 EditViewState :: struct {
 	// Off-screen 3D viewport
@@ -25,6 +32,7 @@ EditViewState :: struct {
 	orbit_distance:  f32,
 	orbit_target:    rl.Vector3,
 	camera_mode:     EditViewCameraMode,
+	camera_binding:  EditorCameraBinding, // RenderCamera (default) or FreeFly
 
 	// Free-fly camera parameters
 	fly_lookfrom: [3]f32,
@@ -272,4 +280,16 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 		t.z + dist * math.cos(pitch) * math.cos(ev.camera_yaw),
 	}
 	return
+}
+
+// sync_render_camera_from_editor copies the editor camera pose into the shared
+// render camera params each frame when camera_binding == .RenderCamera.
+// Uses cam3d (already recomputed by update_orbit_camera) so it works for both
+// Orbit and FreeFly camera modes.
+sync_render_camera_from_editor :: proc(ev: ^EditViewState, cp: ^core.CameraParams) {
+	if ev.camera_binding != .RenderCamera { return }
+	p := ev.cam3d.position
+	t := ev.cam3d.target
+	cp.lookfrom = {p.x, p.y, p.z}
+	cp.lookat   = {t.x, t.y, t.z}
 }

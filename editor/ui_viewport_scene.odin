@@ -288,16 +288,20 @@ draw_viewport_scene_objects :: proc(
 }
 
 // draw_viewport_camera_gizmos draws the render camera gizmo (body), optional rotation rings, frustum wireframe, and focal-distance indicator.
+// In RenderCamera binding the camera body gizmo is hidden (editor IS the camera), but frustum and focal indicator still draw.
 draw_viewport_camera_gizmos :: proc(app: ^App, ev: ^EditViewState) {
 	if app == nil || ev == nil { return }
 	cp := &app.c_camera_params
 	cam_pos := rl.Vector3{cp.lookfrom[0], cp.lookfrom[1], cp.lookfrom[2]}
 	cam_at  := rl.Vector3{cp.lookat[0], cp.lookat[1], cp.lookat[2]}
 	vup     := rl.Vector3{cp.vup[0], cp.vup[1], cp.vup[2]}
-	draw_camera_gizmo(cam_pos, cam_at, vup, ev.selection_kind == .Camera)
 
-	if ev.selection_kind == .Camera {
-		draw_camera_rotation_rings(cam_pos, ev.cam_rot_drag_axis)
+	// Camera body gizmo and rotation rings only in FreeFly (in RenderCamera the gizmo would sit at the view origin).
+	if ev.camera_binding == .FreeFly {
+		draw_camera_gizmo(cam_pos, cam_at, vup, ev.selection_kind == .Camera)
+		if ev.selection_kind == .Camera {
+			draw_camera_rotation_rings(cam_pos, ev.cam_rot_drag_axis)
+		}
 	}
 
 	aspect := get_render_aspect(app)
