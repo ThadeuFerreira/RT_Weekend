@@ -21,7 +21,7 @@ import "core:os"
 import "core:strings"
 import "core:time"
 
-TRACK_ALLOCATIONS :: #config(TRACK_ALLOCATIONS, ODIN_DEBUG)
+TRACK_ALLOCATIONS :: #config(TRACK_ALLOCATIONS, ODIN_DEBUG || VERBOSE_DEBUG_ENABLED)
 
 Tracking_Allocator_State :: struct {
     tracker: mem.Tracking_Allocator,

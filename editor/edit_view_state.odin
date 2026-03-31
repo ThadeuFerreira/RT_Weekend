@@ -25,6 +25,13 @@ EditViewState :: struct {
 
 	// Raylib 3D camera (recomputed every frame from orbit params)
 	cam3d: rl.Camera3D,
+	// Viewport redraw tracking to avoid per-frame render+readback+upload when idle.
+	viewport_needs_redraw: bool,
+	prev_cam_pos:          rl.Vector3,
+	prev_cam_target:       rl.Vector3,
+	prev_scene_version:    u64,
+	prev_visual_version:   u64,
+	visual_version:        u64,
 
 	// Orbit camera parameters (spherical coords around target)
 	camera_yaw:      f32,
@@ -160,6 +167,7 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.prop_drag_idx  = -1
 	ev.cam_prop_drag_idx = -1
 	ev.cam_rot_drag_axis = -1
+	ev.bg_drag_idx = -1
 	ev.show_frustum_gizmo  = true
 	ev.show_focal_indicator = true
 	ev.show_aabbs          = false
@@ -169,6 +177,7 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.viz_bvh_root             = nil
 	ev.viz_bvh_dirty             = true
 	ev.viewport_sphere_cache_dirty = true
+	ev.viewport_needs_redraw = true
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
@@ -185,6 +194,17 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.initialized = true
 	// app is not available here; nil is safe — trace event fires if capturing, log panel skipped.
 	ui_log_lifecycle(nil, "EditView", "Create")
+}
+
+mark_viewport_dirty :: proc(ev: ^EditViewState) {
+	if ev == nil { return }
+	ev.viewport_needs_redraw = true
+}
+
+mark_viewport_visual_dirty :: proc(ev: ^EditViewState) {
+	if ev == nil { return }
+	ev.visual_version += 1
+	ev.viewport_needs_redraw = true
 }
 
 align_editor_camera_to_render :: proc(ev: ^EditViewState, cp: core.CameraParams, place_in_front: bool) {

@@ -9,7 +9,7 @@ This project is written in the [Odin programming language](https://odin-lang.org
 **Build (Makefile):**
 
 ```bash
-make debug    # Debug build → build/debug
+make debug    # Debug build → build/debug (-define:VERBOSE_DEBUG=1)
 make release  # Release build → build/release (-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -define:TRACE_CAPTURE_ENABLED=false)
 ```
 
@@ -17,7 +17,7 @@ make release  # Release build → build/release (-o:speed -no-bounds-check -defi
 
 ```bash
 # Debug
-odin build . -collection:RT_Weekend=. -debug -out:build/debug
+odin build . -collection:RT_Weekend=. -debug -define:VERBOSE_DEBUG=1 -out:build/debug
 
 # Release (optimized, quiet stdout)
 odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -define:TRACE_CAPTURE_ENABLED=false -out:build/release
@@ -37,6 +37,14 @@ odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILIN
 # Full options
 ./build/debug -w <int> -h <int> -s <samples> -n <spheres> -c <threads>
 ```
+
+**VERBOSE_DEBUG:** Convenience compile-time flag (`#config`, default `0`). Use `-define:VERBOSE_DEBUG=1` to enable diagnostics defaults in one switch:
+- `TRACK_ALLOCATIONS` default becomes enabled
+- `UI_EVENT_LOG_ENABLED` default becomes enabled
+- `EDITOR_IDLE_GPU_TRACE` default becomes enabled
+
+Individual flags can still be overridden explicitly with their own `-define`.  
+Runtime override for idle GPU tracing: `EDITOR_IDLE_GPU_TRACE=0|1` (`0/off/false` disables, `1/on/true` enables).
 
 **VERBOSE_OUTPUT:** A compile-time flag (`#config`, default `true`) controls non-essential stdout: startup config, system info, per-thread stats, timing breakdown, and GPU success messages. Error and fallback messages (e.g. GPU init failed) are always printed. Release builds set `VERBOSE_OUTPUT=false`.
 
@@ -128,6 +136,8 @@ Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is
 2. Calls `start_render()` to kick off background worker threads (non-blocking)
 3. Each frame: uploads partial pixel buffer to GPU, polls progress, calls `finish_render()` when all tiles are done
 4. Draws panels, menu bar, and layout via `editor/ui_chrome.odin` and panel-specific modules
+
+**Idle GPU fix (Editor mode):** The viewport and camera preview are now dirty-flag driven, and the Vulkan/ImGui loop uses `glfw.WaitEventsTimeout` when fully idle (`render_state=Idle`, no viewport/preview dirty flags, no active drag/input). This removes unnecessary ~60 FPS present churn while idle and lowers baseline GPU usage.
 
 **`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_VIEWPORT`, `PANEL_ID_STATS`, `PANEL_ID_CONSOLE`, `PANEL_ID_CAMERA`, `PANEL_ID_DETAILS`, `PANEL_ID_CAMERA_PREVIEW`, `PANEL_ID_OUTLINER`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
 

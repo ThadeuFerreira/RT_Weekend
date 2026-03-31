@@ -45,8 +45,7 @@ cmd_action_file_new :: proc(app: ^App) {
     app.elapsed_secs = 0
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-    rt.init_camera(app.r_camera)
-    _ = app_start_render_session(app)
+    app_finalize_scene_load(app)
     app.e_scene_dirty = false
     app_push_log(app, "New scene (3 default spheres)")
 }
@@ -500,15 +499,18 @@ cmd_action_edit_view_lock_axis_z :: proc(app: ^App) {
 
 cmd_action_edit_view_grid_visible :: proc(app: ^App) {
     app.e_edit_view.grid_visible = !app.e_edit_view.grid_visible
+    mark_viewport_visual_dirty(&app.e_edit_view)
 }
 
 cmd_action_edit_view_grid_density_plus :: proc(app: ^App) {
     ev := &app.e_edit_view
     ev.grid_density = clamp(ev.grid_density * 1.25, f32(0.25), f32(8.0))
+    mark_viewport_visual_dirty(ev)
 }
 cmd_action_edit_view_grid_density_minus :: proc(app: ^App) {
     ev := &app.e_edit_view
     ev.grid_density = clamp(ev.grid_density / 1.25, f32(0.25), f32(8.0))
+    mark_viewport_visual_dirty(ev)
 }
 
 cmd_action_edit_view_speed_slow :: proc(app: ^App) {

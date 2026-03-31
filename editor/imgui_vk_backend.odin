@@ -59,6 +59,9 @@ _inp: struct {
 }
 
 @(private="file")
+_idle_wait_timeout_s: f64
+
+@(private="file")
 _imgui_vk_loader :: proc "c" (function_name: cstring, user_data: rawptr) -> vk.ProcVoidFunction {
 	if function_name == nil || user_data == nil {
 		return nil
@@ -195,12 +198,22 @@ imgui_vk_should_close :: proc() -> bool {
 	return bool(glfw.WindowShouldClose(_vk.ctx.glfw_window))
 }
 
+imgui_vk_set_idle_wait_timeout :: proc(timeout_s: f64) {
+	next := timeout_s
+	if next < 0 { next = 0 }
+	_idle_wait_timeout_s = next
+}
+
 // ---------------------------------------------------------------------------
 // Frame lifecycle
 // ---------------------------------------------------------------------------
 
 imgui_vk_begin_frame :: proc() {
-	glfw.PollEvents()
+	if _idle_wait_timeout_s > 0 {
+		glfw.WaitEventsTimeout(_idle_wait_timeout_s)
+	} else {
+		glfw.PollEvents()
+	}
 
 	// Delta time
 	now := glfw.GetTime()

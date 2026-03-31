@@ -197,6 +197,13 @@ Dear ImGui is imported as a local vendor submodule (`RT_Weekend:vendor/odin-imgu
 
 ## UI event logging (`ui_event_log.odin`)
 
-Build-time flag: `UI_EVENT_LOG_ENABLED :: #config(UI_EVENT_LOG_ENABLED, ODIN_DEBUG)` — compiled out in release.
+Build-time flag: `UI_EVENT_LOG_ENABLED :: #config(UI_EVENT_LOG_ENABLED, ODIN_DEBUG || util.VERBOSE_DEBUG_ENABLED)` — compiled out in release unless explicitly enabled.
 Runtime toggle: `app.ui_event_log_enabled` (default `false`).
 Chrome trace output controlled independently by `TRACE_CAPTURE_ENABLED` + Render menu.
+
+## Idle GPU diagnostics / throttling
+
+- Editor viewport and camera preview are dirty-flag driven; redraw/upload happens only on relevant changes.
+- Main loop enters idle pacing (`glfw.WaitEventsTimeout`) when no redraw/input/render work is pending.
+- Build with `-define:VERBOSE_DEBUG=1` to enable `EDITOR_IDLE_GPU_TRACE` by default and emit per-second idle GPU cause counters.
+- Runtime override: `EDITOR_IDLE_GPU_TRACE=0|1` (`0/off/false` disables, `1/on/true` enables).
