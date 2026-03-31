@@ -16,8 +16,6 @@ Viewport :: struct {
 	resize_defer_frames: int,
 
 	editor_target:  rl.RenderTexture2D,
-	// Stage-1 scaffolding: reserved for the raytrace output texture in Stage 2.
-	render_texture: rl.Texture2D,
 
 	editor_provider:   ViewportTextureProvider,
 	raytrace_provider: ViewportTextureProvider,

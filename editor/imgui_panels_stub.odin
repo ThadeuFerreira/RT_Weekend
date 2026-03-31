@@ -220,7 +220,7 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
                 _viewport_editor_interaction(app, ev, vp_rect, hovered)
             }
             if mode == .Raytrace {
-                _viewport_raytrace_overlay(app)
+                _viewport_raytrace_overlay(app, img_min)
             }
         } else {
             imgui.TextDisabled("No active viewport texture")
@@ -323,8 +323,7 @@ add_entry_object_to_scene :: proc(app: ^App, ev: ^EditViewState, entry_label: st
     case "Add Sphere":
         AppendDefaultSphere(ev.scene_mgr)
         new_idx := SceneManagerLen(ev.scene_mgr) - 1
-        ev.selection_kind = .Sphere
-        ev.selected_idx   = new_idx
+        set_selection(ev, .Sphere, new_idx)
         if obj, ok := GetSceneObject(ev.scene_mgr, new_idx); ok {
             #partial switch o in obj {
             case core.SceneSphere:
@@ -337,8 +336,7 @@ add_entry_object_to_scene :: proc(app: ^App, ev: ^EditViewState, entry_label: st
     case "Add Quad":
         AppendDefaultQuad(ev.scene_mgr)
         new_idx := SceneManagerLen(ev.scene_mgr) - 1
-        ev.selection_kind = .Quad
-        ev.selected_idx   = new_idx
+        set_selection(ev, .Quad, new_idx)
         if obj, ok := GetSceneObject(ev.scene_mgr, new_idx); ok {
             #partial switch o in obj {
             case rt.Quad:
@@ -360,8 +358,7 @@ add_entry_object_to_scene :: proc(app: ^App, ev: ^EditViewState, entry_label: st
         }
         append(&app.e_volumes, new_vol)
         new_idx := len(app.e_volumes) - 1
-        ev.selection_kind = .Volume
-        ev.selected_idx   = new_idx
+        set_selection(ev, .Volume, new_idx)
         edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
         mark_scene_dirty(app)
         app_push_log(app, "Add volume")
@@ -373,23 +370,17 @@ add_entry_object_to_scene :: proc(app: ^App, ev: ^EditViewState, entry_label: st
 finalize_delete_entry_object :: proc(app: ^App, ev: ^EditViewState, log_label: string) {
     mark_scene_dirty(app)
     app_push_log(app, log_label)
-    ev.selection_kind = .None
-    ev.selected_idx   = -1
+    set_selection(ev, .None, -1)
     app.r_render_pending = true
 }
 
 @(private)
 delete_entry_object_from_scene :: proc(app: ^App, ev: ^EditViewState, del_idx: int) {
-    prev_sel_kind := ev.selection_kind
-    prev_sel_idx := ev.selected_idx
     if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
         dv := app.e_volumes[ev.selected_idx]
         edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = dv})
         ordered_remove(&app.e_volumes, ev.selected_idx)
         finalize_delete_entry_object(app, ev, "Delete volume")
-        if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
-            mark_viewport_visual_dirty(ev)
-        }
         return
     }
 
@@ -404,9 +395,6 @@ delete_entry_object_from_scene :: proc(app: ^App, ev: ^EditViewState, del_idx: i
             OrderedRemove(ev.scene_mgr, del_idx)
             finalize_delete_entry_object(app, ev, "Delete quad")
         }
-    }
-    if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
-        mark_viewport_visual_dirty(ev)
     }
 }
 
@@ -620,8 +608,6 @@ _viewport_context_menu :: proc(app: ^App, ev: ^EditViewState) {
             if entry.disabled { flags |= {.Disabled} }
             label_c := strings.clone_to_cstring(entry.label, context.temp_allocator)
             if imgui.Selectable(label_c, entry.checked, flags) {
-                prev_sel_kind := ev.selection_kind
-                prev_sel_idx := ev.selected_idx
                 if len(entry.cmd_id) > 0 {
                     cmd_execute(app, entry.cmd_id)
                 } else {
@@ -632,9 +618,6 @@ _viewport_context_menu :: proc(app: ^App, ev: ^EditViewState) {
                         delete_entry_object_from_scene(app, ev, ev.ctx_menu_hit_idx)
                     }
                 }
-                if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
-                    mark_viewport_visual_dirty(ev)
-                }
             }
         }
         imgui.EndPopup()
@@ -642,7 +625,7 @@ _viewport_context_menu :: proc(app: ^App, ev: ^EditViewState) {
 }
 
 @(private)
-_viewport_raytrace_overlay :: proc(app: ^App) {
+_viewport_raytrace_overlay :: proc(app: ^App, img_min: imgui.Vec2) {
     progress := f32(0)
     if app.r_session != nil {
         progress = rt.get_render_progress(app.r_session)
@@ -650,7 +633,6 @@ _viewport_raytrace_overlay :: proc(app: ^App) {
     total_samples := max(app.r_camera.samples_per_pixel, 1)
     current_samples := int(math.round(f64(progress * f32(total_samples))))
     if current_samples > total_samples { current_samples = total_samples }
-    img_min := imgui.GetItemRectMin()
     imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 10})
     imgui.Text("Samples: %d / %d", current_samples, total_samples)
     imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 10, img_min.y + 28})
@@ -952,13 +934,7 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
                 label := fmt.ctprintf("Sphere %d  (%.2f, %.2f, %.2f)", i, sphere.center[0], sphere.center[1], sphere.center[2])
                 is_sel := ev.selection_kind == .Sphere && ev.selected_idx == i
                 if imgui.Selectable(label, is_sel) {
-                    prev_sel_kind := ev.selection_kind
-                    prev_sel_idx := ev.selected_idx
-                    ev.selection_kind = .Sphere
-                    ev.selected_idx   = i
-                    if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
-                        mark_viewport_visual_dirty(ev)
-                    }
+                    set_selection(ev, .Sphere, i)
                 }
                 continue
             }
@@ -967,13 +943,7 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
                 label := fmt.ctprintf("Quad %d  (%.2f, %.2f, %.2f)", i, quad.Q[0], quad.Q[1], quad.Q[2])
                 is_sel := ev.selection_kind == .Quad && ev.selected_idx == i
                 if imgui.Selectable(label, is_sel) {
-                    prev_sel_kind := ev.selection_kind
-                    prev_sel_idx := ev.selected_idx
-                    ev.selection_kind = .Quad
-                    ev.selected_idx   = i
-                    if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
-                        mark_viewport_visual_dirty(ev)
-                    }
+                    set_selection(ev, .Quad, i)
                 }
                 continue
             }
@@ -985,13 +955,7 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
             label := fmt.ctprintf("Volume %d", i)
             is_sel := ev.selection_kind == .Volume && ev.selected_idx == i
             if imgui.Selectable(label, is_sel) {
-                prev_sel_kind := ev.selection_kind
-                prev_sel_idx := ev.selected_idx
-                ev.selection_kind = .Volume
-                ev.selected_idx   = i
-                if ev.selection_kind != prev_sel_kind || ev.selected_idx != prev_sel_idx {
-                    mark_viewport_visual_dirty(ev)
-                }
+                set_selection(ev, .Volume, i)
             }
         }
 

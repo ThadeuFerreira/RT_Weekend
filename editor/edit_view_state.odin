@@ -207,6 +207,17 @@ mark_viewport_visual_dirty :: proc(ev: ^EditViewState) {
 	ev.viewport_needs_redraw = true
 }
 
+// set_selection marks a new selection and flags a visual redraw only when
+// the selection actually changed. Returns true when the selection was updated.
+set_selection :: proc(ev: ^EditViewState, kind: EditViewSelectionKind, idx: int) -> bool {
+	if ev == nil { return false }
+	if ev.selection_kind == kind && ev.selected_idx == idx { return false }
+	ev.selection_kind = kind
+	ev.selected_idx   = idx
+	mark_viewport_visual_dirty(ev)
+	return true
+}
+
 align_editor_camera_to_render :: proc(ev: ^EditViewState, cp: core.CameraParams, place_in_front: bool) {
 	if ev == nil { return }
 	from := cp.lookfrom

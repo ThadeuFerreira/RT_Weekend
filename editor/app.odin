@@ -2,6 +2,7 @@ package editor
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
 import "core:os"
 import "core:strings"
 import "core:sync"
@@ -444,15 +445,10 @@ App :: struct {
 
 g_app: ^App = nil
 
-_absf :: proc(v: f32) -> f32 {
-    if v < 0 { return -v }
-    return v
-}
-
 vec3_nearly_equal :: proc(a, b: rl.Vector3, eps: f32) -> bool {
-    return _absf(a.x - b.x) <= eps &&
-        _absf(a.y - b.y) <= eps &&
-        _absf(a.z - b.z) <= eps
+    return math.abs(a.x - b.x) <= eps &&
+        math.abs(a.y - b.y) <= eps &&
+        math.abs(a.z - b.z) <= eps
 }
 
 app_idle_gpu_trace_env_override :: proc() -> (set, enabled: bool) {
@@ -464,6 +460,7 @@ app_idle_gpu_trace_env_override :: proc() -> (set, enabled: bool) {
     if raw == "1" || raw == "true" || raw == "TRUE" || raw == "on" || raw == "ON" {
         return true, true
     }
+    fmt.eprintfln("[IdleGPU] unrecognised EDITOR_IDLE_GPU_TRACE value %q, defaulting to enabled", raw)
     return true, true
 }
 
@@ -664,12 +661,13 @@ viewport_provider_editor_get_texture :: proc(provider: ^vp.ViewportTextureProvid
     }
 }
 
+// No-op: editor viewport texture is resized lazily inside render_viewport_to_texture
+// each frame, so the provider resize hook has nothing to do.
 viewport_provider_editor_resize :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr, width, height: int) {
     _ = provider
     _ = app_ptr
     _ = width
     _ = height
-    // Existing resize behavior remains in render_viewport_to_texture().
 }
 
 viewport_provider_raytrace_update :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) {
