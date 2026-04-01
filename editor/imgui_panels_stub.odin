@@ -178,16 +178,8 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
         }
         imgui.SameLine()
         if imgui.RadioButton("Raytrace", mode == .Raytrace) {
-            // In RenderCamera binding the editor IS the render camera, so sync on switch.
-            // In FreeFly the render camera is independent — don't overwrite it.
-            if ev.camera_binding == .RenderCamera {
-                viewport_apply_camera_from_view(app, ev)
-            }
             vp.viewport_set_mode(&app.e_viewport, .Raytrace)
-            // No explicit restart here — the frame-loop scene invalidation check
-            // fires next frame when scene_version != render_scene_version, which
-            // issues CMD_RENDER_RESTART (with world rebuild). If nothing changed,
-            // no restart and the existing render result is shown as-is.
+
             mode = .Raytrace
         }
         if mode == .Raytrace {
@@ -417,19 +409,6 @@ viewport_toggle_bvh_hierarchy :: proc(ev: ^EditViewState) {
         ev.viz_bvh_root = nil
     }
     mark_viewport_visual_dirty(ev)
-}
-
-@(private)
-viewport_apply_camera_from_view :: proc(app: ^App, ev: ^EditViewState) {
-    before := app.c_camera_params
-    lookfrom, lookat := get_orbit_camera_pose(ev)
-    // Only mark dirty / push undo when the camera actually moved.
-    if lookfrom == before.lookfrom && lookat == before.lookat { return }
-    app.c_camera_params.lookfrom = lookfrom
-    app.c_camera_params.lookat   = lookat
-    edit_history_push(&app.edit_history, ModifyCameraAction{before = before, after = app.c_camera_params})
-    mark_scene_dirty(app)
-    app.r_render_pending = true
 }
 
 // ── Viewport toolbar components ─────────────────────────────────────────────

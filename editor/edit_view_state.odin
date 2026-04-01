@@ -316,11 +316,15 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 // sync_render_camera_from_editor copies the editor camera pose into the shared
 // render camera params each frame when camera_binding == .RenderCamera.
 // Uses cam3d (already recomputed by update_orbit_camera) so it works for both
-// Orbit and FreeFly camera modes.
-sync_render_camera_from_editor :: proc(ev: ^EditViewState, cp: ^core.CameraParams) {
-	if ev.camera_binding != .RenderCamera { return }
+// Orbit and FreeFly camera modes.  Returns true when the camera actually moved.
+sync_render_camera_from_editor :: proc(ev: ^EditViewState, cp: ^core.CameraParams) -> bool {
+	if ev.camera_binding != .RenderCamera { return false }
 	p := ev.cam3d.position
 	t := ev.cam3d.target
-	cp.lookfrom = {p.x, p.y, p.z}
-	cp.lookat   = {t.x, t.y, t.z}
+	new_lookfrom := [3]f32{p.x, p.y, p.z}
+	new_lookat   := [3]f32{t.x, t.y, t.z}
+	if new_lookfrom == cp.lookfrom && new_lookat == cp.lookat { return false }
+	cp.lookfrom = new_lookfrom
+	cp.lookat   = new_lookat
+	return true
 }
