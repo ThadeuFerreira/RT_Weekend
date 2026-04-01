@@ -5,7 +5,7 @@ This package is the **path tracer only**: camera, BVH, materials, ray math, tile
 ## Purpose
 
 - **Camera** — `Camera`, `make_camera`, `init_camera`, `apply_scene_camera`, `copy_camera_to_scene_params`; non-blocking render API: `start_render`, `get_render_progress`, `finish_render`, `RenderSession` (field `r_camera`). Camera includes **shutter_open**, **shutter_close** (normalized [0..1]); `get_ray` samples ray time in that interval for motion blur. `normalize_shutter` is optional validation (see TODO at definition).
-- **Scene build** — `convert_world_to_edit_spheres`, `build_world_from_scene` (core.SceneSphere ↔ Object).
+- **Scene build** — `sphere_to_scene_sphere`, `build_world_from_scene_entities`, `scene_entity_to_rt_object` (core.SceneEntity / SceneSphere ↔ Object).
 
 ## Naming / scope
 
@@ -31,7 +31,7 @@ Use idiomatic Odin names for raytrace types/functions (`Camera`, `make_camera`, 
 - **ray_color.odin** — `ray_color` (recursive BVH), `ray_color_linear` (iterative BVH).
 - **vector3.odin** — Vec3 math, `ray`, `ray_at`, `linear_to_gamma`, `dot`, `cross`, `unit_vector`.
 - **camera.odin** — Camera struct, tile queue, worker threads, start/get_progress/finish.
-- **scene_build.odin** — World ↔ core.SceneSphere conversion; `build_world_from_scene`.
+- **scene_build.odin** — World ↔ scene entities; `build_world_from_scene_entities`, `scene_entity_to_rt_object`.
 - **texture.odin** — Core texture type aliases; shared sampling helpers; `texture_value`, `texture_value_runtime`.
 - **texture_image.odin** — `Texture_Image` (stb/image): load, destroy, pixel_data; byte_slice/float_slice for GPU upload.
 - **material.odin**, **interval.odin**, **profiling.odin**, **perlin.odin**, **transform.odin**.
@@ -44,4 +44,4 @@ Use idiomatic Odin names for raytrace types/functions (`Camera`, `make_camera`, 
 
 ## Allocation preference
 
-Prefer stack allocation; avoid passing pointers unless strictly necessary. Texture is passed by value (e.g. `build_world_from_scene(..., ground_texture: Texture)`, `texture_value(tex: Texture, ...)`). Use pointers only when needed (e.g. optional ground texture in editor, or legacy `setup_scene(..., ground_texture: ^Texture = nil)`).
+Prefer stack allocation; avoid passing pointers unless strictly necessary. Texture is passed by value (e.g. `build_world_from_scene_entities(..., ground_texture: Texture)`, `texture_value(tex: Texture, ...)`). Use pointers only when needed (e.g. optional ground texture in editor, or legacy `setup_scene(..., ground_texture: ^Texture = nil)`).

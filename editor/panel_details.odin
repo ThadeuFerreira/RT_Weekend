@@ -42,9 +42,7 @@ DetailsPanelState :: struct {
 	prop_drag_start_val: f32,
 
 	// Before-state captured at drag start (for undo history). Lives on App so it resets on scene load.
-	drag_before_sphere: core.SceneSphere,
-	drag_before_quad: rt.Quad,
-	drag_before_volume: core.SceneVolume,
+	drag_before_entity:          core.SceneEntity,
 	drag_before_c_camera_params: core.CameraParams,
 
 	// Perlin noise preview (cached; regenerated when scale or type changes)
@@ -153,49 +151,53 @@ _details_draw_camera :: proc(app: ^App, st: ^DetailsPanelState) {
 
 @(private)
 _details_draw_volume :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
-	v := app.e_volumes[idx]
+	ev := &app.e_edit_view
+	ent, ok := GetSceneEntity(ev.scene_mgr, idx)
+	if !ok { return }
+	vol, is_vol := ent.(core.SceneVolume)
+	if !is_vol { return }
 	imgui.Text(fmt.ctprintf("Volume %d", idx))
 
-	imgui.DragFloat3("Translate", &v.translate, 0.02, 0, 0, "%.3f")
-	if imgui.IsItemActivated() { st.drag_before_volume = v }
+	imgui.DragFloat3("Translate", &vol.translate, 0.02, 0, 0, "%.3f")
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
-		app.e_volumes[idx] = v
+		SetSceneEntity(ev.scene_mgr, idx, core.SceneEntity(vol))
 		if imgui.IsItemDeactivatedAfterEdit() {
-			edit_history_push(&app.edit_history, ModifyVolumeAction{idx = idx, before = st.drag_before_volume, after = v})
+			edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(vol)})
 			mark_scene_dirty(app)
 		}
 	}
 
-	imgui.DragFloat("Rotate Y (deg)", &v.rotate_y_deg, 0.2, 0, 0, "%.3f")
-	if imgui.IsItemActivated() { st.drag_before_volume = v }
+	imgui.DragFloat("Rotate Y (deg)", &vol.rotate_y_deg, 0.2, 0, 0, "%.3f")
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
-		app.e_volumes[idx] = v
+		SetSceneEntity(ev.scene_mgr, idx, core.SceneEntity(vol))
 		if imgui.IsItemDeactivatedAfterEdit() {
-			edit_history_push(&app.edit_history, ModifyVolumeAction{idx = idx, before = st.drag_before_volume, after = v})
+			edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(vol)})
 			mark_scene_dirty(app)
 		}
 	}
 
-	imgui.DragFloat("Density", &v.density, 0.002, 0.0001, 1.0, "%.4f")
-	if imgui.IsItemActivated() { st.drag_before_volume = v }
+	imgui.DragFloat("Density", &vol.density, 0.002, 0.0001, 1.0, "%.4f")
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
-		v.density = clamp(v.density, f32(0.0001), f32(1))
-		app.e_volumes[idx] = v
+		vol.density = clamp(vol.density, f32(0.0001), f32(1))
+		SetSceneEntity(ev.scene_mgr, idx, core.SceneEntity(vol))
 		if imgui.IsItemDeactivatedAfterEdit() {
-			edit_history_push(&app.edit_history, ModifyVolumeAction{idx = idx, before = st.drag_before_volume, after = v})
+			edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(vol)})
 			mark_scene_dirty(app)
 		}
 	}
 
-	imgui.ColorEdit3("Albedo", &v.albedo)
-	if imgui.IsItemActivated() { st.drag_before_volume = v }
+	imgui.ColorEdit3("Albedo", &vol.albedo)
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
-		v.albedo[0] = clamp(v.albedo[0], f32(0), f32(1))
-		v.albedo[1] = clamp(v.albedo[1], f32(0), f32(1))
-		v.albedo[2] = clamp(v.albedo[2], f32(0), f32(1))
-		app.e_volumes[idx] = v
+		vol.albedo[0] = clamp(vol.albedo[0], f32(0), f32(1))
+		vol.albedo[1] = clamp(vol.albedo[1], f32(0), f32(1))
+		vol.albedo[2] = clamp(vol.albedo[2], f32(0), f32(1))
+		SetSceneEntity(ev.scene_mgr, idx, core.SceneEntity(vol))
 		if imgui.IsItemDeactivatedAfterEdit() {
-			edit_history_push(&app.edit_history, ModifyVolumeAction{idx = idx, before = st.drag_before_volume, after = v})
+			edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(vol)})
 			mark_scene_dirty(app)
 		}
 	}
@@ -209,21 +211,21 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 	imgui.Text(fmt.ctprintf("Sphere %d", idx))
 
 	imgui.DragFloat3("Center", &sphere.center, 0.02, 0, 0, "%.3f")
-	if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() {
 		SetSceneSphere(ev.scene_mgr, idx, sphere)
-		edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 		mark_scene_dirty(app)
 	} else if imgui.IsItemEdited() {
 		SetSceneSphere(ev.scene_mgr, idx, sphere)
 	}
 
 	imgui.DragFloat("Radius", &sphere.radius, 0.01, 0.001, 0, "%.3f")
-	if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() {
 		if sphere.radius < 0.001 { sphere.radius = 0.001 }
 		SetSceneSphere(ev.scene_mgr, idx, sphere)
-		edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 		mark_scene_dirty(app)
 	} else if imgui.IsItemEdited() {
 		if sphere.radius < 0.001 { sphere.radius = 0.001 }
@@ -233,11 +235,11 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 	kinds := [4]cstring{"Lambertian", "Metallic", "Dielectric", "DiffuseLight"}
 	current := c.int(sphere.material_kind)
 	imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds)))
-	if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() {
 		sphere.material_kind = cast(core.MaterialKind)current
 		SetSceneSphere(ev.scene_mgr, idx, sphere)
-		edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 		mark_scene_dirty(app)
 	}
 
@@ -248,7 +250,7 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 		motion[2] = sphere.center1[2] - sphere.center[2]
 	}
 	imgui.DragFloat3("Motion dX/Y/Z", &motion, 0.02, 0, 0, "%.3f")
-	if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
 		sphere.center1[0] = sphere.center[0] + motion[0]
 		sphere.center1[1] = sphere.center[1] + motion[1]
@@ -256,7 +258,7 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 		sphere.is_moving = (sphere.center1[0] != sphere.center[0] || sphere.center1[1] != sphere.center[1] || sphere.center1[2] != sphere.center[2])
 		SetSceneSphere(ev.scene_mgr, idx, sphere)
 		if imgui.IsItemDeactivatedAfterEdit() {
-			edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+			edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 			mark_scene_dirty(app)
 		}
 	}
@@ -266,24 +268,24 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 		col: [3]f32 = {0.5, 0.5, 0.5}
 		if ct, okc := sphere.albedo.(core.ConstantTexture); okc { col = ct.color }
 		imgui.ColorEdit3("Albedo", &col)
-		if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
 			sphere.albedo = core.ConstantTexture{color = col}
 			SetSceneSphere(ev.scene_mgr, idx, sphere)
 			if imgui.IsItemDeactivatedAfterEdit() {
-				edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 				mark_scene_dirty(app)
 			}
 		}
 		if it, is_img := sphere.albedo.(core.ImageTexture); is_img {
 			imgui.Text(fmt.ctprintf("Image: %s", filepath.base(it.path)))
 			if imgui.SmallButton("× Clear") {
-				st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx)
+				st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx)
 				sphere.albedo = core.ConstantTexture{color = {0.5, 0.5, 0.5}}
 				sphere.texture_kind = .Constant
 				sphere.image_path = ""
 				SetSceneSphere(ev.scene_mgr, idx, sphere)
-				edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 				mark_scene_dirty(app)
 			}
 			imgui.SameLine()
@@ -293,13 +295,13 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 			img_path, ok2 := util.open_file_dialog(default_dir, util.IMAGE_FILTER_DESC, util.IMAGE_FILTER_EXT)
 			delete(default_dir)
 			if ok2 {
-				st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx)
+				st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx)
 				sphere.albedo = core.ImageTexture{path = img_path}
 				sphere.texture_kind = .Image
 				sphere.image_path = img_path
 				app_ensure_image_cached(app, img_path)
 				SetSceneSphere(ev.scene_mgr, idx, sphere)
-				edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 				mark_scene_dirty(app)
 			}
 		}
@@ -307,33 +309,33 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 		col: [3]f32 = {0.5, 0.5, 0.5}
 		if ct, okc := sphere.albedo.(core.ConstantTexture); okc { col = ct.color }
 		imgui.ColorEdit3("Albedo", &col)
-		if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
 			sphere.albedo = core.ConstantTexture{color = col}
 			SetSceneSphere(ev.scene_mgr, idx, sphere)
 			if imgui.IsItemDeactivatedAfterEdit() {
-				edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 				mark_scene_dirty(app)
 			}
 		}
 		imgui.DragFloat("Fuzz", &sphere.fuzz, 0.01, 0, 1, "%.3f")
-		if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
 			sphere.fuzz = clamp(sphere.fuzz, f32(0), f32(1))
 			SetSceneSphere(ev.scene_mgr, idx, sphere)
 			if imgui.IsItemDeactivatedAfterEdit() {
-				edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 				mark_scene_dirty(app)
 			}
 		}
 	case .Dielectric:
 		imgui.DragFloat("IOR", &sphere.ref_idx, 0.01, 1, 3, "%.3f")
-		if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
 			sphere.ref_idx = clamp(sphere.ref_idx, f32(1), f32(3))
 			SetSceneSphere(ev.scene_mgr, idx, sphere)
 			if imgui.IsItemDeactivatedAfterEdit() {
-				edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 				mark_scene_dirty(app)
 			}
 		}
@@ -341,12 +343,12 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 		col: [3]f32 = {1, 1, 1}
 		if ct, okc := sphere.albedo.(core.ConstantTexture); okc { col = ct.color }
 		imgui.ColorEdit3("Emit", &col)
-		if imgui.IsItemActivated() { st.drag_before_sphere, _ = GetSceneSphere(ev.scene_mgr, idx) }
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
 			sphere.albedo = core.ConstantTexture{color = col}
 			SetSceneSphere(ev.scene_mgr, idx, sphere)
 			if imgui.IsItemDeactivatedAfterEdit() {
-				edit_history_push(&app.edit_history, ModifySphereAction{idx = idx, before = st.drag_before_sphere, after = sphere})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
 				mark_scene_dirty(app)
 			}
 		}
@@ -362,111 +364,109 @@ _details_draw_quad :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 	if !ok { return }
 	imgui.Text(fmt.ctprintf("Quad %d", idx))
 
-	kinds := [4]cstring{"Lambertian", "Metallic", "Dielectric", "DiffuseLight"}
-	current: c.int = 0
-	#partial switch _ in quad.material {
-	case rt.lambertian:    current = 0
-	case rt.metallic:      current = 1
-	case rt.dielectric:    current = 2
-	case rt.diffuse_light: current = 3
-	}
-	imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds)))
-	if imgui.IsItemActivated() { st.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, idx) }
+	imgui.DragFloat3("Q (corner)", &quad.Q, 0.02, 0, 0, "%.3f")
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 	if imgui.IsItemDeactivatedAfterEdit() {
-		col := [3]f32{0.5, 0.5, 0.5}
-		#partial switch m in quad.material {
-		case rt.lambertian:
-			if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
-			else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
-		case rt.metallic:
-			col = m.albedo
-		case rt.diffuse_light:
-			intensity := max(m.emit[0], max(m.emit[1], m.emit[2]))
-			if intensity > 0 { col = {m.emit[0]/intensity, m.emit[1]/intensity, m.emit[2]/intensity} } else { col = {1, 1, 1} }
-		}
-		switch int(current) {
-		case 0: quad.material = rt.lambertian{albedo = rt.ConstantTexture{color = col}}
-		case 1: quad.material = rt.metallic{albedo = col, fuzz = 0.1}
-		case 2: quad.material = rt.dielectric{ref_idx = 1.5}
-		case 3: quad.material = rt.diffuse_light{emit = {2, 2, 2}}
-		}
 		SetSceneQuad(ev.scene_mgr, idx, quad)
-		edit_history_push(&app.edit_history, ModifyQuadAction{idx = idx, before = st.drag_before_quad, after = quad})
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
+		mark_scene_dirty(app)
+	} else if imgui.IsItemEdited() {
+		SetSceneQuad(ev.scene_mgr, idx, quad)
+	}
+
+	imgui.DragFloat3("U (edge)", &quad.u, 0.02, 0, 0, "%.3f")
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
+	if imgui.IsItemDeactivatedAfterEdit() {
+		SetSceneQuad(ev.scene_mgr, idx, quad)
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
+		mark_scene_dirty(app)
+	} else if imgui.IsItemEdited() {
+		SetSceneQuad(ev.scene_mgr, idx, quad)
+	}
+
+	imgui.DragFloat3("V (edge)", &quad.v, 0.02, 0, 0, "%.3f")
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
+	if imgui.IsItemDeactivatedAfterEdit() {
+		SetSceneQuad(ev.scene_mgr, idx, quad)
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
+		mark_scene_dirty(app)
+	} else if imgui.IsItemEdited() {
+		SetSceneQuad(ev.scene_mgr, idx, quad)
+	}
+
+	kinds := [4]cstring{"Lambertian", "Metallic", "Dielectric", "DiffuseLight"}
+	current := c.int(quad.material_kind)
+	imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds)))
+	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
+	if imgui.IsItemDeactivatedAfterEdit() {
+		quad.material_kind = cast(core.MaterialKind)current
+		SetSceneQuad(ev.scene_mgr, idx, quad)
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
 		mark_scene_dirty(app)
 	}
 
-	col := [3]f32{0.5, 0.5, 0.5}
-	param: f32 = 0.1
-	is_emitter := false
-	#partial switch m in quad.material {
-	case rt.lambertian:
-		if ct, ok2 := m.albedo.(rt.ConstantTexture); ok2 { col = ct.color }
-		else if ck, ok2 := m.albedo.(rt.CheckerTexture); ok2 { col = ck.even }
-	case rt.metallic:
-		col = m.albedo
-		param = m.fuzz
-	case rt.dielectric:
-		param = m.ref_idx
-	case rt.diffuse_light:
-		is_emitter = true
-		intensity := max(m.emit[0], max(m.emit[1], m.emit[2]))
-		if intensity > 0 { col = {m.emit[0]/intensity, m.emit[1]/intensity, m.emit[2]/intensity} } else { col = {1, 1, 1} }
-		param = intensity
-	}
-
-	imgui.ColorEdit3(is_emitter ? "Emit Color" : "Color", &col)
-	if imgui.IsItemActivated() { st.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, idx) }
-	if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
-		if is_emitter {
-			quad.material = rt.diffuse_light{emit = {col[0]*param, col[1]*param, col[2]*param}}
-		} else {
-			#partial switch m in quad.material {
-			case rt.lambertian:
-				quad.material = rt.lambertian{albedo = rt.ConstantTexture{color = col}}
-			case rt.metallic:
-				quad.material = rt.metallic{albedo = col, fuzz = clamp(param, f32(0), f32(1))}
-			}
-		}
-		SetSceneQuad(ev.scene_mgr, idx, quad)
-		if imgui.IsItemDeactivatedAfterEdit() {
-			edit_history_push(&app.edit_history, ModifyQuadAction{idx = idx, before = st.drag_before_quad, after = quad})
-			mark_scene_dirty(app)
-		}
-	}
-
-	if is_emitter {
-		imgui.DragFloat("Intensity", &param, 0.02, 0, 50, "%.3f")
-		if imgui.IsItemActivated() { st.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, idx) }
+	switch quad.material_kind {
+	case .Lambertian:
+		col: [3]f32 = {0.5, 0.5, 0.5}
+		if ct, okc := quad.albedo.(core.ConstantTexture); okc { col = ct.color }
+		imgui.ColorEdit3("Albedo", &col)
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
-			if param < 0 { param = 0 }
-			quad.material = rt.diffuse_light{emit = {col[0]*param, col[1]*param, col[2]*param}}
+			quad.albedo = core.ConstantTexture{color = col}
 			SetSceneQuad(ev.scene_mgr, idx, quad)
 			if imgui.IsItemDeactivatedAfterEdit() {
-				edit_history_push(&app.edit_history, ModifyQuadAction{idx = idx, before = st.drag_before_quad, after = quad})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
 				mark_scene_dirty(app)
 			}
 		}
-	} else if current == 1 {
-		imgui.DragFloat("Fuzz", &param, 0.01, 0, 1, "%.3f")
-		if imgui.IsItemActivated() { st.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, idx) }
+	case .Metallic:
+		col: [3]f32 = {0.5, 0.5, 0.5}
+		if ct, okc := quad.albedo.(core.ConstantTexture); okc { col = ct.color }
+		imgui.ColorEdit3("Albedo", &col)
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
-			quad.material = rt.metallic{albedo = col, fuzz = clamp(param, f32(0), f32(1))}
+			quad.albedo = core.ConstantTexture{color = col}
 			SetSceneQuad(ev.scene_mgr, idx, quad)
 			if imgui.IsItemDeactivatedAfterEdit() {
-				edit_history_push(&app.edit_history, ModifyQuadAction{idx = idx, before = st.drag_before_quad, after = quad})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
 				mark_scene_dirty(app)
 			}
 		}
-	} else if current == 2 {
-		imgui.DragFloat("IOR", &param, 0.01, 1, 3, "%.3f")
-		if imgui.IsItemActivated() { st.drag_before_quad, _ = GetSceneQuad(ev.scene_mgr, idx) }
+		imgui.DragFloat("Fuzz", &quad.fuzz, 0.01, 0, 1, "%.3f")
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
-			quad.material = rt.dielectric{ref_idx = clamp(param, f32(1), f32(3))}
+			quad.fuzz = clamp(quad.fuzz, f32(0), f32(1))
 			SetSceneQuad(ev.scene_mgr, idx, quad)
 			if imgui.IsItemDeactivatedAfterEdit() {
-				edit_history_push(&app.edit_history, ModifyQuadAction{idx = idx, before = st.drag_before_quad, after = quad})
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
 				mark_scene_dirty(app)
 			}
 		}
+	case .Dielectric:
+		imgui.DragFloat("IOR", &quad.ref_idx, 0.01, 1, 3, "%.3f")
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
+		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
+			quad.ref_idx = clamp(quad.ref_idx, f32(1), f32(3))
+			SetSceneQuad(ev.scene_mgr, idx, quad)
+			if imgui.IsItemDeactivatedAfterEdit() {
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
+				mark_scene_dirty(app)
+			}
+		}
+	case .DiffuseLight:
+		col: [3]f32 = {1, 1, 1}
+		if ct, okc := quad.albedo.(core.ConstantTexture); okc { col = ct.color }
+		imgui.ColorEdit3("Emit", &col)
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
+		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
+			quad.albedo = core.ConstantTexture{color = col}
+			SetSceneQuad(ev.scene_mgr, idx, quad)
+			if imgui.IsItemDeactivatedAfterEdit() {
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
+				mark_scene_dirty(app)
+			}
+		}
+	case .Isotropic:
+		imgui.TextDisabled("Isotropic material editing not supported here")
 	}
 }

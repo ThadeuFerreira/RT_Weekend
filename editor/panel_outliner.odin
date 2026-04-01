@@ -12,8 +12,7 @@ update_outliner_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2
 	ev := &app.e_edit_view
 	st := &app.e_outliner
 	sm := ev.scene_mgr
-	vol_count := len(app.e_volumes)
-	total_h   := f32(outliner_total_rows(sm, vol_count)) * OUTLINER_ROW_H
+	total_h := f32(outliner_total_rows(sm)) * OUTLINER_ROW_H
 
 	// Scroll: handle wheel in update so input is not tied to draw order.
 	if rl.CheckCollisionPointRec(mouse, rect) {
@@ -29,7 +28,7 @@ update_outliner_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2
 	local_y := mouse.y - rect.y + st.scroll_y
 	row     := int(local_y / OUTLINER_ROW_H)
 
-	kind, idx, ok := outliner_row_to_selection(sm, vol_count, row)
+	kind, idx, ok := outliner_row_to_selection(sm, row)
 	if ok {
 		set_selection(ev, kind, idx)
 	}

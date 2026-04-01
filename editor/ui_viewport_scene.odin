@@ -263,9 +263,11 @@ draw_viewport_scene_objects :: proc(
 	sm := ev.scene_mgr
 	if sm == nil { return }
 	n_objects := len(sm.objects)
-	for i in 0..<n_objects {
+	for i in 0 ..< n_objects {
 		if i >= len(ev.viewport_sphere_cache) { continue }
-		selected := (selection_kind == .Sphere || selection_kind == .Quad) && selected_idx == i
+		selected := (selection_kind == .Sphere ||
+			selection_kind == .Quad ||
+			selection_kind == .Volume) && selected_idx == i
 		#partial switch o in sm.objects[i] {
 		case core.SceneSphere:
 			s := o
@@ -281,8 +283,11 @@ draw_viewport_scene_objects :: proc(
 			} else {
 				draw_sphere_solid(s.center, s.radius, sphere_solid_color_from_albedo(s.albedo), selected)
 			}
-		case rt.Quad:
-			draw_quad_with_material_color(o, selected)
+		case core.SceneQuad:
+			q := rt.scene_quad_to_rt_quad(o, &app.image_texture_cache)
+			draw_quad_with_material_color(q, selected)
+		case core.SceneVolume:
+			draw_volume_cube_wireframe(o, selected)
 		}
 	}
 }

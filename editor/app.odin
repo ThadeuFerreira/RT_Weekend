@@ -123,15 +123,15 @@ app_set_ground_texture :: proc(app: ^App, ground_texture: rt.Texture) {
     app.has_custom_ground_texture = true
 }
 
-// app_build_world_from_scene rebuilds render objects from shared scene spheres, preserving
-// any runtime image textures through app.image_texture_cache when available.
-app_build_world_from_scene :: proc(app: ^App, scene_objects: []core.SceneSphere) -> [dynamic]rt.Object {
-    return rt.build_world_from_scene(
-        scene_objects,
-        app_active_ground_texture(app),
-        &app.image_texture_cache,
-        app.include_ground_plane,
-    )
+// app_rebuild_render_world builds the full raytrace world from the edit view scene manager (spheres, quads, volumes).
+app_rebuild_render_world :: proc(app: ^App) -> [dynamic]rt.Object {
+	ev := &app.e_edit_view
+	return rt.build_world_from_scene_entities(
+		ev.scene_mgr.objects[:],
+		app_active_ground_texture(app),
+		&app.image_texture_cache,
+		app.include_ground_plane,
+	)
 }
 
 // app_set_image_texture_cache_from_world refreshes the editor's runtime image cache from a world.
@@ -173,13 +173,6 @@ app_ensure_image_cached :: proc(app: ^App, path: string) -> bool {
     }
     app.image_texture_cache[path] = img
     return true
-}
-
-// app_append_volumes_to_world appends all volumes in app.e_volumes to world as ConstantMedium objects.
-app_append_volumes_to_world :: proc(app: ^App, world: ^[dynamic]rt.Object) {
-    for v in app.e_volumes {
-        append(world, rt.build_volume_from_scene_volume(v))
-    }
 }
 
 // app_start_render_session starts a Vulkan render session and records an editor log on failure.
@@ -292,33 +285,30 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     app_push_log(app, fmt.tprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
-// app_restart_render_with_scene builds a raytrace world from shared scene objects and starts a fresh render.
-// When ground_texture is nil, the ground plane uses default grey; otherwise the given texture (e.g. from an example scene).
-// If a render is in progress, the restart is dropped (same as app_restart_render) to keep the UI responsive.
-app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphere, ground_texture: rt.Texture = nil) {
-    if !app.finished && app.r_session != nil {
-        return
-    }
-    if ground_texture != nil {
-        app_set_ground_texture(app, ground_texture)
-    }
+// app_restart_render_with_scene rebuilds the world from the scene manager and starts a fresh render.
+// When ground_texture is non-nil, sets the custom ground texture before building.
+app_restart_render_with_scene :: proc(app: ^App, ground_texture: rt.Texture = nil) {
+	if !app.finished && app.r_session != nil {
+		return
+	}
+	if ground_texture != nil {
+		app_set_ground_texture(app, ground_texture)
+	}
 
-    rt.free_session(app.r_session)
-    app.r_session = nil
+	rt.free_session(app.r_session)
+	app.r_session = nil
 
-    rt.free_world_volumes(app.r_world)
-    delete(app.r_world)
-    app.r_world = app_build_world_from_scene(app, scene_objects)
-    AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
-    app_append_volumes_to_world(app, &app.r_world)
+	rt.free_world_volumes(app.r_world)
+	delete(app.r_world)
+	app.r_world = app_rebuild_render_world(app)
 
-    app.elapsed_secs = 0
-    app.render_start = time.now()
+	app.elapsed_secs = 0
+	app.render_start = time.now()
 
-    rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-    rt.init_camera(app.r_camera)
-    _ = app_start_render_session(app)
-    app_push_log(app, fmt.tprintf("Re-rendering (%d objects)...", len(app.r_world)))
+	rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
+	rt.init_camera(app.r_camera)
+	_ = app_start_render_session(app)
+	app_push_log(app, fmt.tprintf("Re-rendering (%d objects)...", len(app.r_world)))
 }
 
 App :: struct {
@@ -337,7 +327,6 @@ App :: struct {
     num_threads:   int,
     r_camera:      ^rt.Camera,
     r_world:       [dynamic]rt.Object,
-    e_volumes:     [dynamic]core.SceneVolume,
     custom_ground_texture: rt.Texture,
     has_custom_ground_texture: bool,
     include_ground_plane: bool,
@@ -416,9 +405,9 @@ App :: struct {
     // Undo/redo history for scene mutations
     edit_history: EditHistory,
 
-    // Clipboard for copy/paste (sphere only for now)
-    e_clipboard_sphere: core.SceneSphere,
-    e_has_clipboard:    bool,
+    // Clipboard for copy/paste (any scene entity)
+    e_clipboard:     core.SceneEntity,
+    e_has_clipboard: bool,
 
     // File modal (shared for Import, Save As, Preset Name)
     file_modal: FileModalState,
@@ -937,16 +926,11 @@ run_app :: proc(
     }
     rt.free_world_volumes(r_world)
     delete(r_world) // edit view is now the source of truth; free the raw rt.Object array
-    app.e_volumes = make([dynamic]core.SceneVolume)
     if initial_volumes != nil {
-        for v in initial_volumes { append(&app.e_volumes, v) }
+        AppendLoadedVolumes(app.e_edit_view.scene_mgr, initial_volumes[:])
         delete(initial_volumes)
     }
-    // Build the startup world from the edit view (always): spheres + quads + volumes.
-    ExportToSceneSpheres(app.e_edit_view.scene_mgr, &app.e_edit_view.export_scratch)
-    app.r_world = app_build_world_from_scene(&app, app.e_edit_view.export_scratch[:])
-    AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
-    app_append_volumes_to_world(&app, &app.r_world)
+    app.r_world = app_rebuild_render_world(&app)
     app.e_details  = DetailsPanelState{prop_drag_idx = -1}
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     app.e_content_browser = ContentBrowserState{selected_idx = -1, scan_requested = true}
@@ -961,7 +945,6 @@ run_app :: proc(
         delete(app.e_texture_view.last_sig)
     }
     defer content_browser_free_state(&app.e_content_browser)
-    defer delete(app.e_edit_view.export_scratch)
     defer {
         for i in 0..<len(app.e_edit_view.viewport_sphere_cache) {
             free_viewport_sphere_cache_entry(&app.e_edit_view.viewport_sphere_cache[i])
@@ -976,7 +959,7 @@ run_app :: proc(
         }
     }
     defer { rt.free_session(app.r_session) }
-    defer { rt.free_world_volumes(app.r_world); delete(app.r_world); delete(app.e_volumes) }
+    defer { rt.free_world_volumes(app.r_world); delete(app.r_world) }
     defer app_clear_image_texture_cache(&app)
     defer {
         delete(app.r_height_input)

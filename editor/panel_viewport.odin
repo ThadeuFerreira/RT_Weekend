@@ -141,9 +141,6 @@ render_viewport_to_texture :: proc(app: ^App, width, height: i32) {
 	rl.BeginMode3D(ev.cam3d)
 	draw_adaptive_infinite_grid(ev)
 	draw_viewport_scene_objects(app, ev, ev.selection_kind, ev.selected_idx)
-	for v, i in app.e_volumes {
-		draw_volume_cube_wireframe(v, ev.selection_kind == .Volume && ev.selected_idx == i)
-	}
 	draw_viewport_camera_gizmos(app, ev)
 	draw_world_axis(ev)
 	rl.EndMode3D()
