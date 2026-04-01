@@ -339,11 +339,36 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 			}
 		}
 	case .DiffuseLight:
-		col: [3]f32 = {1, 1, 1}
-		if ct, okc := sphere.albedo.(core.ConstantTexture); okc { col = ct.color }
-		imgui.ColorEdit3("Emit", &col)
+		emit: [3]f32 = {1, 1, 1}
+		if ct, okc := sphere.albedo.(core.ConstantTexture); okc { emit = ct.color }
+		intensity := max(emit[0], max(emit[1], emit[2]))
+		tint := emit
+		if intensity > 1e-6 {
+			inv := 1.0 / intensity
+			tint = emit * inv
+		} else {
+			tint = {1, 1, 1}
+			intensity = 0
+		}
+		imgui.DragFloat("Intensity", &intensity, 0.05, 0, 0, "%.3f")
 		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
+			if intensity < 0 { intensity = 0 }
+			col := tint * intensity
+			sphere.albedo = core.ConstantTexture{color = col}
+			SetSceneSphere(ev.scene_mgr, idx, sphere)
+			if imgui.IsItemDeactivatedAfterEdit() {
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
+				mark_scene_dirty(app)
+			}
+		}
+		imgui.ColorEdit3("Emit color", &tint)
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
+		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
+			tint[0] = clamp(tint[0], f32(0), f32(1))
+			tint[1] = clamp(tint[1], f32(0), f32(1))
+			tint[2] = clamp(tint[2], f32(0), f32(1))
+			col := tint * intensity
 			sphere.albedo = core.ConstantTexture{color = col}
 			SetSceneSphere(ev.scene_mgr, idx, sphere)
 			if imgui.IsItemDeactivatedAfterEdit() {
@@ -452,11 +477,36 @@ _details_draw_quad :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 			}
 		}
 	case .DiffuseLight:
-		col: [3]f32 = {1, 1, 1}
-		if ct, okc := quad.albedo.(core.ConstantTexture); okc { col = ct.color }
-		imgui.ColorEdit3("Emit", &col)
+		emit: [3]f32 = {1, 1, 1}
+		if ct, okc := quad.albedo.(core.ConstantTexture); okc { emit = ct.color }
+		intensity := max(emit[0], max(emit[1], emit[2]))
+		tint := emit
+		if intensity > 1e-6 {
+			inv := 1.0 / intensity
+			tint = emit * inv
+		} else {
+			tint = {1, 1, 1}
+			intensity = 0
+		}
+		imgui.DragFloat("Intensity", &intensity, 0.05, 0, 0, "%.3f")
 		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
 		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
+			if intensity < 0 { intensity = 0 }
+			col := tint * intensity
+			quad.albedo = core.ConstantTexture{color = col}
+			SetSceneQuad(ev.scene_mgr, idx, quad)
+			if imgui.IsItemDeactivatedAfterEdit() {
+				edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
+				mark_scene_dirty(app)
+			}
+		}
+		imgui.ColorEdit3("Emit color", &tint)
+		if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
+		if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemEdited() {
+			tint[0] = clamp(tint[0], f32(0), f32(1))
+			tint[1] = clamp(tint[1], f32(0), f32(1))
+			tint[2] = clamp(tint[2], f32(0), f32(1))
+			col := tint * intensity
 			quad.albedo = core.ConstantTexture{color = col}
 			SetSceneQuad(ev.scene_mgr, idx, quad)
 			if imgui.IsItemDeactivatedAfterEdit() {
