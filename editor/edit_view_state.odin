@@ -52,8 +52,10 @@ EditViewState :: struct {
 	lock_axis_z:  bool,
 
 	// View grid controls
-	grid_visible: bool,
-	grid_density: f32,
+	grid_visible:       bool,
+	grid_density:       f32,
+	grid_scale_tier:    int,  // grid LOD exponent for base cell (2^tier meters)
+	grid_current_cell:  f32,  // primary grid cell size in meters (base cell / density)
 	nav_keys_consumed: bool,
 
 	// Right-drag orbit state
@@ -156,8 +158,10 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.fly_pitch      = -0.35
 	ev.move_speed     = 2.0
 	ev.speed_factor   = 1.0
-	ev.grid_visible   = true
-	ev.grid_density   = 1.0
+	ev.grid_visible      = true
+	ev.grid_density      = 1.0
+	ev.grid_scale_tier   = 1
+	ev.grid_current_cell = 1.0
 	ev.nav_keys_consumed = false
 	ev.selection_kind = .None
 	ev.selected_idx   = -1

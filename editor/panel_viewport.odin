@@ -1,12 +1,17 @@
 package editor
 
-import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
-import rt "RT_Weekend:raytrace"
-import "RT_Weekend:core"
+import rlgl "vendor:raylib/rlgl"
 
-MAX_GRID_LINES_PER_AXIS :: 52
+// Editor 3D view: meters, perspective clip (matches rlgl defaults except near).
+EDITOR_VIEW_CLIP_NEAR :: f32(0.1) // 10 cm — minimal useful depth
+EDITOR_VIEW_CLIP_FAR  :: f32(1000.0) // 1 km — max view distance
+
+MAX_GRID_LINES_PER_AXIS :: 100
+GRID_TIER_HYSTERESIS   :: f32(1.20) // reduce tier flapping while orbiting/tilting
+GRID_TARGET_PIXELS     :: f32(46)   // desired minor grid spacing on screen
+GRID_MAJOR_RATIO       :: f32(8)    // major line spacing = minor * ratio
 BG_PRESET_COUNT  :: 6
 BG_PRESET_ITEM_H :: f32(22)
 
@@ -43,71 +48,162 @@ bg_preset_item_rect :: proc(popover: rl.Rectangle, idx: int) -> rl.Rectangle {
 	}
 }
 
-// draw_world_axis draws RGB axis lines at the origin so users can identify
-// coordinate directions (X=red, Y=green, Z=blue).  Length scales with scene.
-draw_world_axis :: proc(ev: ^EditViewState) {
-	_, radius, _ := scene_scale_recommendations(ev.scene_mgr)
-	size := max(radius * 0.5, 1.0)
-	origin := rl.Vector3{0, 0, 0}
-	rl.DrawLine3D(origin, origin + {size, 0, 0}, rl.RED)
-	rl.DrawLine3D(origin, origin + {0, size, 0}, rl.GREEN)
-	rl.DrawLine3D(origin, origin + {0, 0, size}, rl.BLUE)
+// draw_world_axis draws RGB axis lines through the origin in ±EDITOR_VIEW_CLIP_FAR
+// (Godot-style infinite axes, clipped by the view far plane).
+draw_world_axis :: proc(_: ^EditViewState) {
+	f := EDITOR_VIEW_CLIP_FAR
+	o := rl.Vector3{0, 0, 0}
+	rl.DrawLine3D(o + {-f, 0, 0}, o + {f, 0, 0}, rl.RED)
+	rl.DrawLine3D(o + {0, -f, 0}, o + {0, f, 0}, rl.GREEN)
+	rl.DrawLine3D(o + {0, 0, -f}, o + {0, 0, f}, rl.BLUE)
 }
 
-draw_adaptive_infinite_grid :: proc(ev: ^EditViewState) {
+// viewport_ray_dir matches compute_viewport_ray (ui_viewport): perspective ray through
+// normalized viewport UV (u,v) in [0,1]², Y-down screen space like mouse picking.
+viewport_ray_dir :: proc(cam: rl.Camera3D, tex_w, tex_h: i32, u, v: f32) -> rl.Vector3 {
+	forward := rl.Vector3Normalize(cam.target - cam.position)
+	right   := rl.Vector3Normalize(rl.Vector3CrossProduct(forward, cam.up))
+	upv     := rl.Vector3CrossProduct(right, forward)
+	aspect  := f32(tex_w) / max(f32(tex_h), f32(1e-6))
+	half_h  := math.tan(cam.fovy * math.PI / 360.0)
+	half_w  := half_h * aspect
+	ndc_x   := (u * 2.0 - 1.0) * half_w
+	ndc_y   := (1.0 - v * 2.0) * half_h
+	return rl.Vector3Normalize(forward + right * ndc_x + upv * ndc_y)
+}
+
+// ray_hit_xz_plane_y0: camera ray vs y=0; returns distance along ray and xz hit.
+// Parallel to the plane or hit behind the camera → ok = false.
+ray_hit_xz_plane_y0 :: proc(origin, dir: rl.Vector3) -> (ok: bool, dist: f32, xz: rl.Vector2) {
+	dy := dir.y
+	if math.abs(dy) < 1e-6 { return false, 0, {} }
+	t := -origin.y / dy
+	if t < 0 { return false, 0, {} }
+	return true, t, {
+		origin.x + t * dir.x,
+		origin.z + t * dir.z,
+	}
+}
+
+@(private)
+grid_world_units_per_pixel :: proc(cam: rl.Camera3D, tex_w, tex_h: i32) -> (wpp: f32, ok: bool) {
+	if tex_w <= 0 || tex_h <= 0 { return 0, false }
+
+	SAMPLE_PX :: f32(20)
+	du := clamp(SAMPLE_PX / max(f32(tex_w), f32(1)), f32(0.01), f32(0.25))
+	samples := [8][2]f32{
+		{0.5, 0.70},
+		{0.5, 0.85},
+		{0.25, 0.85},
+		{0.75, 0.85},
+		{0.5, 0.5},
+		{0.5, 0.95},
+		{0.05, 0.95},
+		{0.95, 0.95},
+	}
+
+	for s in samples {
+		u := s[0]
+		v := s[1]
+		dir0 := viewport_ray_dir(cam, tex_w, tex_h, u, v)
+		ok0, _, p0 := ray_hit_xz_plane_y0(cam.position, dir0)
+		if !ok0 { continue }
+
+		u1 := clamp(u + du, f32(0), f32(1))
+		dir1 := viewport_ray_dir(cam, tex_w, tex_h, u1, v)
+		ok1, _, p1 := ray_hit_xz_plane_y0(cam.position, dir1)
+		px := (u1 - u) * f32(tex_w)
+
+		if !ok1 || px < 1 {
+			u1 = clamp(u - du, f32(0), f32(1))
+			dir1 = viewport_ray_dir(cam, tex_w, tex_h, u1, v)
+			ok1, _, p1 = ray_hit_xz_plane_y0(cam.position, dir1)
+			px = (u - u1) * f32(tex_w)
+		}
+		if !ok1 || px < 1 { continue }
+
+		dx := p1.x - p0.x
+		dz := p1.y - p0.y
+		world := math.sqrt(dx*dx + dz*dz)
+		if world <= 1e-6 { continue }
+		return world / px, true
+	}
+	return 0, false
+}
+
+draw_adaptive_infinite_grid :: proc(app: ^App, fb_w, fb_h: i32) {
+	ev := &app.e_edit_view
 	if ev == nil || !ev.grid_visible { return }
-	center, radius, _ := scene_scale_recommendations(ev.scene_mgr)
-	cam := ev.cam3d.position
-	base_cell := clamp(radius / 18.0, f32(0.1), f32(1000.0)) / clamp(ev.grid_density, f32(0.25), f32(8.0))
-	levels := [3]f32{base_cell, base_cell * 10.0, base_cell * 100.0}
-	level_ext := [3]f32{28.0, 40.0, 55.0}
-	axis_col := rl.Color{120, 140, 185, 170}
+	cam3d := ev.cam3d
+	pos := cam3d.position
+	// Match BeginMode3D's projection: while a render texture is bound, this is the
+	// active framebuffer size (not the window and not necessarily stale EditView tex fields).
+	tw := fb_w
+	th := fb_h
+	rw := rl.GetRenderWidth()
+	rh := rl.GetRenderHeight()
+	if rw > 0 && rh > 0 {
+		tw = i32(rw)
+		th = i32(rh)
+	}
+	if tw <= 0 || th <= 0 { return }
 
-	for li in 0..<len(levels) {
-		cell := levels[li]
-		ext_cells := level_ext[li]
-		range_w := ext_cells * cell
-		min_x := math.floor((cam.x - range_w) / cell) * cell
-		max_x := math.ceil((cam.x + range_w) / cell) * cell
-		min_z := math.floor((cam.z - range_w) / cell) * cell
-		max_z := math.ceil((cam.z + range_w) / cell) * cell
+	density := clamp(ev.grid_density, f32(0.25), f32(8.0))
 
-		count_x := int((max_x - min_x) / cell + 1)
-		count_z := int((max_z - min_z) / cell + 1)
-		step_x := 1
-		if count_x > MAX_GRID_LINES_PER_AXIS {
-			step_x = (count_x + MAX_GRID_LINES_PER_AXIS - 1) / MAX_GRID_LINES_PER_AXIS
+	world_per_px, ok_scale := grid_world_units_per_pixel(cam3d, tw, th)
+	if ok_scale {
+		desired_base := max(world_per_px*GRID_TARGET_PIXELS, f32(1e-5))
+		if ev.grid_scale_tier == -999 {
+			ev.grid_scale_tier = int(math.round(math.log2(f64(desired_base))))
+		} else {
+			cur := ev.grid_scale_tier
+			cur_cell := f32(math.pow(2.0, f64(cur)))
+			for desired_base > cur_cell*GRID_TIER_HYSTERESIS {
+				cur += 1
+				cur_cell *= 2.0
+			}
+			for desired_base < cur_cell/GRID_TIER_HYSTERESIS {
+				cur -= 1
+				cur_cell *= 0.5
+			}
+			ev.grid_scale_tier = cur
 		}
-		step_z := 1
-		if count_z > MAX_GRID_LINES_PER_AXIS {
-			step_z = (count_z + MAX_GRID_LINES_PER_AXIS - 1) / MAX_GRID_LINES_PER_AXIS
+	} else if ev.grid_scale_tier == -999 {
+		fallback := max(math.abs(pos.y), EDITOR_VIEW_CLIP_NEAR)
+		ev.grid_scale_tier = int(math.round(math.log2(f64(fallback))))
+	}
+
+	base_cell := f32(math.pow(2.0, f64(ev.grid_scale_tier)))
+	base_cell = clamp(base_cell, f32(0.0001), EDITOR_VIEW_CLIP_FAR)
+	step := base_cell / density
+	ev.grid_current_cell = step
+
+	cells := [2]f32{step * GRID_MAJOR_RATIO, step}
+	alphas := [2]u8{120, 70}
+	axis_col := rl.Color{120, 140, 185, 180}
+
+	half := f32(MAX_GRID_LINES_PER_AXIS / 2)
+	extent := EDITOR_VIEW_CLIP_FAR
+
+	for li in 0 ..< len(cells) {
+		c := cells[li]
+		a := alphas[li]
+		base_col := rl.Color{95, 105, 130, a}
+
+		x_start := math.floor(pos.x/c)*c - half*c
+		for i := 0; i <= MAX_GRID_LINES_PER_AXIS; i += 1 {
+			wx := math.round((x_start + f32(i)*c) / c) * c
+			col := base_col
+			if math.abs(wx) < c * f32(0.1) { col = axis_col }
+			rl.DrawLine3D({wx, 0, -extent}, {wx, 0, extent}, col)
 		}
 
-		x_step := cell * f32(step_x)
-		z_step := cell * f32(step_z)
-		a_base := f32(110 - li * 25)
-
-		for x := min_x; x <= max_x; x += x_step {
-			dist := math.abs(x - cam.x) / max(range_w, f32(1e-3))
-			alpha := clamp(1.0 - dist, 0.0, 1.0) * a_base
-			col := rl.Color{95, 105, 130, u8(alpha)}
-			if math.abs(x - center[0]) < cell * 0.25 { col = axis_col }
-			rl.DrawLine3D(
-				rl.Vector3{x, 0, min_z},
-				rl.Vector3{x, 0, max_z},
-				col,
-			)
-		}
-		for z := min_z; z <= max_z; z += z_step {
-			dist := math.abs(z - cam.z) / max(range_w, f32(1e-3))
-			alpha := clamp(1.0 - dist, 0.0, 1.0) * a_base
-			col := rl.Color{95, 105, 130, u8(alpha)}
-			if math.abs(z - center[2]) < cell * 0.25 { col = axis_col }
-			rl.DrawLine3D(
-				rl.Vector3{min_x, 0, z},
-				rl.Vector3{max_x, 0, z},
-				col,
-			)
+		z_start := math.floor(pos.z/c)*c - half*c
+		for i := 0; i <= MAX_GRID_LINES_PER_AXIS; i += 1 {
+			wz := math.round((z_start + f32(i)*c) / c) * c
+			col := base_col
+			if math.abs(wz) < c * f32(0.1) { col = axis_col }
+			rl.DrawLine3D({-extent, 0, wz}, {extent, 0, wz}, col)
 		}
 	}
 }
@@ -138,12 +234,16 @@ render_viewport_to_texture :: proc(app: ^App, width, height: i32) {
 
 	rl.BeginTextureMode(ev.viewport_tex)
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})
+	prev_clip_n := rlgl.GetCullDistanceNear()
+	prev_clip_f := rlgl.GetCullDistanceFar()
+	rlgl.SetClipPlanes(f64(EDITOR_VIEW_CLIP_NEAR), f64(EDITOR_VIEW_CLIP_FAR))
 	rl.BeginMode3D(ev.cam3d)
-	draw_adaptive_infinite_grid(ev)
+	draw_adaptive_infinite_grid(app, width, height)
 	draw_viewport_scene_objects(app, ev, ev.selection_kind, ev.selected_idx)
 	draw_viewport_camera_gizmos(app, ev)
 	draw_world_axis(ev)
 	rl.EndMode3D()
+	rlgl.SetClipPlanes(prev_clip_n, prev_clip_f)
 	rl.EndTextureMode()
 }
 
@@ -186,4 +286,3 @@ pick_rotation_ring :: proc(mouse, vp_offset: rl.Vector2, cam_pos: rl.Vector3, ca
 	}
 	return best_axis
 }
-
