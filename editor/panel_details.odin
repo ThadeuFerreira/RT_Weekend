@@ -234,12 +234,11 @@ _details_draw_sphere :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 
 	kinds := [4]cstring{"Lambertian", "Metallic", "Dielectric", "DiffuseLight"}
 	current := c.int(sphere.material_kind)
-	imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds)))
-	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
-	if imgui.IsItemDeactivatedAfterEdit() {
+	if imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds))) {
+		before, _ := GetSceneEntity(ev.scene_mgr, idx)
 		sphere.material_kind = cast(core.MaterialKind)current
 		SetSceneSphere(ev.scene_mgr, idx, sphere)
-		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(sphere)})
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = before, after = core.SceneEntity(sphere)})
 		mark_scene_dirty(app)
 	}
 
@@ -396,12 +395,11 @@ _details_draw_quad :: proc(app: ^App, st: ^DetailsPanelState, idx: int) {
 
 	kinds := [4]cstring{"Lambertian", "Metallic", "Dielectric", "DiffuseLight"}
 	current := c.int(quad.material_kind)
-	imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds)))
-	if imgui.IsItemActivated() { st.drag_before_entity, _ = GetSceneEntity(ev.scene_mgr, idx) }
-	if imgui.IsItemDeactivatedAfterEdit() {
+	if imgui.ComboChar("Material", &current, &kinds[0], c.int(len(kinds))) {
+		before, _ := GetSceneEntity(ev.scene_mgr, idx)
 		quad.material_kind = cast(core.MaterialKind)current
 		SetSceneQuad(ev.scene_mgr, idx, quad)
-		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = st.drag_before_entity, after = core.SceneEntity(quad)})
+		edit_history_push(&app.edit_history, ModifyEntityAction{idx = idx, before = before, after = core.SceneEntity(quad)})
 		mark_scene_dirty(app)
 	}
 
