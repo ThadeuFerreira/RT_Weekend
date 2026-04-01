@@ -69,8 +69,7 @@ EditViewState :: struct {
 
 	// Scene manager (holds scene spheres for now; adapter for future polymorphism)
 	scene_mgr:      ^SceneManager,
-	export_scratch: [dynamic]core.SceneSphere, // reused by ExportToSceneSpheres callers; no per-frame alloc
-	selection_kind: EditViewSelectionKind,      // what is selected
+	selection_kind: EditViewSelectionKind, // what is selected
 	selected_idx:   int,                   // when Sphere/Quad: index into objects; else -1
 
 	// Drag-float property fields (sphere only)
@@ -83,13 +82,11 @@ EditViewState :: struct {
 	drag_obj_active:    bool,
 	drag_plane_y:      f32,    // Y of the horizontal movement plane
 	drag_offset_xz:    [2]f32, // grab-point offset in world XZ so the object doesn't snap
-	drag_before:       core.SceneSphere, // sphere state captured at viewport-drag start
-	drag_before_quad:  rt.Quad,          // quad state captured at viewport-drag start
-	drag_before_volume: core.SceneVolume, // volume state captured at viewport-drag start
+	drag_before: core.SceneEntity, // entity state captured at viewport-drag start
 
 	// Keyboard nudge history tracking
-	nudge_active: bool,             // true while any nudge key is held
-	nudge_before: core.SceneSphere, // sphere state captured at first nudge keydown
+	nudge_active: bool,          // true while any nudge key is held
+	nudge_before: core.SceneEntity, // entity state captured at first nudge keydown
 
 	// Camera orbit property drag (properties strip when camera is selected)
 	// -1=none; 0,1,2=Pos X/Y/Z; 3,4,5=yaw°/pitch°/dist; 6=roll°
@@ -181,7 +178,6 @@ init_edit_view :: proc(ev: ^EditViewState) {
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
-	ev.export_scratch = make([dynamic]core.SceneSphere)
 	ev.viewport_sphere_cache = make([dynamic]ViewportSphereCacheEntry)
 	initial := make([dynamic]core.SceneSphere)
 	append(&initial, core.SceneSphere{center = {-3, 0.5, 0}, radius = 0.5, material_kind = .Lambertian, albedo = core.ConstantTexture{color={0.8, 0.2, 0.2}}})

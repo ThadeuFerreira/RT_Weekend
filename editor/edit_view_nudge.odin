@@ -1,6 +1,4 @@
-// edit_view_nudge.odin — Keyboard nudge for selected sphere (move and radius).
-// Uses app.keyboard so keyboard input is centralized; reusable from any panel that has
-// access to App and EditViewState.
+// edit_view_nudge.odin — Keyboard nudge for selected scene entities.
 
 package editor
 
@@ -11,9 +9,7 @@ MOVE_SPEED   :: f32(0.05)
 RADIUS_SPEED :: f32(0.02)
 MIN_RADIUS   :: f32(0.05)
 
-// update_sphere_nudge runs nudge logic for the selected sphere using app.keyboard.
-// Call from the Edit View update phase when a sphere is selected. Captures before-state
-// on first keydown, applies movement/radius each frame, and pushes undo on key release.
+// update_sphere_nudge runs nudge logic for the selected sphere, quad, or volume.
 update_sphere_nudge :: proc(app: ^App, ev: ^EditViewState) {
 	if app == nil || ev == nil { return }
 	if ev.nav_keys_consumed {
@@ -21,49 +17,64 @@ update_sphere_nudge :: proc(app: ^App, ev: ^EditViewState) {
 		return
 	}
 	kb := &app.keyboard
-	if ev.selection_kind != .Sphere || ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) {
+	sk := ev.selection_kind
+	if (sk != .Sphere && sk != .Quad && sk != .Volume) ||
+	   ev.selected_idx < 0 ||
+	   ev.selected_idx >= SceneManagerLen(ev.scene_mgr) {
 		ev.nudge_active = false
 		return
 	}
 
-	// Capture before-state on first keydown of a nudge session
 	if kb.any_nudge && !ev.nudge_active {
 		ev.nudge_active = true
-		if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-			ev.nudge_before = sphere
+		if e, ok := GetSceneEntity(ev.scene_mgr, ev.selected_idx); ok {
+			ev.nudge_before = e
 		}
-		ui_log_drag_start(app, "SphereNudge")
+		ui_log_drag_start(app, "EntityNudge")
 	}
 
-	if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-		if kb.nudge_neg_z  { sphere.center[2] -= MOVE_SPEED }
-		if kb.nudge_pos_z  { sphere.center[2] += MOVE_SPEED }
-		if kb.nudge_neg_x  { sphere.center[0] -= MOVE_SPEED }
-		if kb.nudge_pos_x  { sphere.center[0] += MOVE_SPEED }
-		if kb.nudge_neg_y  { sphere.center[1] -= MOVE_SPEED }
-		if kb.nudge_pos_y  { sphere.center[1] += MOVE_SPEED }
-		if kb.nudge_radius_inc {
-			sphere.radius += RADIUS_SPEED
+	if e, ok := GetSceneEntity(ev.scene_mgr, ev.selected_idx); ok {
+		delta := [3]f32{0, 0, 0}
+		if kb.nudge_neg_z { delta[2] -= MOVE_SPEED }
+		if kb.nudge_pos_z { delta[2] += MOVE_SPEED }
+		if kb.nudge_neg_x { delta[0] -= MOVE_SPEED }
+		if kb.nudge_pos_x { delta[0] += MOVE_SPEED }
+		if kb.nudge_neg_y { delta[1] -= MOVE_SPEED }
+		if kb.nudge_pos_y { delta[1] += MOVE_SPEED }
+
+		#partial switch &ent in e {
+		case core.SceneSphere:
+			ent.center += delta
+			if ent.is_moving {
+				ent.center1 += delta
+			}
+			if kb.nudge_radius_inc {
+				ent.radius += RADIUS_SPEED
+			}
+			if kb.nudge_radius_dec {
+				ent.radius -= RADIUS_SPEED
+				if ent.radius < MIN_RADIUS { ent.radius = MIN_RADIUS }
+			}
+		case core.SceneQuad:
+			ent.Q += delta
+		case core.SceneVolume:
+			ent.translate += delta
 		}
-		if kb.nudge_radius_dec {
-			sphere.radius -= RADIUS_SPEED
-			if sphere.radius < MIN_RADIUS { sphere.radius = MIN_RADIUS }
-		}
-		SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
+		SetSceneEntity(ev.scene_mgr, ev.selected_idx, e)
+		mark_viewport_visual_dirty(ev)
 	}
 
-	// Commit nudge to history when all keys released
 	if !kb.any_nudge && ev.nudge_active {
 		ev.nudge_active = false
-		if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-			ui_log_drag_end(app, "SphereNudge")
-			edit_history_push(&app.edit_history, ModifySphereAction{
+		if e, ok := GetSceneEntity(ev.scene_mgr, ev.selected_idx); ok {
+			ui_log_drag_end(app, "EntityNudge")
+			edit_history_push(&app.edit_history, ModifyEntityAction{
 				idx    = ev.selected_idx,
 				before = ev.nudge_before,
-				after  = sphere,
+				after  = e,
 			})
 			mark_scene_dirty(app)
-			app_push_log(app, "Nudge sphere")
+			app_push_log(app, "Nudge object")
 			app.r_render_pending = true
 		}
 	}

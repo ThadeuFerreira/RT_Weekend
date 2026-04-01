@@ -188,7 +188,11 @@ content_browser_assign_texture :: proc(app: ^App, texture_path: string) -> bool 
     sphere.image_path = owned_path
     app_ensure_image_cached(app, owned_path)
     SetSceneSphere(ev.scene_mgr, ev.selected_idx, sphere)
-    edit_history_push(&app.edit_history, ModifySphereAction{idx = ev.selected_idx, before = before, after = sphere})
+    edit_history_push(&app.edit_history, ModifyEntityAction{
+        idx    = ev.selected_idx,
+        before = core.SceneEntity(before),
+        after  = core.SceneEntity(sphere),
+    })
     mark_scene_dirty(app)
     app_push_log(app, fmt.tprintf("Texture assigned: %s", filepath.base(texture_path)))
     return true

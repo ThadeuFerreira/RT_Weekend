@@ -60,6 +60,9 @@ file_import_from_path :: proc(app: ^App, path: string) {
     }
     rt.copy_camera_to_scene_params(&app.c_camera_params, cam)
     LoadFromWorld(ev.scene_mgr, world[:])
+    if volumes != nil {
+        AppendLoadedVolumes(ev.scene_mgr, volumes[:])
+    }
     align_editor_camera_to_render(ev, app.c_camera_params, true)
     ev.selection_kind = .None
     ev.selected_idx   = -1
@@ -84,9 +87,7 @@ file_import_from_path :: proc(app: ^App, path: string) {
     delete(app.r_world)
     app.r_world = world
     world = nil
-    clear(&app.e_volumes)
     if volumes != nil {
-        for v in volumes { append(&app.e_volumes, v) }
         delete(volumes)
     }
     app.elapsed_secs = 0
@@ -109,12 +110,13 @@ file_save_as_path :: proc(app: ^App, path: string) -> bool {
         path = new_path
     }
     ev := &app.e_edit_view
-    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    world := app_build_world_from_scene(app, ev.export_scratch[:])
-    AppendQuadsToWorld(ev.scene_mgr, &world)
-    defer delete(world)
+    world := app_rebuild_render_world(app)
+    defer { rt.free_world_volumes(world); delete(world) }
+    vols := make([dynamic]core.SceneVolume)
+    defer delete(vols)
+    CollectVolumes(ev.scene_mgr, &vols)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-    if persistence.save_scene(path, app.r_camera, world, app.e_volumes[:]) {
+    if persistence.save_scene(path, app.r_camera, world, vols[:]) {
         delete(app.current_scene_path)
         app.current_scene_path = path
         app.e_scene_dirty = false

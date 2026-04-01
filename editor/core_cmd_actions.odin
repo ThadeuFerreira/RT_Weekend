@@ -35,12 +35,9 @@ cmd_action_file_new :: proc(app: ^App) {
     delete(app.current_scene_path)
     app.current_scene_path = ""
 
-    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
     rt.free_world_volumes(app.r_world)
     delete(app.r_world)
-    app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
-    AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
-    app_append_volumes_to_world(app, &app.r_world)
+    app.r_world = app_rebuild_render_world(app)
 
     app.elapsed_secs = 0
 
@@ -74,12 +71,13 @@ cmd_action_file_import :: proc(app: ^App) {
 cmd_action_file_save :: proc(app: ^App) -> bool {
     if len(app.current_scene_path) == 0 { return false }
     ev := &app.e_edit_view
-    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    world := app_build_world_from_scene(app, ev.export_scratch[:])
-    AppendQuadsToWorld(ev.scene_mgr, &world)
-    defer delete(world)
+    world := app_rebuild_render_world(app)
+    defer { rt.free_world_volumes(world); delete(world) }
+    vols := make([dynamic]core.SceneVolume)
+    defer delete(vols)
+    CollectVolumes(ev.scene_mgr, &vols)
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-    if persistence.save_scene(app.current_scene_path, app.r_camera, world, app.e_volumes[:]) {
+    if persistence.save_scene(app.current_scene_path, app.r_camera, world, vols[:]) {
         app.e_scene_dirty = false
         app_push_log(app, fmt.tprintf("Saved: %s", app.current_scene_path))
         return true
@@ -170,9 +168,7 @@ cmd_action_save_preset :: proc(app: ^App) {
 
 cmd_action_render_restart :: proc(app: ^App) {
     ev := &app.e_edit_view
-    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
-    world := app_build_world_from_scene(app, ev.export_scratch[:])
-    AppendQuadsToWorld(ev.scene_mgr, &world)
+    world := app_rebuild_render_world(app)
 
     // When the render panel settings (height, samples, aspect) have changed,
     // recreate the camera at the new resolution instead of reusing the old one.
@@ -271,121 +267,67 @@ cmd_enabled_benchmark_stop :: proc(app: ^App) -> bool {
 
 // apply_edit_action applies an EditAction in the undo (is_undo=true) or redo (is_undo=false) direction.
 apply_edit_action :: proc(app: ^App, action: EditAction, is_undo: bool) {
-    ev := &app.e_edit_view
-    switch a in action {
-    case ModifySphereAction:
-        sphere := a.before if is_undo else a.after
-        SetSceneSphere(ev.scene_mgr, a.idx, sphere)
-        if is_undo {
-            app_push_log(app, "Undo: modify sphere")
-        } else {
-            app_push_log(app, "Redo: modify sphere")
-        }
-    case AddSphereAction:
-        if is_undo {
-            OrderedRemove(ev.scene_mgr, a.idx)
-            ev.selection_kind = .None
-            ev.selected_idx   = -1
-            app_push_log(app, "Undo: add sphere")
-        } else {
-            InsertSphereAt(ev.scene_mgr, a.idx, a.sphere)
-            ev.selection_kind = .Sphere
-            ev.selected_idx   = a.idx
-            app_push_log(app, "Redo: add sphere")
-        }
-    case DeleteSphereAction:
-        if is_undo {
-            InsertSphereAt(ev.scene_mgr, a.idx, a.sphere)
-            ev.selection_kind = .Sphere
-            ev.selected_idx   = a.idx
-            app_push_log(app, "Undo: delete sphere")
-        } else {
-            OrderedRemove(ev.scene_mgr, a.idx)
-            ev.selection_kind = .None
-            ev.selected_idx   = -1
-            app_push_log(app, "Redo: delete sphere")
-        }
-    case AddQuadAction:
-        if is_undo {
-            OrderedRemove(ev.scene_mgr, a.idx)
-            ev.selection_kind = .None
-            ev.selected_idx   = -1
-            app_push_log(app, "Undo: add quad")
-        } else {
-            InsertQuadAt(ev.scene_mgr, a.idx, a.quad)
-            ev.selection_kind = .Quad
-            ev.selected_idx   = a.idx
-            app_push_log(app, "Redo: add quad")
-        }
-    case DeleteQuadAction:
-        if is_undo {
-            InsertQuadAt(ev.scene_mgr, a.idx, a.quad)
-            ev.selection_kind = .Quad
-            ev.selected_idx   = a.idx
-            app_push_log(app, "Undo: delete quad")
-        } else {
-            OrderedRemove(ev.scene_mgr, a.idx)
-            ev.selection_kind = .None
-            ev.selected_idx   = -1
-            app_push_log(app, "Redo: delete quad")
-        }
-    case ModifyQuadAction:
-        if is_undo {
-            SetSceneQuad(ev.scene_mgr, a.idx, a.before)
-            app_push_log(app, "Undo: move quad")
-        } else {
-            SetSceneQuad(ev.scene_mgr, a.idx, a.after)
-            app_push_log(app, "Redo: move quad")
-        }
-    case ModifyCameraAction:
-        if is_undo {
-            app.c_camera_params = a.before
-            app_push_log(app, "Undo: camera")
-        } else {
-            app.c_camera_params = a.after
-            app_push_log(app, "Redo: camera")
-        }
-    case ModifyVolumeAction:
-        if a.idx >= 0 && a.idx < len(app.e_volumes) {
-            if is_undo {
-                app.e_volumes[a.idx] = a.before
-                app_push_log(app, "Undo: volume")
-            } else {
-                app.e_volumes[a.idx] = a.after
-                app_push_log(app, "Redo: volume")
-            }
-        }
-    case AddVolumeAction:
-        if is_undo {
-            if a.idx >= 0 && a.idx < len(app.e_volumes) {
-                ordered_remove(&app.e_volumes, a.idx)
-            }
-            ev.selection_kind = .None
-            ev.selected_idx   = -1
-            app_push_log(app, "Undo: add volume")
-        } else {
-            insert_idx := clamp(a.idx, 0, len(app.e_volumes))
-            inject_at(&app.e_volumes, insert_idx, a.volume)
-            ev.selection_kind = .Volume
-            ev.selected_idx   = insert_idx
-            app_push_log(app, "Redo: add volume")
-        }
-    case DeleteVolumeAction:
-        if is_undo {
-            insert_idx := clamp(a.idx, 0, len(app.e_volumes))
-            inject_at(&app.e_volumes, insert_idx, a.volume)
-            ev.selection_kind = .Volume
-            ev.selected_idx   = a.idx
-            app_push_log(app, "Undo: delete volume")
-        } else {
-            if a.idx >= 0 && a.idx < len(app.e_volumes) {
-                ordered_remove(&app.e_volumes, a.idx)
-            }
-            ev.selection_kind = .None
-            ev.selected_idx   = -1
-            app_push_log(app, "Redo: delete volume")
-        }
-    }
+	ev := &app.e_edit_view
+	switch a in action {
+	case ModifyEntityAction:
+		entity := a.before if is_undo else a.after
+		SetSceneEntity(ev.scene_mgr, a.idx, entity)
+		if is_undo {
+			app_push_log(app, "Undo: modify object")
+		} else {
+			app_push_log(app, "Redo: modify object")
+		}
+	case AddEntityAction:
+		if is_undo {
+			OrderedRemove(ev.scene_mgr, a.idx)
+			ev.selection_kind = .None
+			ev.selected_idx = -1
+			app_push_log(app, "Undo: add object")
+		} else {
+			InsertEntityAt(ev.scene_mgr, a.idx, a.entity)
+			ev.selection_kind = .None
+			ev.selected_idx = -1
+			#partial switch e in a.entity {
+			case core.SceneSphere:
+				ev.selection_kind = .Sphere
+				ev.selected_idx = a.idx
+			case core.SceneQuad:
+				ev.selection_kind = .Quad
+				ev.selected_idx = a.idx
+			case core.SceneVolume:
+				ev.selection_kind = .Volume
+				ev.selected_idx = a.idx
+			}
+			app_push_log(app, "Redo: add object")
+		}
+	case DeleteEntityAction:
+		if is_undo {
+			InsertEntityAt(ev.scene_mgr, a.idx, a.entity)
+			#partial switch e in a.entity {
+			case core.SceneSphere:
+				ev.selection_kind = .Sphere
+			case core.SceneQuad:
+				ev.selection_kind = .Quad
+			case core.SceneVolume:
+				ev.selection_kind = .Volume
+			}
+			ev.selected_idx = a.idx
+			app_push_log(app, "Undo: delete object")
+		} else {
+			OrderedRemove(ev.scene_mgr, a.idx)
+			ev.selection_kind = .None
+			ev.selected_idx = -1
+			app_push_log(app, "Redo: delete object")
+		}
+	case ModifyCameraAction:
+		if is_undo {
+			app.c_camera_params = a.before
+			app_push_log(app, "Undo: camera")
+		} else {
+			app.c_camera_params = a.after
+			app_push_log(app, "Redo: camera")
+		}
+	}
 }
 
 cmd_action_undo :: proc(app: ^App) {
@@ -408,60 +350,77 @@ cmd_enabled_redo :: proc(app: ^App) -> bool { return edit_history_can_redo(&app.
 // ── Copy / Paste / Duplicate ─────────────────────────────────────────────────
 
 cmd_action_copy :: proc(app: ^App) {
-    ev := &app.e_edit_view
-    if ev.selection_kind != .Sphere { return }
-    if sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx); ok {
-        app.e_clipboard_sphere = sphere
-        app.e_has_clipboard    = true
-        app_push_log(app, "Copied sphere")
-    }
+	ev := &app.e_edit_view
+	if ev.selection_kind == .None || ev.selection_kind == .Camera { return }
+	if ev.selected_idx < 0 { return }
+	if e, ok := GetSceneEntity(ev.scene_mgr, ev.selected_idx); ok {
+		app.e_clipboard = e
+		app.e_has_clipboard = true
+		app_push_log(app, "Copied object")
+	}
 }
 
 cmd_enabled_copy :: proc(app: ^App) -> bool {
-    return app.e_edit_view.selection_kind == .Sphere
+	sk := app.e_edit_view.selection_kind
+	return sk == .Sphere || sk == .Quad || sk == .Volume
 }
 
 cmd_action_paste :: proc(app: ^App) {
-    if !app.e_has_clipboard { return }
-    ev := &app.e_edit_view
-    n := SceneManagerLen(ev.scene_mgr)
-    insert_idx := n
-    if ev.selection_kind == .Sphere && ev.selected_idx >= 0 {
-        insert_idx = ev.selected_idx + 1
-    }
-    sphere := app.e_clipboard_sphere
-    sphere.center[0] += 0.5
-    sphere.center[2] += 0.5
-    InsertSphereAt(ev.scene_mgr, insert_idx, sphere)
-    ev.selection_kind = .Sphere
-    ev.selected_idx   = insert_idx
-    edit_history_push(&app.edit_history, AddSphereAction{idx = insert_idx, sphere = sphere})
-    mark_scene_dirty(app)
-    app_push_log(app, "Pasted sphere")
+	if !app.e_has_clipboard { return }
+	ev := &app.e_edit_view
+	n := SceneManagerLen(ev.scene_mgr)
+	insert_idx := n
+	if (ev.selection_kind == .Sphere || ev.selection_kind == .Quad || ev.selection_kind == .Volume) &&
+	   ev.selected_idx >= 0 {
+		insert_idx = ev.selected_idx + 1
+	}
+	entity := app.e_clipboard
+	core.entity_translate(&entity, {0.5, 0, 0.5})
+	InsertEntityAt(ev.scene_mgr, insert_idx, entity)
+	#partial switch e in entity {
+	case core.SceneSphere:
+		ev.selection_kind = .Sphere
+	case core.SceneQuad:
+		ev.selection_kind = .Quad
+	case core.SceneVolume:
+		ev.selection_kind = .Volume
+	}
+	ev.selected_idx = insert_idx
+	edit_history_push(&app.edit_history, AddEntityAction{idx = insert_idx, entity = entity})
+	mark_scene_dirty(app)
+	app_push_log(app, "Pasted object")
 }
 
 cmd_enabled_paste :: proc(app: ^App) -> bool {
-    return app.e_has_clipboard
+	return app.e_has_clipboard
 }
 
 cmd_action_duplicate :: proc(app: ^App) {
-    ev := &app.e_edit_view
-    if ev.selection_kind != .Sphere { return }
-    sphere, ok := GetSceneSphere(ev.scene_mgr, ev.selected_idx)
-    if !ok { return }
-    insert_idx := ev.selected_idx + 1
-    sphere.center[0] += 0.5
-    sphere.center[2] += 0.5
-    InsertSphereAt(ev.scene_mgr, insert_idx, sphere)
-    ev.selection_kind = .Sphere
-    ev.selected_idx   = insert_idx
-    edit_history_push(&app.edit_history, AddSphereAction{idx = insert_idx, sphere = sphere})
-    mark_scene_dirty(app)
-    app_push_log(app, "Duplicated sphere")
+	ev := &app.e_edit_view
+	if ev.selection_kind == .None || ev.selection_kind == .Camera { return }
+	if e, ok := GetSceneEntity(ev.scene_mgr, ev.selected_idx); ok {
+		insert_idx := ev.selected_idx + 1
+		entity := e
+		core.entity_translate(&entity, {0.5, 0, 0.5})
+		InsertEntityAt(ev.scene_mgr, insert_idx, entity)
+		#partial switch x in entity {
+		case core.SceneSphere:
+			ev.selection_kind = .Sphere
+		case core.SceneQuad:
+			ev.selection_kind = .Quad
+		case core.SceneVolume:
+			ev.selection_kind = .Volume
+		}
+		ev.selected_idx = insert_idx
+		edit_history_push(&app.edit_history, AddEntityAction{idx = insert_idx, entity = entity})
+		mark_scene_dirty(app)
+		app_push_log(app, "Duplicated object")
+	}
 }
 
 cmd_enabled_duplicate :: proc(app: ^App) -> bool {
-    return app.e_edit_view.selection_kind == .Sphere
+	sk := app.e_edit_view.selection_kind
+	return sk == .Sphere || sk == .Quad || sk == .Volume
 }
 
 // ── Edit View context menu actions ───────────────────────────────────────────

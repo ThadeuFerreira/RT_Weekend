@@ -97,7 +97,7 @@ Release builds use `-o:speed -no-bounds-check` and disable profiling/verbose out
 │   ├── gpu_backend_vulkan.odin  Vulkan compute backend (VulkanGPUBackend, VULKAN_RENDERER_API)
 │   ├── gpu_renderer.odin   GpuRendererApi vtable + create_gpu_renderer factory
 │   ├── raytrace.odin       setup_scene (default scene), write_buffer_to_png/ppm
-│   ├── scene_build.odin    build_world_from_scene
+│   ├── scene_build.odin    build_world_from_scene_entities
 │   └── profiling.odin      Zero-cost timing (PROFILING_ENABLED flag)
 ├── persistence/            Scene + config load/save (JSON)
 ├── editor/                 Dear ImGui docking UI + scene editor

@@ -59,7 +59,8 @@ load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     ev := &app.e_edit_view
     LoadFromSceneSpheres(ev.scene_mgr, spheres)
     for q in quads {
-        InsertQuadAt(ev.scene_mgr, SceneManagerLen(ev.scene_mgr), q)
+        sq := rt.rt_quad_to_scene_quad(q)
+        InsertQuadAt(ev.scene_mgr, SceneManagerLen(ev.scene_mgr), sq)
     }
     ev.selection_kind = .None
     ev.selected_idx   = -1
@@ -73,18 +74,12 @@ load_example_at :: proc(app: ^App, scene_idx: int, save_first: bool) -> bool {
     app.e_scene_dirty = false
     rt.free_session(app.r_session)
     app.r_session = nil
-    ExportToSceneSpheres(ev.scene_mgr, &ev.export_scratch)
+    if volumes != nil {
+        AppendLoadedVolumes(ev.scene_mgr, volumes)
+    }
     rt.free_world_volumes(app.r_world)
     delete(app.r_world)
-    app.r_world = app_build_world_from_scene(app, ev.export_scratch[:])
-    AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
-    clear(&app.e_volumes)
-    if volumes != nil {
-        for v in volumes { append(&app.e_volumes, v) }
-    }
-    for v in app.e_volumes {
-        append(&app.r_world, rt.build_volume_from_scene_volume(v))
-    }
+    app.r_world = app_rebuild_render_world(app)
     app.elapsed_secs = 0
     app_finalize_scene_load(app)
     return true

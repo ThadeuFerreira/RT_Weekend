@@ -7,8 +7,8 @@ import "RT_Weekend:util"
 
 // ExampleScene is a named scene builder used by the Examples menu.
 // build() returns (spheres, quads, camera, ground_texture, include_ground, volumes).
-// When ground_texture is nil, build_world_from_scene uses default grey ground.
-// When volumes is non-nil, caller must delete(volumes); volumes are copied into app.e_volumes and appended to world.
+// When ground_texture is nil, build_world_from_scene_entities uses default grey ground.
+// When volumes is non-nil, caller must delete(volumes); volumes are merged into SceneManager via AppendLoadedVolumes and the render world via app_rebuild_render_world.
 ExampleScene :: struct {
     label: string,
     build: proc() -> (
@@ -124,7 +124,7 @@ place_weekend_grid_spheres :: proc(rng: ^util.ThreadRNG, result: ^[dynamic]core.
 
 // build_weekend_final_scene returns the final scene from "Ray Tracing in One Weekend".
 // Uses a fixed seed (42) for deterministic output. Caller must delete the returned slice.
-// Ground plane is NOT included — build_world_from_scene auto-prepends it.
+// Ground plane is NOT included — the editor prepends it when building via build_world_from_scene_entities.
 build_weekend_final_scene :: proc() -> (
     spheres: []core.SceneSphere,
     quads: []raytrace.Quad,

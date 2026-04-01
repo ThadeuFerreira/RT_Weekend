@@ -262,7 +262,7 @@ scene_material_to_material :: proc(s: ^SceneMaterial, scene_dir: string, image_c
 			resolved := _scene_resolve_image_path(scene_dir, s.image_path)
 			defer delete(resolved)
 			if img := image_cache[resolved]; img != nil {
-				// Path must match cache key for later convert_world_to_edit_spheres / build_world_from_scene lookups.
+				// Path must match cache key for later scene_entity_to_rt_object / image cache lookups.
 				return rt.material(rt.lambertian{albedo = rt.ImageTextureRuntime{path = strings.clone(resolved), image = img}})
 			}
 		}

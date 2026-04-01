@@ -310,52 +310,59 @@ _imgui_toggle_btn :: proc(label: cstring, active: bool) -> bool {
 }
 
 @(private)
+entity_selection_kind :: proc(e: core.SceneEntity) -> EditViewSelectionKind {
+	switch x in e {
+	case core.SceneSphere:
+		return .Sphere
+	case core.SceneQuad:
+		return .Quad
+	case core.SceneVolume:
+		return .Volume
+	}
+	return .None
+}
+
+@(private)
 add_entry_object_to_scene :: proc(app: ^App, ev: ^EditViewState, entry_label: string) {
-    switch entry_label {
-    case "Add Sphere":
-        AppendDefaultSphere(ev.scene_mgr)
-        new_idx := SceneManagerLen(ev.scene_mgr) - 1
-        set_selection(ev, .Sphere, new_idx)
-        if obj, ok := GetSceneObject(ev.scene_mgr, new_idx); ok {
-            #partial switch o in obj {
-            case core.SceneSphere:
-                edit_history_push(&app.edit_history, AddSphereAction{idx = new_idx, sphere = o})
-                mark_scene_dirty(app)
-                app_push_log(app, "Add sphere")
-            }
-        }
-        app.r_render_pending = true
-    case "Add Quad":
-        AppendDefaultQuad(ev.scene_mgr)
-        new_idx := SceneManagerLen(ev.scene_mgr) - 1
-        set_selection(ev, .Quad, new_idx)
-        if obj, ok := GetSceneObject(ev.scene_mgr, new_idx); ok {
-            #partial switch o in obj {
-            case rt.Quad:
-                edit_history_push(&app.edit_history, AddQuadAction{idx = new_idx, quad = o})
-                mark_scene_dirty(app)
-                app_push_log(app, "Add quad")
-            }
-        }
-        app.r_render_pending = true
-    case "Add Volume":
-        box_min, box_max, trans := default_volume_from_scene_scale(ev.scene_mgr)
-        new_vol := core.SceneVolume{
-            box_min      = box_min,
-            box_max      = box_max,
-            rotate_y_deg = 0,
-            translate    = trans,
-            density      = 0.02,
-            albedo       = {0.8, 0.8, 0.8},
-        }
-        append(&app.e_volumes, new_vol)
-        new_idx := len(app.e_volumes) - 1
-        set_selection(ev, .Volume, new_idx)
-        edit_history_push(&app.edit_history, AddVolumeAction{idx = new_idx, volume = new_vol})
-        mark_scene_dirty(app)
-        app_push_log(app, "Add volume")
-        app.r_render_pending = true
-    }
+	switch entry_label {
+	case "Add Sphere":
+		AppendDefaultSphere(ev.scene_mgr)
+		new_idx := SceneManagerLen(ev.scene_mgr) - 1
+		set_selection(ev, .Sphere, new_idx)
+		if e, ok := GetSceneEntity(ev.scene_mgr, new_idx); ok {
+			edit_history_push(&app.edit_history, AddEntityAction{idx = new_idx, entity = e})
+			mark_scene_dirty(app)
+			app_push_log(app, "Add sphere")
+		}
+		app.r_render_pending = true
+	case "Add Quad":
+		AppendDefaultQuad(ev.scene_mgr)
+		new_idx := SceneManagerLen(ev.scene_mgr) - 1
+		set_selection(ev, .Quad, new_idx)
+		if e, ok := GetSceneEntity(ev.scene_mgr, new_idx); ok {
+			edit_history_push(&app.edit_history, AddEntityAction{idx = new_idx, entity = e})
+			mark_scene_dirty(app)
+			app_push_log(app, "Add quad")
+		}
+		app.r_render_pending = true
+	case "Add Volume":
+		box_min, box_max, trans := default_volume_from_scene_scale(ev.scene_mgr)
+		new_vol := core.SceneVolume{
+			box_min      = box_min,
+			box_max      = box_max,
+			rotate_y_deg = 0,
+			translate    = trans,
+			density      = 0.02,
+			albedo       = {0.8, 0.8, 0.8},
+		}
+		InsertEntityAt(ev.scene_mgr, SceneManagerLen(ev.scene_mgr), core.SceneEntity(new_vol))
+		new_idx := SceneManagerLen(ev.scene_mgr) - 1
+		set_selection(ev, .Volume, new_idx)
+		edit_history_push(&app.edit_history, AddEntityAction{idx = new_idx, entity = core.SceneEntity(new_vol)})
+		mark_scene_dirty(app)
+		app_push_log(app, "Add volume")
+		app.r_render_pending = true
+	}
 }
 
 @(private)
@@ -368,26 +375,11 @@ finalize_delete_entry_object :: proc(app: ^App, ev: ^EditViewState, log_label: s
 
 @(private)
 delete_entry_object_from_scene :: proc(app: ^App, ev: ^EditViewState, del_idx: int) {
-    if ev.selection_kind == .Volume && ev.selected_idx >= 0 && ev.selected_idx < len(app.e_volumes) {
-        dv := app.e_volumes[ev.selected_idx]
-        edit_history_push(&app.edit_history, DeleteVolumeAction{idx = ev.selected_idx, volume = dv})
-        ordered_remove(&app.e_volumes, ev.selected_idx)
-        finalize_delete_entry_object(app, ev, "Delete volume")
-        return
-    }
-
-    if obj, ok := GetSceneObject(ev.scene_mgr, del_idx); ok {
-        #partial switch o in obj {
-        case core.SceneSphere:
-            edit_history_push(&app.edit_history, DeleteSphereAction{idx = del_idx, sphere = o})
-            OrderedRemove(ev.scene_mgr, del_idx)
-            finalize_delete_entry_object(app, ev, "Delete sphere")
-        case rt.Quad:
-            edit_history_push(&app.edit_history, DeleteQuadAction{idx = del_idx, quad = o})
-            OrderedRemove(ev.scene_mgr, del_idx)
-            finalize_delete_entry_object(app, ev, "Delete quad")
-        }
-    }
+	if e, ok := GetSceneEntity(ev.scene_mgr, del_idx); ok {
+		edit_history_push(&app.edit_history, DeleteEntityAction{idx = del_idx, entity = e})
+		OrderedRemove(ev.scene_mgr, del_idx)
+		finalize_delete_entry_object(app, ev, "Delete object")
+	}
 }
 
 @(private)
@@ -594,7 +586,8 @@ _viewport_context_menu :: proc(app: ^App, ev: ^EditViewState) {
                     case "Add Sphere", "Add Quad", "Add Volume":
                         add_entry_object_to_scene(app, ev, entry.label)
                     case "Delete":
-                        delete_entry_object_from_scene(app, ev, ev.ctx_menu_hit_idx)
+                        del := ev.ctx_menu_hit_idx if ev.ctx_menu_hit_idx >= 0 else ev.selected_idx
+                        delete_entry_object_from_scene(app, ev, del)
                     }
                 }
             }
@@ -706,7 +699,7 @@ imgui_draw_details_panel :: proc(app: ^App) {
             _details_draw_quad(app, det, ev.selected_idx)
 
         case .Volume:
-            if ev.selected_idx < 0 || ev.selected_idx >= len(app.e_volumes) { break }
+            if ev.selected_idx < 0 || ev.selected_idx >= SceneManagerLen(ev.scene_mgr) { break }
             _details_draw_volume(app, det, ev.selected_idx)
         }
     }
@@ -902,39 +895,15 @@ imgui_draw_outliner_panel :: proc(app: ^App) {
         ev := &app.e_edit_view
         sm := ev.scene_mgr
 
-        obj_count := SceneManagerLen(sm)
-        vol_count := len(app.e_volumes)
-
         any_rows := false
-
-        for i in 0..<obj_count {
-            if sphere, ok := GetSceneSphere(sm, i); ok {
-                any_rows = true
-                label := fmt.ctprintf("Sphere %d  (%.2f, %.2f, %.2f)", i, sphere.center[0], sphere.center[1], sphere.center[2])
-                is_sel := ev.selection_kind == .Sphere && ev.selected_idx == i
-                if imgui.Selectable(label, is_sel) {
-                    set_selection(ev, .Sphere, i)
-                }
-                continue
-            }
-            if quad, ok := GetSceneQuad(sm, i); ok {
-                any_rows = true
-                label := fmt.ctprintf("Quad %d  (%.2f, %.2f, %.2f)", i, quad.Q[0], quad.Q[1], quad.Q[2])
-                is_sel := ev.selection_kind == .Quad && ev.selected_idx == i
-                if imgui.Selectable(label, is_sel) {
-                    set_selection(ev, .Quad, i)
-                }
-                continue
-            }
-        }
-
-        for i in 0..<vol_count {
+        name_buf: [96]u8
+        for i in 0 ..< SceneManagerLen(sm) {
+            e := sm.objects[i]
             any_rows = true
-            // TODO: Add volume position/bounds to label (spheres and quads show position)
-            label := fmt.ctprintf("Volume %d", i)
-            is_sel := ev.selection_kind == .Volume && ev.selected_idx == i
+            label := core.entity_display_name_into(name_buf[:], e, i)
+            is_sel := ev.selected_idx == i && ev.selection_kind == entity_selection_kind(e)
             if imgui.Selectable(label, is_sel) {
-                set_selection(ev, .Volume, i)
+                set_selection(ev, entity_selection_kind(e), i)
             }
         }
 

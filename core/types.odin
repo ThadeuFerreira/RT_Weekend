@@ -11,7 +11,7 @@ CheckerTexture :: struct {
 }
 
 // ImageTexture references an image file by path. At render time the path
-// is resolved via an image cache (e.g. build_world_from_scene image_cache).
+// is resolved via an image cache (e.g. build_world_from_scene_entities image_cache).
 // Hard-coded or later: import any image as texture.
 ImageTexture :: struct {
 	path: string,
@@ -78,7 +78,7 @@ is_ground_heuristic :: proc(center_y, radius: f32) -> bool {
 }
 
 // SceneSphere is the canonical in-memory representation of a sphere for the editor and the renderer.
-// The edit view stores these; raytrace.build_world_from_scene converts them to raytrace.Object.
+// The edit view stores these; raytrace.scene_entity_to_rt_object / build_world_from_scene_entities convert them to raytrace.Object.
 // For Lambertian: texture_kind and optional checker_* / image_path define the texture (albedo = even/constant color).
 SceneSphere :: struct {
 	center:            [3]f32,
@@ -101,6 +101,29 @@ SceneSphere :: struct {
 // Uses is_ground when set; otherwise falls back to is_ground_heuristic for backward compatibility.
 scene_sphere_is_ground :: proc(s: SceneSphere) -> bool {
 	return s.is_ground || is_ground_heuristic(s.center[1], s.radius)
+}
+
+// SceneQuad is the canonical scene representation of a quad (planar parallelogram).
+// Same material fields as SceneSphere; raytrace.scene_quad_to_rt_quad builds rt.Quad.
+SceneQuad :: struct {
+	Q:                 [3]f32, // corner
+	u:                 [3]f32, // edge 1
+	v:                 [3]f32, // edge 2
+	material_kind:     MaterialKind,
+	albedo:            Texture,
+	texture_kind:      TextureKind,
+	checker_scale:     f32,
+	checker_color_odd: [3]f32,
+	image_path:        string,
+	fuzz:              f32,
+	ref_idx:           f32,
+}
+
+// SceneEntity is the unified editable geometry union for the editor and scene manager.
+SceneEntity :: union {
+	SceneSphere,
+	SceneQuad,
+	SceneVolume,
 }
 
 // Default sky color when a ray misses the scene. Black so the only light comes from emitters.

@@ -97,7 +97,7 @@ The project is split across five Odin packages (build with `-collection:RT_Weeke
 | `render_backend.odin` | `RenderBackendApi` vtable, `RenderBackend`, backend helpers |
 | `cpu_backend.odin` | CPU tile renderer as a `RenderBackend` |
 | `raytrace.odin` | `setup_scene` (default scene), `write_buffer_to_ppm` |
-| `scene_build.odin` | `build_world_from_scene`, `convert_world_to_edit_spheres` |
+| `scene_build.odin` | `build_world_from_scene_entities`, `scene_entity_to_rt_object` |
 | `scene_io.odin` | `load_scene` / `save_scene` (JSON); preserves non-black camera background, and for black/missing background with no emissive materials it falls back to white before render |
 | `profiling.odin` | Zero-cost timing probes (gated by `PROFILING_ENABLED` compile flag) |
 
