@@ -4,11 +4,10 @@ package editor
 // Each field maps 1-to-1 with an imgui.Begin p_open argument so ImGui's
 // built-in close button writes directly to the bool.
 ImguiPanelVis :: struct {
-    render:          bool,
+    viewport:        bool,
     stats:           bool,
     console:         bool,
     system_info:     bool,
-    viewport:        bool,
     camera:          bool,
     details:         bool,
     camera_preview:  bool,
@@ -22,11 +21,10 @@ ImguiPanelVis :: struct {
 // given panel ID, or nil if the ID is unrecognised.
 _imgui_panel_vis_ptr :: proc(vis: ^ImguiPanelVis, id: string) -> ^bool {
     switch id {
-    case PANEL_ID_RENDER:          return &vis.render
+    case PANEL_ID_VIEWPORT:        return &vis.viewport
     case PANEL_ID_STATS:           return &vis.stats
     case PANEL_ID_CONSOLE:         return &vis.console
     case PANEL_ID_SYSTEM_INFO:     return &vis.system_info
-    case PANEL_ID_VIEWPORT:        return &vis.viewport
     case PANEL_ID_CAMERA:          return &vis.camera
     case PANEL_ID_DETAILS:         return &vis.details
     case PANEL_ID_CAMERA_PREVIEW:  return &vis.camera_preview

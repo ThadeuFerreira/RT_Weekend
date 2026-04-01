@@ -2,6 +2,7 @@ package editor
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
 import "core:os"
 import "core:strings"
 import "core:sync"
@@ -9,12 +10,77 @@ import "core:time"
 import glfw "vendor:glfw"
 import rl "vendor:raylib"
 import rt "RT_Weekend:raytrace"
+import vp "RT_Weekend:editor/viewport"
 import "RT_Weekend:core"
 import "RT_Weekend:persistence"
 import "RT_Weekend:util"
 import imgui "RT_Weekend:vendor/odin-imgui"
 
 LOG_RING_SIZE :: 64
+IDLE_UI_WAIT_TIMEOUT_SECS :: f64(0.050)
+IDLE_GPU_TRACE_INTERVAL :: 1 * time.Second
+EDITOR_IDLE_GPU_TRACE :: #config(EDITOR_IDLE_GPU_TRACE, 0)
+IDLE_GPU_TRACE_BUILD_DEFAULT :: util.VERBOSE_DEBUG_ENABLED || EDITOR_IDLE_GPU_TRACE != 0
+
+RenderState :: enum {
+    Idle,
+    Rendering,
+}
+
+IdleGpuTraceStats :: struct {
+    frames: u64,
+    presents: u64,
+    idle_wait_frames: u64,
+    idle_block_render_state: u64,
+    idle_block_pending_state: u64,
+    idle_block_resize: u64,
+    idle_block_viewport_dirty: u64,
+    idle_block_preview_dirty: u64,
+    idle_block_drag: u64,
+    idle_block_mouse_down: u64,
+    idle_block_imgui_active: u64,
+    idle_block_text_input: u64,
+
+    viewport_redraws:       u64,
+    viewport_reason_size:   u64,
+    viewport_reason_cam:    u64,
+    viewport_reason_scene:  u64,
+    viewport_reason_visual: u64,
+    viewport_reason_forced: u64,
+
+    preview_redraws:             u64,
+    preview_reason_size:         u64,
+    preview_reason_lookfrom:     u64,
+    preview_reason_lookat:       u64,
+    preview_reason_camera_params: u64,
+    preview_reason_scene:        u64,
+    preview_reason_manual:       u64,
+
+    last_emit: time.Time,
+}
+
+IdleWaitBlockReason :: enum {
+    None,
+    RenderState,
+    PendingState,
+    Resize,
+    ViewportDirty,
+    PreviewDirty,
+    Drag,
+    MouseDown,
+    ImguiActive,
+    TextInput,
+}
+
+// app_set_render_state is the single point of truth for render lifecycle transitions.
+// It sets render_state and derives finished so the two never drift.
+app_set_render_state :: proc(app: ^App, state: RenderState) {
+    app.render_state = state
+    #partial switch state {
+    case .Idle:      app.finished = true
+    case .Rendering: app.finished = false
+    }
+}
 
 // Panel chrome constants — shared by all panel draw procs.
 TITLE_BAR_HEIGHT   :: f32(24)
@@ -28,11 +94,10 @@ CONTENT_TEXT_COLOR :: rl.Color{200, 210, 220, 255}
 ACCENT_COLOR       :: rl.Color{100, 180, 255, 255}
 DONE_COLOR         :: rl.Color{100, 220, 120, 255}
 
-PANEL_ID_RENDER         :: "render_preview"
+PANEL_ID_VIEWPORT       :: "viewport"
 PANEL_ID_STATS          :: "stats"
 PANEL_ID_CONSOLE        :: "console"
 PANEL_ID_SYSTEM_INFO    :: "system_info"
-PANEL_ID_VIEWPORT       :: "viewport"
 PANEL_ID_CAMERA         :: "camera"
 PANEL_ID_DETAILS        :: "details"
 PANEL_ID_CAMERA_PREVIEW :: "camera_preview"
@@ -121,11 +186,85 @@ app_append_volumes_to_world :: proc(app: ^App, world: ^[dynamic]rt.Object) {
 app_start_render_session :: proc(app: ^App) -> bool {
     app.r_session = rt.start_render_auto(app.r_camera, app.r_world, app.num_threads, true)
     if app.r_session == nil {
-        app.finished = true
+        app_set_render_state(app, .Idle)
         app_push_log(app, "[GPU] Vulkan init failed; render session not started")
         return false
     }
+    app_set_render_state(app, .Rendering)
+    // Render now represents the current scene snapshot.
+    app.render_scene_version = app.scene_version
     return true
+}
+
+// app_finalize_scene_load updates scene versioning/dirty flags after replacing scene content.
+// It starts a render only when the viewport is in Raytrace mode; Editor mode stays idle.
+app_finalize_scene_load :: proc(app: ^App) {
+    if app == nil { return }
+    app.scene_version += 1
+    mark_viewport_dirty(&app.e_edit_view)
+    app.preview_needs_redraw = true
+    if app.e_edit_view.initialized {
+        app.e_edit_view.viz_bvh_dirty = true
+        app.e_edit_view.viewport_sphere_cache_dirty = true
+    }
+
+    if app.e_viewport.mode == .Raytrace {
+        app.render_start = time.now()
+        rt.init_camera(app.r_camera)
+        _ = app_start_render_session(app)
+    } else {
+        app_set_render_state(app, .Idle)
+        // No rendered snapshot for this scene yet; switching to Raytrace should start one.
+        app.render_scene_version = 0
+    }
+}
+
+app_request_render_state :: proc(app: ^App, next: RenderState) {
+    if app == nil { return }
+    app.pending_render_state_change = true
+    app.next_render_state = next
+}
+
+// app_start_render_fresh starts a new render from scratch. If a render is already
+// in progress (threads still running), it keeps the existing session instead of
+// blocking on finish_render.
+app_start_render_fresh :: proc(app: ^App) {
+    if app == nil { return }
+    // If a render is already in progress, just ensure state is Rendering.
+    if app.r_session != nil && !app.finished {
+        app_set_render_state(app, .Rendering)
+        return
+    }
+    // Free old completed session if any.
+    if app.r_session != nil {
+        rt.free_session(app.r_session)
+        app.r_session = nil
+    }
+    app.elapsed_secs = 0
+    app.render_start = time.now()
+    if app_start_render_session(app) {
+        app_push_log(app, fmt.tprintf("Re-rendering (%d objects)...", len(app.r_world)))
+    }
+}
+
+app_apply_pending_render_state_transition :: proc(app: ^App) {
+    if app == nil || !app.pending_render_state_change { return }
+    app.pending_render_state_change = false
+    next := app.next_render_state
+    switch next {
+    case .Rendering:
+        app_start_render_fresh(app)
+    case .Idle:
+        // Safety: clean up any lingering session.
+        if app.r_session != nil {
+            if !app.finished {
+                rt.finish_render(app.r_session)
+            }
+            rt.free_session(app.r_session)
+            app.r_session = nil
+        }
+        app_set_render_state(app, .Idle)
+    }
 }
 
 // app_restart_render replaces the current world with new_world and starts a fresh render.
@@ -144,7 +283,6 @@ app_restart_render :: proc(app: ^App, new_world: [dynamic]rt.Object) {
     delete(app.r_world)
     app.r_world = new_world
 
-    app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
 
@@ -174,7 +312,6 @@ app_restart_render_with_scene :: proc(app: ^App, scene_objects: []core.SceneSphe
     AppendQuadsToWorld(app.e_edit_view.scene_mgr, &app.r_world)
     app_append_volumes_to_world(app, &app.r_world)
 
-    app.finished     = false
     app.elapsed_secs = 0
     app.render_start = time.now()
 
@@ -218,8 +355,15 @@ App :: struct {
     r_aspect_ratio:     int,     // 0=4:3, 1=16:9
     r_active_input:     int,     // 0=none, 1=height, 2=samples, 3=aspect dropdown
 
-    // Track if render settings or scene have changed since last render
-    r_render_pending:   bool,    // true when settings or scene changed
+    // Render settings invalidation:
+    // Set when render panel inputs change (resolution/samples/aspect) or when viewport-driven
+    // size changes require the "settings" restart path (recreates camera + staging + Vulkan texture).
+    r_render_pending:   bool,
+    // Scene invalidation versioning:
+    // Incremented when the actual scene snapshot changes (objects/camera params/materials via edits).
+    // Used to auto-restart the render to avoid showing stale pixels.
+    scene_version:      u64,
+    render_scene_version: u64,
 
     log_lines:     [LOG_RING_SIZE]string,
     log_write_idx: int,
@@ -229,8 +373,12 @@ App :: struct {
     finished:      bool,
     elapsed_secs:  f64,
     render_start:  time.Time,
+    render_state: RenderState,
+    pending_render_state_change: bool,
+    next_render_state: RenderState,
 
     e_edit_view:    EditViewState,
+    e_viewport:     vp.Viewport,
     e_camera_panel: CameraPanelState,
     e_details:      DetailsPanelState,
     e_outliner:     OutlinerPanelState,
@@ -241,6 +389,11 @@ App :: struct {
     preview_port_tex: rl.RenderTexture2D,
     preview_port_w:   i32,
     preview_port_h:   i32,
+    preview_needs_redraw: bool,
+    prev_preview_lookfrom: [3]f32,
+    prev_preview_lookat:   [3]f32,
+    prev_preview_version:  u64,
+    prev_preview_camera_params: core.CameraParams,
 
     // Keyboard state: updated once per frame by keyboard_update; use instead of rl.IsKeyDown in features (nudge, etc.)
     keyboard: KeyboardState,
@@ -284,9 +437,296 @@ App :: struct {
 
     // Cached system info (queried once at startup; never changes at runtime)
     system_info: util.System_Info,
+
+    // Optional trace for diagnosing unexpected idle GPU load (disabled by default).
+    idle_gpu_trace_enabled: bool,
+    idle_gpu_trace:         IdleGpuTraceStats,
 }
 
 g_app: ^App = nil
+
+vec3_nearly_equal :: proc(a, b: rl.Vector3, eps: f32) -> bool {
+    return math.abs(a.x - b.x) <= eps &&
+        math.abs(a.y - b.y) <= eps &&
+        math.abs(a.z - b.z) <= eps
+}
+
+app_idle_gpu_trace_env_override :: proc() -> (set, enabled: bool) {
+    raw, ok := os.lookup_env("EDITOR_IDLE_GPU_TRACE")
+    if !ok || len(raw) == 0 { return false, false }
+    if raw == "0" || raw == "false" || raw == "FALSE" || raw == "off" || raw == "OFF" {
+        return true, false
+    }
+    if raw == "1" || raw == "true" || raw == "TRUE" || raw == "on" || raw == "ON" {
+        return true, true
+    }
+    fmt.eprintfln("[IdleGPU] unrecognised EDITOR_IDLE_GPU_TRACE value %q, defaulting to enabled", raw)
+    return true, true
+}
+
+app_trace_idle_gpu_note_viewport :: proc(app: ^App, size_changed, cam_changed, scene_changed, visual_changed, redraw: bool) {
+    if app == nil || !app.idle_gpu_trace_enabled { return }
+    st := &app.idle_gpu_trace
+    if !redraw { return }
+    st.viewport_redraws += 1
+    if size_changed { st.viewport_reason_size += 1 }
+    if cam_changed { st.viewport_reason_cam += 1 }
+    if scene_changed { st.viewport_reason_scene += 1 }
+    if visual_changed { st.viewport_reason_visual += 1 }
+    if !size_changed && !cam_changed && !scene_changed && !visual_changed {
+        st.viewport_reason_forced += 1
+    }
+}
+
+app_trace_idle_gpu_note_preview :: proc(app: ^App, size_changed, lookfrom_changed, lookat_changed, camera_params_changed, scene_changed, redraw: bool) {
+    if app == nil || !app.idle_gpu_trace_enabled { return }
+    st := &app.idle_gpu_trace
+    if !redraw { return }
+    st.preview_redraws += 1
+    if size_changed { st.preview_reason_size += 1 }
+    if lookfrom_changed { st.preview_reason_lookfrom += 1 }
+    if lookat_changed { st.preview_reason_lookat += 1 }
+    if camera_params_changed { st.preview_reason_camera_params += 1 }
+    if scene_changed { st.preview_reason_scene += 1 }
+    if !size_changed && !lookfrom_changed && !lookat_changed && !camera_params_changed && !scene_changed {
+        st.preview_reason_manual += 1
+    }
+}
+
+app_trace_idle_gpu_note_frame :: proc(app: ^App, idle_wait_used: bool, block_reason: IdleWaitBlockReason) {
+    if app == nil || !app.idle_gpu_trace_enabled { return }
+    st := &app.idle_gpu_trace
+    st.frames += 1
+    st.presents += 1
+    if idle_wait_used {
+        st.idle_wait_frames += 1
+        return
+    }
+    #partial switch block_reason {
+    case .RenderState:  st.idle_block_render_state += 1
+    case .PendingState: st.idle_block_pending_state += 1
+    case .Resize:       st.idle_block_resize += 1
+    case .ViewportDirty: st.idle_block_viewport_dirty += 1
+    case .PreviewDirty:  st.idle_block_preview_dirty += 1
+    case .Drag:         st.idle_block_drag += 1
+    case .MouseDown:    st.idle_block_mouse_down += 1
+    case .ImguiActive:  st.idle_block_imgui_active += 1
+    case .TextInput:    st.idle_block_text_input += 1
+    case .None:
+    }
+}
+
+app_trace_idle_gpu_reset_window :: proc(app: ^App) {
+    if app == nil { return }
+    last := app.idle_gpu_trace.last_emit
+    app.idle_gpu_trace = IdleGpuTraceStats{last_emit = last}
+}
+
+app_trace_idle_gpu_emit_if_due :: proc(app: ^App) {
+    if app == nil || !app.idle_gpu_trace_enabled { return }
+    st := &app.idle_gpu_trace
+    now := time.now()
+    if st.last_emit == (time.Time{}) {
+        st.last_emit = now
+        return
+    }
+    elapsed := time.diff(st.last_emit, now)
+    if elapsed < IDLE_GPU_TRACE_INTERVAL { return }
+    secs := time.duration_seconds(elapsed)
+    if secs <= 0 { secs = 1 }
+    app_push_log(app, fmt.tprintf(
+        "[IdleGPU] %.2fs presents=%d waits=%d block(render=%d pending=%d resize=%d vp_dirty=%d prev_dirty=%d drag=%d mouse=%d imgui=%d text=%d) vp=%d(size=%d cam=%d scene=%d visual=%d forced=%d) preview=%d(size=%d lookfrom=%d lookat=%d params=%d scene=%d manual=%d)",
+        secs,
+        st.presents,
+        st.idle_wait_frames,
+        st.idle_block_render_state,
+        st.idle_block_pending_state,
+        st.idle_block_resize,
+        st.idle_block_viewport_dirty,
+        st.idle_block_preview_dirty,
+        st.idle_block_drag,
+        st.idle_block_mouse_down,
+        st.idle_block_imgui_active,
+        st.idle_block_text_input,
+        st.viewport_redraws,
+        st.viewport_reason_size,
+        st.viewport_reason_cam,
+        st.viewport_reason_scene,
+        st.viewport_reason_visual,
+        st.viewport_reason_forced,
+        st.preview_redraws,
+        st.preview_reason_size,
+        st.preview_reason_lookfrom,
+        st.preview_reason_lookat,
+        st.preview_reason_camera_params,
+        st.preview_reason_scene,
+        st.preview_reason_manual,
+    ))
+    st.last_emit = now
+    app_trace_idle_gpu_reset_window(app)
+}
+
+app_idle_wait_block_reason :: proc(app: ^App) -> IdleWaitBlockReason {
+    if app == nil { return .RenderState }
+    if app.should_exit { return .RenderState }
+    if app.render_state != .Idle { return .RenderState }
+    if app.pending_render_state_change { return .PendingState }
+    if app.e_viewport.needs_resize { return .Resize }
+    if app.e_edit_view.viewport_needs_redraw { return .ViewportDirty }
+    if app.preview_needs_redraw { return .PreviewDirty }
+
+    ev := &app.e_edit_view
+    if ev.drag_obj_active || ev.cam_drag_active || ev.cam_rot_drag_axis >= 0 || ev.cam_prop_drag_idx >= 0 || ev.prop_drag_idx >= 0 || ev.bg_drag_idx >= 0 || ev.rmb_held {
+        return .Drag
+    }
+    if vk_is_mouse_down(glfw.MOUSE_BUTTON_LEFT) || vk_is_mouse_down(glfw.MOUSE_BUTTON_RIGHT) || vk_is_mouse_down(glfw.MOUSE_BUTTON_MIDDLE) {
+        return .MouseDown
+    }
+    if imgui.IsAnyItemActive() {
+        return .ImguiActive
+    }
+    io := imgui.GetIO()
+    if io.WantTextInput {
+        return .TextInput
+    }
+    return .None
+}
+
+app_should_use_idle_ui_wait :: proc(app: ^App) -> bool {
+    return app_idle_wait_block_reason(app) == .None
+}
+
+// viewport_resolution_change_is_significant returns true when either dimension
+// changes by at least 5% relative to the current render resolution.
+viewport_resolution_change_is_significant :: proc(curr_w, curr_h, next_w, next_h: int) -> bool {
+    if curr_w <= 0 || curr_h <= 0 || next_w <= 0 || next_h <= 0 { return false }
+    dw := next_w - curr_w
+    if dw < 0 { dw = -dw }
+    dh := next_h - curr_h
+    if dh < 0 { dh = -dh }
+    return (dw * 100 >= curr_w * 5) || (dh * 100 >= curr_h * 5)
+}
+
+app_update_editor_viewport_texture :: proc(app: ^App) {
+    if app == nil { return }
+    if app.e_viewport.mode != .Editor { return }
+    if !app.e_panel_vis.viewport { return }
+    if app.e_viewport.width <= 0 || app.e_viewport.height <= 0 { return }
+
+    ev := &app.e_edit_view
+    size_changed := i32(app.e_viewport.width) != ev.tex_w || i32(app.e_viewport.height) != ev.tex_h
+    cam_changed := !vec3_nearly_equal(ev.prev_cam_pos, ev.cam3d.position, 1e-4) || !vec3_nearly_equal(ev.prev_cam_target, ev.cam3d.target, 1e-4)
+    scene_changed := ev.prev_scene_version != app.scene_version
+    visual_changed := ev.prev_visual_version != ev.visual_version
+
+    if size_changed || cam_changed || scene_changed || visual_changed {
+        ev.viewport_needs_redraw = true                                                
+    }
+    app_trace_idle_gpu_note_viewport(app, size_changed, cam_changed, scene_changed, visual_changed, ev.viewport_needs_redraw)
+    if !ev.viewport_needs_redraw { return }
+
+    render_viewport_to_texture(app, i32(app.e_viewport.width), i32(app.e_viewport.height))
+    if ev.tex_w <= 0 || ev.tex_h <= 0 { return }
+    if !imgui_vk_ensure_texture(&app.vk_viewport_tex, ev.tex_w, ev.tex_h) { return }
+    vp_img := rl.LoadImageFromTexture(ev.viewport_tex.texture)
+    imgui_vk_update_texture(&app.vk_viewport_tex, vp_img.data)
+    rl.UnloadImage(vp_img)
+    ev.prev_cam_pos = ev.cam3d.position
+    ev.prev_cam_target = ev.cam3d.target
+    ev.prev_scene_version = app.scene_version
+    ev.prev_visual_version = ev.visual_version
+    ev.viewport_needs_redraw = false
+}
+
+viewport_provider_editor_update :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) {
+    _ = provider
+    if app_ptr == nil { return }
+    app := (^App)(app_ptr)
+    app_update_editor_viewport_texture(app)
+}
+
+viewport_provider_editor_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> vp.ViewportDisplayTexture {
+    _ = provider
+    if app_ptr == nil { return vp.ViewportDisplayTexture{} }
+    app := (^App)(app_ptr)
+    if !app.vk_viewport_tex.valid { return vp.ViewportDisplayTexture{} }
+    return vp.ViewportDisplayTexture{
+        valid      = true,
+        texture_id = imgui_vk_texture_id(&app.vk_viewport_tex),
+        width      = app.vk_viewport_tex.width,
+        height     = app.vk_viewport_tex.height,
+        // Raylib render targets are Y-flipped.
+        uv0        = {0, 1},
+        uv1        = {1, 0},
+    }
+}
+
+// No-op: editor viewport texture is resized lazily inside render_viewport_to_texture
+// each frame, so the provider resize hook has nothing to do.
+viewport_provider_editor_resize :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr, width, height: int) {
+    _ = provider
+    _ = app_ptr
+    _ = width
+    _ = height
+}
+
+viewport_provider_raytrace_update :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) {
+    _ = provider
+    _ = app_ptr
+    // Raytrace readback/upload cadence remains owned by the app frame loop.
+}
+
+viewport_provider_raytrace_get_texture :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr) -> vp.ViewportDisplayTexture {
+    _ = provider
+    if app_ptr == nil { return vp.ViewportDisplayTexture{} }
+    app := (^App)(app_ptr)
+    if !app.vk_render_tex.valid { return vp.ViewportDisplayTexture{} }
+    return vp.ViewportDisplayTexture{
+        valid      = true,
+        texture_id = imgui_vk_texture_id(&app.vk_render_tex),
+        width      = app.vk_render_tex.width,
+        height     = app.vk_render_tex.height,
+        uv0        = {0, 0},
+        uv1        = {1, 1},
+    }
+}
+
+viewport_provider_raytrace_resize :: proc(provider: ^vp.ViewportTextureProvider, app_ptr: rawptr, width, height: int) {
+    _ = provider
+    if app_ptr == nil { return }
+    app := (^App)(app_ptr)
+    if width <= 0 || height <= 0 { return }
+    if app.r_camera == nil { return }
+    // Only restart when the viewport is actually in Raytrace mode.
+    if app.e_viewport.mode != .Raytrace { return }
+
+    curr_w := app.r_camera.image_width
+    curr_h := app.r_camera.image_height
+    if curr_w == width && curr_h == height { return }
+    if !viewport_resolution_change_is_significant(curr_w, curr_h, width, height) { return }
+
+    // Policy: viewport-driven restart is allowed only when idle.
+    if app.render_state != .Idle { return }
+
+    samples := max(app.r_camera.samples_per_pixel, 1)
+    restart_render_with_settings(app, width, height, samples)
+}
+
+make_editor_viewport_provider :: proc() -> vp.ViewportTextureProvider {
+    p := vp.make_editor_texture_provider()
+    p.update = viewport_provider_editor_update
+    p.get_texture = viewport_provider_editor_get_texture
+    p.resize = viewport_provider_editor_resize
+    return p
+}
+
+make_raytrace_viewport_provider :: proc() -> vp.ViewportTextureProvider {
+    p := vp.make_raytrace_texture_provider()
+    p.update = viewport_provider_raytrace_update
+    p.get_texture = viewport_provider_raytrace_get_texture
+    p.resize = viewport_provider_raytrace_resize
+    return p
+}
 
 // mark_scene_dirty sets the scene as having unsaved changes. Call after any edit (add/delete/modify sphere or camera).
 // Also invalidates the Viewport cached BVH (viz_bvh_dirty) and viewport sphere cache so the 3D viewport
@@ -294,6 +734,9 @@ g_app: ^App = nil
 mark_scene_dirty :: proc(app: ^App) {
     if app != nil {
         app.e_scene_dirty = true
+        app.scene_version += 1
+        mark_viewport_dirty(&app.e_edit_view)
+        app.preview_needs_redraw = true
         if app.e_edit_view.initialized {
             app.e_edit_view.viz_bvh_dirty             = true
             app.e_edit_view.viewport_sphere_cache_dirty = true
@@ -449,11 +892,21 @@ run_app :: proc(
         r_samples_input     = fmt.aprintf("%d", r_camera.samples_per_pixel),
         r_aspect_ratio      = 1, // default to 16:9
         r_render_pending    = true, // initial render needed
+        scene_version       = 1,
+        render_scene_version = 0,  // always dirty on first Raytrace switch
+        preview_needs_redraw = true,
     }
     app.r_camera    = r_camera
     app.num_threads = num_threads
     app.prefer_gpu  = use_gpu
     app.system_info = util.get_system_info()
+    app.idle_gpu_trace_enabled = IDLE_GPU_TRACE_BUILD_DEFAULT
+    if trace_set, trace_enabled := app_idle_gpu_trace_env_override(); trace_set {
+        app.idle_gpu_trace_enabled = trace_enabled
+    }
+    if app.idle_gpu_trace_enabled {
+        app.idle_gpu_trace.last_emit = time.now()
+    }
     defer delete(app.pixel_staging)
     defer imgui_vk_destroy_texture(&app.vk_render_tex)
     defer imgui_vk_destroy_texture(&app.vk_viewport_tex)
@@ -471,6 +924,8 @@ run_app :: proc(
 	}
     app_set_image_texture_cache_from_world(&app, r_world)
     init_edit_view(&app.e_edit_view)
+    app.e_viewport = vp.viewport_init(app.r_camera.image_width, app.r_camera.image_height)
+    vp.viewport_set_providers(&app.e_viewport, make_editor_viewport_provider(), make_raytrace_viewport_provider())
     // If a world was passed in (from a scene file), populate the edit view with it.
     // Otherwise the edit view keeps its 3 default spheres.
     if len(r_world) > 0 {
@@ -496,6 +951,11 @@ run_app :: proc(
     app.e_camera_panel  = CameraPanelState{drag_idx = -1}
     app.e_content_browser = ContentBrowserState{selected_idx = -1, scan_requested = true}
     defer rl.UnloadRenderTexture(app.e_edit_view.viewport_tex)
+    defer {
+        if app.e_viewport.editor_target.id != 0 {
+            rl.UnloadRenderTexture(app.e_viewport.editor_target)
+        }
+    }
     defer { if app.preview_port_w > 0 { rl.UnloadRenderTexture(app.preview_port_tex) } }
     defer {
         delete(app.e_texture_view.last_sig)
@@ -525,11 +985,10 @@ run_app :: proc(
 
     // Panel visibility — all open by default; ImGui persists layout via imgui.ini.
     app.e_panel_vis = ImguiPanelVis{
-        render          = true,
+        viewport        = true,
         stats           = true,
         console         = true,
         system_info     = true,
-        viewport        = true,
         camera          = true,
         details         = true,
         camera_preview  = true,
@@ -539,12 +998,25 @@ run_app :: proc(
     }
 
     app.e_reset_layout = !os.exists("imgui.ini")
+    // One-time layout migration: reset when imgui.ini still references removed/renamed panels.
+    if !app.e_reset_layout && os.exists("imgui.ini") {
+        ini_data, ini_ok := os.read_entire_file("imgui.ini", context.temp_allocator)
+        if ini_ok {
+            ini_str := string(ini_data)
+            if strings.contains(ini_str, "Unified Viewport") || strings.contains(ini_str, "Render Preview") {
+                app.e_reset_layout = true
+            }
+        }
+    }
 
     g_app = &app
     rl.SetTraceLogCallback(cast(rl.TraceLogCallback)app_trace_log)
 
     app_push_log(&app, fmt.tprintf("Scene: %dx%d, %d spp", r_camera.image_width, r_camera.image_height, r_camera.samples_per_pixel))
     app_push_log(&app, fmt.tprintf("Threads: %d", num_threads))
+    if app.idle_gpu_trace_enabled {
+        app_push_log(&app, "[IdleGPU] tracing enabled (set EDITOR_IDLE_GPU_TRACE=0 to disable)")
+    }
     if use_gpu {
         app_push_log(&app, "Starting render (GPU mode requested)...")
     } else {
@@ -560,12 +1032,18 @@ run_app :: proc(
         app.ui_event_log_enabled = true
         cmd_action_benchmark_start(&app)
     }
-    _ = app_start_render_session(&app)
-    app.render_start = time.now()
+    // Only start a render session if we're launching in Raytrace mode.
+    // In Editor mode the render is deferred until the user switches to Raytrace.
+    if app.e_viewport.mode != .Editor {
+        _ = app_start_render_session(&app)
+        app.render_start = time.now()
 
-    // Log the actual render mode after start_render_auto decides CPU vs GPU.
-    if app.r_session != nil && app.r_session.use_gpu {
-        app_push_log(&app, "[GPU] GPU rendering active")
+        // Log the actual render mode after start_render_auto decides CPU vs GPU.
+        if app.r_session != nil && app.r_session.use_gpu {
+            app_push_log(&app, "[GPU] GPU rendering active")
+        }
+    } else {
+        app_set_render_state(&app, .Idle)
     }
 
     frame := 0
@@ -574,8 +1052,15 @@ run_app :: proc(
         frame_scope := util.trace_scope_begin("Frame", "game")
         frame += 1
 
-        if !app.finished {
+        if app.render_state == .Rendering && !app.finished {
             app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
+        }
+        vp.viewport_update(&app.e_viewport, rawptr(&app))
+
+        // Scene invalidation: when edits changed the scene snapshot and the render is idle,
+        // start a fresh render automatically (only in Raytrace viewport mode).
+        if app.scene_version != app.render_scene_version && app.render_state == .Idle && app.e_viewport.mode == .Raytrace {
+            cmd_execute(&app, CMD_RENDER_RESTART)
         }
 
         // ── Input phase (priority order) ──────────────────────────────────
@@ -620,14 +1105,14 @@ run_app :: proc(
         }
 
         // ── Backend tick: advance one unit of rendering work per frame ──
-        if app.r_session != nil && app.r_session.backend != nil && !rt.backend_done(app.r_session.backend) {
+        if app.render_state == .Rendering && app.r_session != nil && app.r_session.backend != nil && !rt.backend_done(app.r_session.backend) {
             tick_scope := util.trace_scope_begin("Backend.Tick", "render")
             defer util.trace_scope_end(tick_scope)
             rt.backend_tick(app.r_session.backend)
         }
 
         // ── Render texture upload (Vulkan) ───────────────────────────────
-        if app.r_session != nil && app.show_intermediate_render && frame % 4 == 0 {
+        if app.render_state == .Rendering && app.r_session != nil && app.show_intermediate_render && frame % 4 == 0 {
             if app.r_session.backend != nil {
                 out_bytes := transmute([][4]u8)(app.pixel_staging)
                 rt.backend_readback(app.r_session.backend, out_bytes)
@@ -635,7 +1120,7 @@ run_app :: proc(
             }
         }
 
-        if app.r_session != nil && !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
+        if app.render_state == .Rendering && app.r_session != nil && !app.finished && rt.get_render_progress(app.r_session) >= 1.0 {
             continuous_restart := false
             b := app.r_session.backend
             if b != nil && b.mode == .Continuous {
@@ -654,7 +1139,7 @@ run_app :: proc(
                 }
                 rt.finish_render(app.r_session)
                 app.elapsed_secs = time.duration_seconds(time.diff(app.render_start, time.now()))
-                app.finished = true
+                app_set_render_state(&app, .Idle)
                 // CPU backend: do a final readback after finish (threads joined, buffer complete).
                 if b != nil && b.kind == .CPU {
                     out_bytes := transmute([][4]u8)(app.pixel_staging)
@@ -666,9 +1151,16 @@ run_app :: proc(
         }
 
         // ── Draw phase (Vulkan presentation) ─────────────────────────────
+        idle_wait_reason := app_idle_wait_block_reason(&app)
+        idle_wait := idle_wait_reason == .None
+        wait_timeout := idle_wait ? IDLE_UI_WAIT_TIMEOUT_SECS : 0
+        imgui_vk_set_idle_wait_timeout(wait_timeout)
         imgui_rl_new_frame()
         imgui_draw_all_panels(&app)
         imgui_rl_render()
+        app_trace_idle_gpu_note_frame(&app, idle_wait, idle_wait_reason)
+        app_trace_idle_gpu_emit_if_due(&app)
+        app_apply_pending_render_state_transition(&app)
 
         util.trace_scope_end(frame_scope)
         free_all(context.temp_allocator)
@@ -677,6 +1169,7 @@ run_app :: proc(
     // Early close: finish_render still runs and blocks until workers drain the tile queue (no abort).
     if !app.finished {
         rt.finish_render(app.r_session)
+        app_set_render_state(&app, .Idle)
     }
 
     if len(config_save_path) > 0 {

@@ -17,7 +17,7 @@ The editor has been fully migrated from a hand-rolled Raylib panel system to **D
 | DockSpace + menu bar + all panels | `imgui_panels_stub.odin` | ✅ Done |
 | Console, Stats, System Info | `panel_console.odin` etc. | ✅ Track A |
 | Outliner, Camera | `panel_outliner.odin` etc. | ✅ Track B |
-| Render Preview, Viewport | `panel_render.odin` etc. | ✅ Track C |
+| Viewport (Editor/Raytrace) | `panel_render.odin` etc. | ✅ Track C |
 | Details | `panel_details.odin` | ✅ Track D |
 | Modals + menu bar | `panel_confirm_modal.odin` etc. | ✅ Track E |
 | Delete legacy Raylib files | `ui_*.odin`, `panel_registry.odin` | ✅ Track F |
@@ -119,7 +119,7 @@ App :: struct {
 
 | File | Panel |
 |---|---|
-| `panel_render.odin` | Render Preview |
+| `panel_render.odin` | Viewport render settings/helpers |
 | `panel_stats.odin` | Stats |
 | `panel_console.odin` | Console |
 | `panel_system_info.odin` | System Info |
@@ -148,8 +148,6 @@ imgui.Image(...)                                   // UV-flipped (Raylib Y-flip)
 
 Key files: `panel_viewport.odin` (render + grid), `edit_view_state.odin`, `edit_view_camera_math.odin`,
 `edit_view_input.odin`, `edit_view_nudge.odin`, `ui_viewport_scene.odin`.
-
-**From View** copies orbit lookfrom/lookat into `c_camera_params` without overwriting vup (preserves roll).
 
 ---
 
@@ -199,6 +197,13 @@ Dear ImGui is imported as a local vendor submodule (`RT_Weekend:vendor/odin-imgu
 
 ## UI event logging (`ui_event_log.odin`)
 
-Build-time flag: `UI_EVENT_LOG_ENABLED :: #config(UI_EVENT_LOG_ENABLED, ODIN_DEBUG)` — compiled out in release.
+Build-time flag: `UI_EVENT_LOG_ENABLED :: #config(UI_EVENT_LOG_ENABLED, ODIN_DEBUG || util.VERBOSE_DEBUG_ENABLED)` — compiled out in release unless explicitly enabled.
 Runtime toggle: `app.ui_event_log_enabled` (default `false`).
 Chrome trace output controlled independently by `TRACE_CAPTURE_ENABLED` + Render menu.
+
+## Idle GPU diagnostics / throttling
+
+- Editor viewport and camera preview are dirty-flag driven; redraw/upload happens only on relevant changes.
+- Main loop enters idle pacing (`glfw.WaitEventsTimeout`) when no redraw/input/render work is pending.
+- Build with `-define:VERBOSE_DEBUG=1` to enable `EDITOR_IDLE_GPU_TRACE` by default and emit per-second idle GPU cause counters.
+- Runtime override: `EDITOR_IDLE_GPU_TRACE=0|1` (`0/off/false` disables, `1/on/true` enables).

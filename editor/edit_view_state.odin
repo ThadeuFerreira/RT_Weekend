@@ -10,6 +10,13 @@ EditViewCameraMode :: enum {
 	FreeFly,
 }
 
+// EditorCameraBinding controls whether the editor camera is locked to the
+// render camera (RenderCamera) or free to navigate independently (FreeFly).
+EditorCameraBinding :: enum {
+	RenderCamera, // editor view = render view (default)
+	FreeFly,    // editor detached; render camera stays put
+}
+
 // EditViewState holds all state for the Edit View panel (viewport, orbit camera, selection, drag, etc.).
 EditViewState :: struct {
 	// Off-screen 3D viewport
@@ -18,6 +25,13 @@ EditViewState :: struct {
 
 	// Raylib 3D camera (recomputed every frame from orbit params)
 	cam3d: rl.Camera3D,
+	// Viewport redraw tracking to avoid per-frame render+readback+upload when idle.
+	viewport_needs_redraw: bool,
+	prev_cam_pos:          rl.Vector3,
+	prev_cam_target:       rl.Vector3,
+	prev_scene_version:    u64,
+	prev_visual_version:   u64,
+	visual_version:        u64,
 
 	// Orbit camera parameters (spherical coords around target)
 	camera_yaw:      f32,
@@ -25,6 +39,7 @@ EditViewState :: struct {
 	orbit_distance:  f32,
 	orbit_target:    rl.Vector3,
 	camera_mode:     EditViewCameraMode,
+	camera_binding:  EditorCameraBinding, // RenderCamera (default) or FreeFly
 
 	// Free-fly camera parameters
 	fly_lookfrom: [3]f32,
@@ -152,6 +167,7 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.prop_drag_idx  = -1
 	ev.cam_prop_drag_idx = -1
 	ev.cam_rot_drag_axis = -1
+	ev.bg_drag_idx = -1
 	ev.show_frustum_gizmo  = true
 	ev.show_focal_indicator = true
 	ev.show_aabbs          = false
@@ -161,6 +177,7 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.viz_bvh_root             = nil
 	ev.viz_bvh_dirty             = true
 	ev.viewport_sphere_cache_dirty = true
+	ev.viewport_needs_redraw = true
 
 	// initialize scene manager and seed with a few spheres
 	ev.scene_mgr = new_scene_manager()
@@ -177,6 +194,28 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.initialized = true
 	// app is not available here; nil is safe — trace event fires if capturing, log panel skipped.
 	ui_log_lifecycle(nil, "EditView", "Create")
+}
+
+mark_viewport_dirty :: proc(ev: ^EditViewState) {
+	if ev == nil { return }
+	ev.viewport_needs_redraw = true
+}
+
+mark_viewport_visual_dirty :: proc(ev: ^EditViewState) {
+	if ev == nil { return }
+	ev.visual_version += 1
+	ev.viewport_needs_redraw = true
+}
+
+// set_selection marks a new selection and flags a visual redraw only when
+// the selection actually changed. Returns true when the selection was updated.
+set_selection :: proc(ev: ^EditViewState, kind: EditViewSelectionKind, idx: int) -> bool {
+	if ev == nil { return false }
+	if ev.selection_kind == kind && ev.selected_idx == idx { return false }
+	ev.selection_kind = kind
+	ev.selected_idx   = idx
+	mark_viewport_visual_dirty(ev)
+	return true
 }
 
 align_editor_camera_to_render :: proc(ev: ^EditViewState, cp: core.CameraParams, place_in_front: bool) {
@@ -261,7 +300,6 @@ update_orbit_camera :: proc(ev: ^EditViewState) {
 }
 
 // get_orbit_camera_pose returns lookfrom and lookat for the current editor orbit camera.
-// Used by "From View"; vup is not returned so the handler can leave c_camera_params.vup unchanged and preserve roll.
 get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) {
 	pitch := ev.camera_pitch
 	dist  := ev.orbit_distance
@@ -273,4 +311,20 @@ get_orbit_camera_pose :: proc(ev: ^EditViewState) -> (lookfrom, lookat: [3]f32) 
 		t.z + dist * math.cos(pitch) * math.cos(ev.camera_yaw),
 	}
 	return
+}
+
+// sync_render_camera_from_editor copies the editor camera pose into the shared
+// render camera params each frame when camera_binding == .RenderCamera.
+// Uses cam3d (already recomputed by update_orbit_camera) so it works for both
+// Orbit and FreeFly camera modes.  Returns true when the camera actually moved.
+sync_render_camera_from_editor :: proc(ev: ^EditViewState, cp: ^core.CameraParams) -> bool {
+	if ev.camera_binding != .RenderCamera { return false }
+	p := ev.cam3d.position
+	t := ev.cam3d.target
+	new_lookfrom := [3]f32{p.x, p.y, p.z}
+	new_lookat   := [3]f32{t.x, t.y, t.z}
+	if new_lookfrom == cp.lookfrom && new_lookat == cp.lookat { return false }
+	cp.lookfrom = new_lookfrom
+	cp.lookat   = new_lookat
+	return true
 }

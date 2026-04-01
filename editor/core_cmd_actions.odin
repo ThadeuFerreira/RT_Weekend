@@ -42,12 +42,10 @@ cmd_action_file_new :: proc(app: ^App) {
     AppendQuadsToWorld(ev.scene_mgr, &app.r_world)
     app_append_volumes_to_world(app, &app.r_world)
 
-    app.finished     = false
     app.elapsed_secs = 0
 
     rt.apply_scene_camera(app.r_camera, &app.c_camera_params)
-    rt.init_camera(app.r_camera)
-    _ = app_start_render_session(app)
+    app_finalize_scene_load(app)
     app.e_scene_dirty = false
     app_push_log(app, "New scene (3 default spheres)")
 }
@@ -135,11 +133,10 @@ panel_visible :: proc(app: ^App, id: string) -> bool {
     return false
 }
 
-cmd_action_view_render :: proc(app: ^App) { toggle_panel(app, PANEL_ID_RENDER) }
+cmd_action_view_viewport :: proc(app: ^App) { toggle_panel(app, PANEL_ID_VIEWPORT) }
 cmd_action_view_stats  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_STATS) }
 cmd_action_view_console :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CONSOLE) }
 cmd_action_view_sysinfo:: proc(app: ^App) { toggle_panel(app, PANEL_ID_SYSTEM_INFO) }
-cmd_action_view_edit   :: proc(app: ^App) { toggle_panel(app, PANEL_ID_VIEWPORT) }
 cmd_action_view_camera :: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA) }
 cmd_action_view_props  :: proc(app: ^App) { toggle_panel(app, PANEL_ID_DETAILS) }
 cmd_action_view_preview:: proc(app: ^App) { toggle_panel(app, PANEL_ID_CAMERA_PREVIEW) }
@@ -152,11 +149,10 @@ cmd_action_view_content_browser :: proc(app: ^App) {
 }
 cmd_action_view_outliner :: proc(app: ^App) { toggle_panel(app, PANEL_ID_OUTLINER) }
 
-cmd_checked_view_render :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_RENDER) }
+cmd_checked_view_viewport :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_VIEWPORT) }
 cmd_checked_view_stats  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_STATS) }
 cmd_checked_view_console :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CONSOLE) }
 cmd_checked_view_sysinfo:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_SYSTEM_INFO) }
-cmd_checked_view_edit   :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_VIEWPORT) }
 cmd_checked_view_camera :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA) }
 cmd_checked_view_props  :: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_DETAILS) }
 cmd_checked_view_preview:: proc(app: ^App) -> bool { return panel_visible(app, PANEL_ID_CAMERA_PREVIEW) }
@@ -503,15 +499,18 @@ cmd_action_edit_view_lock_axis_z :: proc(app: ^App) {
 
 cmd_action_edit_view_grid_visible :: proc(app: ^App) {
     app.e_edit_view.grid_visible = !app.e_edit_view.grid_visible
+    mark_viewport_visual_dirty(&app.e_edit_view)
 }
 
 cmd_action_edit_view_grid_density_plus :: proc(app: ^App) {
     ev := &app.e_edit_view
     ev.grid_density = clamp(ev.grid_density * 1.25, f32(0.25), f32(8.0))
+    mark_viewport_visual_dirty(ev)
 }
 cmd_action_edit_view_grid_density_minus :: proc(app: ^App) {
     ev := &app.e_edit_view
     ev.grid_density = clamp(ev.grid_density / 1.25, f32(0.25), f32(8.0))
+    mark_viewport_visual_dirty(ev)
 }
 
 cmd_action_edit_view_speed_slow :: proc(app: ^App) {
@@ -564,11 +563,10 @@ register_all_commands :: proc(app: ^App) {
     cmd_register(cmd_reg, Command{id = CMD_FILE_EXIT,    label = "Exit",     shortcut = "Alt+F4", action = cmd_action_file_exit})
 
     // View — panels
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_RENDER,          label = "Render Preview",  action = cmd_action_view_render,          checked_proc = cmd_checked_view_render})
+    cmd_register(cmd_reg, Command{id = CMD_VIEW_VIEWPORT,         label = "Viewport",        action = cmd_action_view_viewport,        checked_proc = cmd_checked_view_viewport})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_STATS,           label = "Stats",           action = cmd_action_view_stats,           checked_proc = cmd_checked_view_stats})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_CONSOLE,         label = "Console",         action = cmd_action_view_console,         checked_proc = cmd_checked_view_console})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_SYSINFO,         label = "System Info",     action = cmd_action_view_sysinfo,         checked_proc = cmd_checked_view_sysinfo})
-    cmd_register(cmd_reg, Command{id = CMD_VIEW_EDIT,            label = "Viewport",        action = cmd_action_view_edit,            checked_proc = cmd_checked_view_edit})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_CAMERA,          label = "Camera",          action = cmd_action_view_camera,          checked_proc = cmd_checked_view_camera})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PROPS,           label = "Details",         action = cmd_action_view_props,           checked_proc = cmd_checked_view_props})
     cmd_register(cmd_reg, Command{id = CMD_VIEW_PREVIEW,         label = "Camera Preview",  action = cmd_action_view_preview,         checked_proc = cmd_checked_view_preview})

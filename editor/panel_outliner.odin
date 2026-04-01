@@ -31,7 +31,6 @@ update_outliner_content :: proc(app: ^App, rect: rl.Rectangle, mouse: rl.Vector2
 
 	kind, idx, ok := outliner_row_to_selection(sm, vol_count, row)
 	if ok {
-		ev.selection_kind = kind
-		ev.selected_idx   = idx
+		set_selection(ev, kind, idx)
 	}
 }

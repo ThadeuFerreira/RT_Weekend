@@ -9,11 +9,14 @@ draw_camera_gizmo :: proc(cam_pos, cam_at, vup: rl.Vector3, selected: bool) {
 	right   := rl.Vector3Normalize(rl.Vector3CrossProduct(fwd, vup))
 	up      := rl.Vector3CrossProduct(right, fwd)
 	hw, hh, apex_len := f32(0.14), f32(0.10), f32(0.35)
-	c0 := cam_pos - right*hw - up*hh
-	c1 := cam_pos + right*hw - up*hh
-	c2 := cam_pos + right*hw + up*hh
-	c3 := cam_pos - right*hw + up*hh
-	apex := cam_pos + fwd * apex_len
+	// Place the pyramid such that its tip (apex) is exactly at cam_pos.
+	// The camera "position" should correspond to the tip, not the base center.
+	base_center := cam_pos - fwd * apex_len
+	c0 := base_center - right*hw - up*hh
+	c1 := base_center + right*hw - up*hh
+	c2 := base_center + right*hw + up*hh
+	c3 := base_center - right*hw + up*hh
+	apex := cam_pos
 	cam_col := selected ? rl.YELLOW : rl.Color{255, 105, 180, 255}
 	wire_col := selected ? rl.Color{220, 200, 0, 200} : rl.Color{180, 80, 120, 200}
 	rl.DrawTriangle3D(c0, c1, apex, cam_col)

@@ -9,7 +9,7 @@ This project is written in the [Odin programming language](https://odin-lang.org
 **Build (Makefile):**
 
 ```bash
-make debug    # Debug build → build/debug
+make debug    # Debug build → build/debug (-define:VERBOSE_DEBUG=1)
 make release  # Release build → build/release (-o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -define:TRACE_CAPTURE_ENABLED=false)
 ```
 
@@ -17,7 +17,7 @@ make release  # Release build → build/release (-o:speed -no-bounds-check -defi
 
 ```bash
 # Debug
-odin build . -collection:RT_Weekend=. -debug -out:build/debug
+odin build . -collection:RT_Weekend=. -debug -define:VERBOSE_DEBUG=1 -out:build/debug
 
 # Release (optimized, quiet stdout)
 odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILING_ENABLED=false -define:VERBOSE_OUTPUT=false -define:TRACE_CAPTURE_ENABLED=false -out:build/release
@@ -38,6 +38,14 @@ odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILIN
 ./build/debug -w <int> -h <int> -s <samples> -n <spheres> -c <threads>
 ```
 
+**VERBOSE_DEBUG:** Convenience compile-time flag (`#config`, default `0`). Use `-define:VERBOSE_DEBUG=1` to enable diagnostics defaults in one switch:
+- `TRACK_ALLOCATIONS` default becomes enabled
+- `UI_EVENT_LOG_ENABLED` default becomes enabled
+- `EDITOR_IDLE_GPU_TRACE` default becomes enabled
+
+Individual flags can still be overridden explicitly with their own `-define`.  
+Runtime override for idle GPU tracing: `EDITOR_IDLE_GPU_TRACE=0|1` (`0/off/false` disables, `1/on/true` enables).
+
 **VERBOSE_OUTPUT:** A compile-time flag (`#config`, default `true`) controls non-essential stdout: startup config, system info, per-thread stats, timing breakdown, and GPU success messages. Error and fallback messages (e.g. GPU init failed) are always printed. Release builds set `VERBOSE_OUTPUT=false`.
 
 **TRACE_CAPTURE_ENABLED:** When `true`, Chrome-trace visual benchmarking (Render → Start/Stop Visual Benchmark Capture) is available; when `false`, trace code is compiled out and the benchmark menu items are disabled. Release builds set `TRACE_CAPTURE_ENABLED=false` so capture and file I/O add no overhead.
@@ -51,10 +59,9 @@ odin build . -collection:RT_Weekend=. -o:speed -no-bounds-check -define:PROFILIN
 - `-c`: thread count (defaults to physical CPU cores)
 
 The program opens a **Raylib window** with floating panels:
-- **Render Preview** — live RT image updating as tiles complete
+- **Viewport** — unified Editor / Raytrace view with mode toggle and render settings
 - **Stats** — tile progress, thread count, elapsed time
 - **Console** — startup and completion messages
-- **Viewport** — interactive 3D edit view
 - **Details** — selected object properties
 - **World Outliner** — scene object list
 
@@ -130,7 +137,9 @@ Scene file I/O is in **persistence** (`load_scene`, `save_scene`); config I/O is
 3. Each frame: uploads partial pixel buffer to GPU, polls progress, calls `finish_render()` when all tiles are done
 4. Draws panels, menu bar, and layout via `editor/ui_chrome.odin` and panel-specific modules
 
-**`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_RENDER`, `PANEL_ID_STATS`, `PANEL_ID_CONSOLE`, `PANEL_ID_VIEWPORT`, `PANEL_ID_CAMERA`, `PANEL_ID_DETAILS`, `PANEL_ID_CAMERA_PREVIEW`, `PANEL_ID_OUTLINER`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
+**Idle GPU fix (Editor mode):** The viewport and camera preview are now dirty-flag driven, and the Vulkan/ImGui loop uses `glfw.WaitEventsTimeout` when fully idle (`render_state=Idle`, no viewport/preview dirty flags, no active drag/input). This removes unnecessary ~60 FPS present churn while idle and lowers baseline GPU usage.
+
+**`editor/ui_chrome.odin`**: Panel chrome and theme — `update_panel`, `draw_panel_chrome`, `upload_render_texture`; `PanelStyle` and shared constants (`TITLE_BAR_HEIGHT`, `ACCENT_COLOR`, etc.). Panel IDs (`PANEL_ID_VIEWPORT`, `PANEL_ID_STATS`, `PANEL_ID_CONSOLE`, `PANEL_ID_CAMERA`, `PANEL_ID_DETAILS`, `PANEL_ID_CAMERA_PREVIEW`, `PANEL_ID_OUTLINER`, `PANEL_ID_SYSTEM_INFO`) are defined in `app.odin`. Menus and layout live in the same package. SDF font in `editor/ui_font.odin`; `draw_ui_text` / `measure_ui_text` in `app.odin`.
 
 **File dialogs and unsaved state:** Open/Save use **native OS dialogs** (no C/C++ libs) via `util.open_file_dialog`, `util.save_file_dialog`, and `util.dialog_default_dir`. When no scene file is open, the default directory is **`<cwd>/scenes`**; the `scenes/` folder exists in the repo (see `.gitignore`: `scenes/*` ignored, `!scenes/.gitkeep` keeps the folder). If the native dialog is unavailable, build with `-define:FILE_MODAL_FALLBACK=true` to fall back to the text path modal. **Save Changes?** appears when exiting or importing with unsaved changes; options are Save (overwrite), Save As (pick path), Cancel, Continue (discard). The editor only proceeds (exit/import) after a successful save or when the user chooses Continue/Cancel. **Load Example** always shows a confirmation; “Save & Load” is enabled only when the scene is dirty and uses Save As when there is no current path. Unsaved state is tracked in `e_scene_dirty`; any edit (including undo/redo) and all camera/material changes call `mark_scene_dirty`. `file_import_from_path` resets edit history; `cmd_action_file_save` and `file_save_as_path` return `bool` so callers can avoid proceeding on save failure.
 
