@@ -54,8 +54,8 @@ EditViewState :: struct {
 	// View grid controls
 	grid_visible:       bool,
 	grid_density:       f32,
-	grid_scale_tier:    int,  // grid LOD exponent for base cell (2^tier meters), -999 = unset
-	grid_current_cell:  f32,  // primary grid cell size in meters (base cell / density)
+	grid_scale_tier:    int,  // grid LOD exponent (10^tier meters, tier in [-1,3])
+	grid_current_cell:  f32,  // primary grid cell size in meters (decade / density)
 	nav_keys_consumed: bool,
 
 	// Right-drag orbit state
