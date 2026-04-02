@@ -210,6 +210,9 @@ imgui_draw_viewport_panel :: proc(app: ^App) {
 
             if mode == .Editor {
                 _viewport_editor_interaction(app, ev, vp_rect, hovered)
+                if ev != nil && ev.grid_visible {
+                    _viewport_grid_scale_label(ev, img_min, img_max)
+                }
             }
             if mode == .Raytrace {
                 _viewport_raytrace_overlay(app, img_min)
@@ -594,6 +597,19 @@ _viewport_context_menu :: proc(app: ^App, ev: ^EditViewState) {
         }
         imgui.EndPopup()
     }
+}
+
+@(private)
+_viewport_grid_scale_label :: proc(ev: ^EditViewState, img_min, img_max: imgui.Vec2) {
+    cell := ev.grid_current_cell
+    label: cstring
+    if cell >= 1 {
+        label = fmt.ctprintf("Grid: %.0fm", cell)
+    } else {
+        label = fmt.ctprintf("Grid: %.3gm", cell)
+    }
+    imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 8, img_max.y - 22})
+    imgui.TextDisabled(label)
 }
 
 @(private)

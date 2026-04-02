@@ -1,12 +1,22 @@
 package editor
 
-import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
-import rt "RT_Weekend:raytrace"
-import "RT_Weekend:core"
+import rlgl "vendor:raylib/rlgl"
 
-MAX_GRID_LINES_PER_AXIS :: 52
+// Editor 3D view: meters, perspective clip (matches rlgl defaults except near).
+EDITOR_VIEW_CLIP_NEAR :: f32(0.1) // 10 cm — minimal useful depth
+EDITOR_VIEW_CLIP_FAR  :: f32(1000.0) // 1 km — max view distance
+
+// Grid LOD: cell sizes are powers of 10 in [0.1 m, 1000 m].
+GRID_LOD_EXP_MIN :: -1 // 10^-1 = 0.1 m
+GRID_LOD_EXP_MAX :: 3  // 10^3 = 1000 m
+
+// Maximum lines drawn per axis per level. Caps GPU draw calls; also used to
+// bound the drawing extent per level so the coarse/fine split stays visible
+// even at shallow view angles (see draw_adaptive_infinite_grid).
+MAX_GRID_LINES_PER_AXIS :: 100
+
 BG_PRESET_COUNT  :: 6
 BG_PRESET_ITEM_H :: f32(22)
 
@@ -43,71 +53,182 @@ bg_preset_item_rect :: proc(popover: rl.Rectangle, idx: int) -> rl.Rectangle {
 	}
 }
 
-// draw_world_axis draws RGB axis lines at the origin so users can identify
-// coordinate directions (X=red, Y=green, Z=blue).  Length scales with scene.
-draw_world_axis :: proc(ev: ^EditViewState) {
-	_, radius, _ := scene_scale_recommendations(ev.scene_mgr)
-	size := max(radius * 0.5, 1.0)
-	origin := rl.Vector3{0, 0, 0}
-	rl.DrawLine3D(origin, origin + {size, 0, 0}, rl.RED)
-	rl.DrawLine3D(origin, origin + {0, size, 0}, rl.GREEN)
-	rl.DrawLine3D(origin, origin + {0, 0, size}, rl.BLUE)
+// draw_world_axis draws RGB axis lines through the origin in ±EDITOR_VIEW_CLIP_FAR
+// (Godot-style infinite axes, clipped by the view far plane).
+draw_world_axis :: proc(_: ^EditViewState) {
+	f := EDITOR_VIEW_CLIP_FAR
+	o := rl.Vector3{0, 0, 0}
+	rl.DrawLine3D(o + {-f, 0, 0}, o + {f, 0, 0}, rl.RED)
+	rl.DrawLine3D(o + {0, -f, 0}, o + {0, f, 0}, rl.GREEN)
+	rl.DrawLine3D(o + {0, 0, -f}, o + {0, 0, f}, rl.BLUE)
 }
 
-draw_adaptive_infinite_grid :: proc(ev: ^EditViewState) {
+// viewport_ray_dir returns the world-space unit direction for a perspective ray
+// through viewport UV (u,v) in [0,1]², Y-down (u=0,v=0 is top-left).
+// Matches the formula used in compute_viewport_ray (ui_viewport.odin).
+viewport_ray_dir :: proc(cam: rl.Camera3D, tex_w, tex_h: i32, u, v: f32) -> rl.Vector3 {
+	forward := rl.Vector3Normalize(cam.target - cam.position)
+	right   := rl.Vector3Normalize(rl.Vector3CrossProduct(forward, cam.up))
+	upv     := rl.Vector3CrossProduct(right, forward)
+	aspect  := f32(tex_w) / max(f32(tex_h), f32(1e-6))
+	half_h  := math.tan(cam.fovy * math.PI / 360.0) // fovy is degrees
+	half_w  := half_h * aspect
+	ndc_x   := (u * 2.0 - 1.0) * half_w
+	ndc_y   := (1.0 - v * 2.0) * half_h
+	return rl.Vector3Normalize(forward + right * ndc_x + upv * ndc_y)
+}
+
+// ray_hit_xz_plane_y0 intersects a ray with the y=0 plane.
+// Returns ok=false when the ray is parallel to the plane or hits behind the origin.
+ray_hit_xz_plane_y0 :: proc(origin, dir: rl.Vector3) -> (ok: bool, dist: f32, xz: rl.Vector2) {
+	dy := dir.y
+	if math.abs(dy) < 1e-6 { return false, 0, {} }
+	t := -origin.y / dy
+	if t < 0 { return false, 0, {} }
+	return true, t, {
+		origin.x + t * dir.x,
+		origin.z + t * dir.z,
+	}
+}
+
+// draw_adaptive_infinite_grid draws a Godot-style adaptive XZ grid on y=0.
+//
+// Algorithm overview
+// ──────────────────
+// 1. Cast five viewport rays (screen center + four corners) to the y=0 plane.
+//    The shortest hit distance drives the LOD — it represents the closest part of
+//    the grid that is actually visible, so the cell size is always appropriate for
+//    what the user sees near the camera.
+//
+// 2. Compute exp = floor(log10(dist)).  The primary cell is 10^exp / density.
+//    Two levels are drawn: fine (step) and coarse (step×10), crossfaded across
+//    the decade using frac = log10(dist) − exp.  This is the same technique
+//    Godot uses for its infinite grid.
+//
+// 3. The drawing extent for each level is the intersection of:
+//      a) the world frustum footprint on y=0 (min/max XZ from all corner hits), and
+//      b) a per-level line-budget cap: camera XZ ± (cell × MAX_GRID_LINES_PER_AXIS/2).
+//    Using cap (b) instead of a coarsening loop is the key to stability at shallow
+//    angles: when the frustum footprint is enormous (view nearly horizontal) the
+//    cell size does NOT jump — only the drawing extent is reduced.  The far grid
+//    lines near the horizon are clipped by the GPU far plane anyway.
+//
+// 4. Lines within 2% of a cell width of the origin axes are highlighted in the
+//    editor's accent colour instead of the grey grid colour.
+draw_adaptive_infinite_grid :: proc(app: ^App, fb_w, fb_h: i32) {
+	ev := &app.e_edit_view
 	if ev == nil || !ev.grid_visible { return }
-	center, radius, _ := scene_scale_recommendations(ev.scene_mgr)
-	cam := ev.cam3d.position
-	base_cell := clamp(radius / 18.0, f32(0.1), f32(1000.0)) / clamp(ev.grid_density, f32(0.25), f32(8.0))
-	levels := [3]f32{base_cell, base_cell * 10.0, base_cell * 100.0}
-	level_ext := [3]f32{28.0, 40.0, 55.0}
-	axis_col := rl.Color{120, 140, 185, 170}
+	cam3d := ev.cam3d
+	pos   := cam3d.position
 
-	for li in 0..<len(levels) {
-		cell := levels[li]
-		ext_cells := level_ext[li]
-		range_w := ext_cells * cell
-		min_x := math.floor((cam.x - range_w) / cell) * cell
-		max_x := math.ceil((cam.x + range_w) / cell) * cell
-		min_z := math.floor((cam.z - range_w) / cell) * cell
-		max_z := math.ceil((cam.z + range_w) / cell) * cell
+	// While a render texture is bound, GetRenderWidth/Height return the texture
+	// dimensions, which is what BeginMode3D's projection was built for.
+	tw := fb_w
+	th := fb_h
+	if rw := rl.GetRenderWidth();  rw > 0 { tw = i32(rw) }
+	if rh := rl.GetRenderHeight(); rh > 0 { th = i32(rh) }
+	if tw <= 0 || th <= 0 { return }
 
-		count_x := int((max_x - min_x) / cell + 1)
-		count_z := int((max_z - min_z) / cell + 1)
-		step_x := 1
-		if count_x > MAX_GRID_LINES_PER_AXIS {
-			step_x = (count_x + MAX_GRID_LINES_PER_AXIS - 1) / MAX_GRID_LINES_PER_AXIS
+	density := clamp(ev.grid_density, f32(0.25), f32(8.0))
+
+	// ── Step 1: cast five rays, collect frustum footprint and min hit distance ──
+	uv_center  := [2]f32{0.5, 0.5}
+	uv_corners := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+
+	min_x, max_x := f32(0), f32(0)
+	min_z, max_z := f32(0), f32(0)
+	first_corner := true
+	min_dist     := f32(1e30)
+
+	dir_c := viewport_ray_dir(cam3d, tw, th, uv_center[0], uv_center[1])
+	if ok_c, d_c, xz_c := ray_hit_xz_plane_y0(pos, dir_c); ok_c {
+		min_dist = d_c
+		min_x = xz_c.x; max_x = xz_c.x
+		min_z = xz_c.y; max_z = xz_c.y
+		first_corner = false
+	}
+	for uv in uv_corners {
+		dir := viewport_ray_dir(cam3d, tw, th, uv[0], uv[1])
+		ok, d, xz := ray_hit_xz_plane_y0(pos, dir)
+		if !ok { continue }
+		if d < min_dist { min_dist = d }
+		if first_corner {
+			min_x = xz.x; max_x = xz.x
+			min_z = xz.y; max_z = xz.y
+			first_corner = false
+		} else {
+			if xz.x < min_x { min_x = xz.x }
+			if xz.x > max_x { max_x = xz.x }
+			if xz.y < min_z { min_z = xz.y }
+			if xz.y > max_z { max_z = xz.y }
 		}
-		step_z := 1
-		if count_z > MAX_GRID_LINES_PER_AXIS {
-			step_z = (count_z + MAX_GRID_LINES_PER_AXIS - 1) / MAX_GRID_LINES_PER_AXIS
-		}
+	}
 
-		x_step := cell * f32(step_x)
-		z_step := cell * f32(step_z)
-		a_base := f32(110 - li * 25)
+	// Fallback when all rays miss (looking at sky): use camera height above plane.
+	if first_corner {
+		min_dist = max(math.abs(pos.y), EDITOR_VIEW_CLIP_NEAR)
+		r := EDITOR_VIEW_CLIP_FAR
+		min_x = pos.x - r; max_x = pos.x + r
+		min_z = pos.z - r; max_z = pos.z + r
+	}
 
-		for x := min_x; x <= max_x; x += x_step {
-			dist := math.abs(x - cam.x) / max(range_w, f32(1e-3))
-			alpha := clamp(1.0 - dist, 0.0, 1.0) * a_base
-			col := rl.Color{95, 105, 130, u8(alpha)}
-			if math.abs(x - center[0]) < cell * 0.25 { col = axis_col }
-			rl.DrawLine3D(
-				rl.Vector3{x, 0, min_z},
-				rl.Vector3{x, 0, max_z},
-				col,
-			)
+	dist := clamp(min_dist, EDITOR_VIEW_CLIP_NEAR, EDITOR_VIEW_CLIP_FAR)
+
+	// ── Step 2: Godot-style decade LOD ──────────────────────────────────────────
+	log_dist := math.log10(f64(dist))
+	exp      := clamp(int(math.floor(log_dist)), GRID_LOD_EXP_MIN, GRID_LOD_EXP_MAX)
+	frac     := f32(log_dist - f64(exp))
+
+	step_base := f32(math.pow(10.0, f64(exp)))
+	step      := step_base / density
+	ev.grid_scale_tier   = exp
+	ev.grid_current_cell = step
+
+	// Two levels with crossfade across the decade.
+	cells  := [2]f32{step * 10.0, step}
+	alphas := [2]u8{
+		u8(40 + int(90 * frac)),      // coarse: fades in  as we zoom out
+		u8(int(130 * (1.0 - frac))),  // fine:   fades out as we zoom out
+	}
+	axis_col := rl.Color{120, 140, 185, 180}
+
+	// ── Step 3: draw each level ──────────────────────────────────────────────────
+	for li in 0 ..< len(cells) {
+		c := cells[li]
+		a := alphas[li]
+		if a < 5 { continue }
+
+		// Extent = frustum footprint intersected with per-level line-budget cap.
+		// The cap prevents the coarsening instability at shallow view angles:
+		// large footprints are simply drawn to fewer lines, not to larger cells.
+		half_ext := c * f32(MAX_GRID_LINES_PER_AXIS / 2)
+		x_lo := max(min_x, pos.x - half_ext)
+		x_hi := min(max_x, pos.x + half_ext)
+		z_lo := max(min_z, pos.z - half_ext)
+		z_hi := min(max_z, pos.z + half_ext)
+
+		mg   := max(c * f32(0.25), c * f32(0.05))
+		x_lo -= mg; x_hi += mg
+		z_lo -= mg; z_hi += mg
+
+		ix0 := int(math.floor(f64(x_lo / c)))
+		ix1 := int(math.ceil(f64(x_hi / c)))
+		jz0 := int(math.floor(f64(z_lo / c)))
+		jz1 := int(math.ceil(f64(z_hi / c)))
+
+		base_col := rl.Color{95, 105, 130, a}
+
+		for i := ix0; i <= ix1; i += 1 {
+			wx  := f32(i) * c
+			col := base_col
+			if math.abs(wx) <= c * f32(0.02) { col = axis_col }
+			rl.DrawLine3D({wx, 0, z_lo}, {wx, 0, z_hi}, col)
 		}
-		for z := min_z; z <= max_z; z += z_step {
-			dist := math.abs(z - cam.z) / max(range_w, f32(1e-3))
-			alpha := clamp(1.0 - dist, 0.0, 1.0) * a_base
-			col := rl.Color{95, 105, 130, u8(alpha)}
-			if math.abs(z - center[2]) < cell * 0.25 { col = axis_col }
-			rl.DrawLine3D(
-				rl.Vector3{min_x, 0, z},
-				rl.Vector3{max_x, 0, z},
-				col,
-			)
+		for j := jz0; j <= jz1; j += 1 {
+			wz  := f32(j) * c
+			col := base_col
+			if math.abs(wz) <= c * f32(0.02) { col = axis_col }
+			rl.DrawLine3D({x_lo, 0, wz}, {x_hi, 0, wz}, col)
 		}
 	}
 }
@@ -138,12 +259,16 @@ render_viewport_to_texture :: proc(app: ^App, width, height: i32) {
 
 	rl.BeginTextureMode(ev.viewport_tex)
 	rl.ClearBackground(rl.Color{20, 25, 35, 255})
+	prev_clip_n := rlgl.GetCullDistanceNear()
+	prev_clip_f := rlgl.GetCullDistanceFar()
+	rlgl.SetClipPlanes(f64(EDITOR_VIEW_CLIP_NEAR), f64(EDITOR_VIEW_CLIP_FAR))
 	rl.BeginMode3D(ev.cam3d)
-	draw_adaptive_infinite_grid(ev)
+	draw_adaptive_infinite_grid(app, width, height)
 	draw_viewport_scene_objects(app, ev, ev.selection_kind, ev.selected_idx)
 	draw_viewport_camera_gizmos(app, ev)
 	draw_world_axis(ev)
 	rl.EndMode3D()
+	rlgl.SetClipPlanes(prev_clip_n, prev_clip_f)
 	rl.EndTextureMode()
 }
 
@@ -186,4 +311,3 @@ pick_rotation_ring :: proc(mouse, vp_offset: rl.Vector2, cam_pos: rl.Vector3, ca
 	}
 	return best_axis
 }
-
