@@ -12,6 +12,7 @@ MAX_GRID_LINES_PER_AXIS :: 100
 GRID_TIER_HYSTERESIS   :: f32(1.20) // reduce tier flapping while orbiting/tilting
 GRID_TARGET_PIXELS     :: f32(46)   // desired minor grid spacing on screen
 GRID_MAJOR_RATIO       :: f32(8)    // major line spacing = minor * ratio
+GRID_AXIS_EPS_FRAC     :: f32(0.02) // treat lines within 2% of cell as origin axis
 BG_PRESET_COUNT  :: 6
 BG_PRESET_ITEM_H :: f32(22)
 
@@ -78,7 +79,7 @@ ray_hit_xz_plane_y0 :: proc(origin, dir: rl.Vector3) -> (ok: bool, dist: f32, xz
 	dy := dir.y
 	if math.abs(dy) < 1e-6 { return false, 0, {} }
 	t := -origin.y / dy
-	if t < 0 { return false, 0, {} }
+	if t < EDITOR_VIEW_CLIP_NEAR * 0.01 { return false, 0, {} }
 	return true, t, {
 		origin.x + t * dir.x,
 		origin.z + t * dir.z,
@@ -182,7 +183,7 @@ draw_adaptive_infinite_grid :: proc(app: ^App, fb_w, fb_h: i32) {
 	alphas := [2]u8{120, 70}
 	axis_col := rl.Color{120, 140, 185, 180}
 
-	half := f32(MAX_GRID_LINES_PER_AXIS / 2)
+	line_radius := f32(MAX_GRID_LINES_PER_AXIS / 2)
 	extent := EDITOR_VIEW_CLIP_FAR
 
 	for li in 0 ..< len(cells) {
@@ -190,19 +191,19 @@ draw_adaptive_infinite_grid :: proc(app: ^App, fb_w, fb_h: i32) {
 		a := alphas[li]
 		base_col := rl.Color{95, 105, 130, a}
 
-		x_start := math.floor(pos.x/c)*c - half*c
+		x_start := math.floor(pos.x/c)*c - line_radius*c
 		for i := 0; i <= MAX_GRID_LINES_PER_AXIS; i += 1 {
 			wx := math.round((x_start + f32(i)*c) / c) * c
 			col := base_col
-			if math.abs(wx) < c * f32(0.1) { col = axis_col }
+			if math.abs(wx) <= c * GRID_AXIS_EPS_FRAC { col = axis_col }
 			rl.DrawLine3D({wx, 0, -extent}, {wx, 0, extent}, col)
 		}
 
-		z_start := math.floor(pos.z/c)*c - half*c
+		z_start := math.floor(pos.z/c)*c - line_radius*c
 		for i := 0; i <= MAX_GRID_LINES_PER_AXIS; i += 1 {
 			wz := math.round((z_start + f32(i)*c) / c) * c
 			col := base_col
-			if math.abs(wz) < c * f32(0.1) { col = axis_col }
+			if math.abs(wz) <= c * GRID_AXIS_EPS_FRAC { col = axis_col }
 			rl.DrawLine3D({-extent, 0, wz}, {extent, 0, wz}, col)
 		}
 	}

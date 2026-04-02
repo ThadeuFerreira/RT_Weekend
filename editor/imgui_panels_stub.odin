@@ -604,9 +604,9 @@ _viewport_grid_scale_label :: proc(ev: ^EditViewState, img_min, img_max: imgui.V
     cell := ev.grid_current_cell
     label: cstring
     if cell >= 1 {
-        label = fmt.ctprintf("Grid: %.0f", cell)
+        label = fmt.ctprintf("Grid: %.0fm", cell)
     } else {
-        label = fmt.ctprintf("Grid: %.3g", cell)
+        label = fmt.ctprintf("Grid: %.3gm", cell)
     }
     imgui.SetCursorScreenPos(imgui.Vec2{img_min.x + 8, img_max.y - 22})
     imgui.TextDisabled(label)

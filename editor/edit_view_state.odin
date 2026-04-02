@@ -54,7 +54,7 @@ EditViewState :: struct {
 	// View grid controls
 	grid_visible:       bool,
 	grid_density:       f32,
-	grid_scale_tier:    int,  // grid LOD exponent for base cell (2^tier meters)
+	grid_scale_tier:    int,  // grid LOD exponent for base cell (2^tier meters), -999 = unset
 	grid_current_cell:  f32,  // primary grid cell size in meters (base cell / density)
 	nav_keys_consumed: bool,
 
@@ -160,7 +160,7 @@ init_edit_view :: proc(ev: ^EditViewState) {
 	ev.speed_factor   = 1.0
 	ev.grid_visible      = true
 	ev.grid_density      = 1.0
-	ev.grid_scale_tier   = 1
+	ev.grid_scale_tier   = -999
 	ev.grid_current_cell = 1.0
 	ev.nav_keys_consumed = false
 	ev.selection_kind = .None
